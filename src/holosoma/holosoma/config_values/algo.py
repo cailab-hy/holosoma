@@ -7,6 +7,8 @@ from holosoma.config_types.algo import (
     PPOAlgoConfig,
     PPOConfig,
     PPOModuleDictConfig,
+    CQLAlgoConfig,
+    CQLConfig,
 )
 
 ppo = PPOAlgoConfig(
@@ -100,7 +102,55 @@ fast_sac = FastSACAlgoConfig(
     ),
 )
 
+
+cql = CQLAlgoConfig(
+    _target_="holosoma.agents.cql.cql_agent.CQLAgent",
+    _recursive_=False,
+    config=CQLConfig(
+        num_learning_iterations=50000,
+        critic_learning_rate=3e-4,
+        actor_learning_rate=3e-4,
+        alpha_learning_rate=3e-4,
+        buffer_size=1024,
+        num_steps=1,
+        gamma=0.97,
+        tau=0.125,
+        batch_size=8192,
+        learning_starts=10,
+        policy_frequency=4,
+        num_updates=8,
+        target_entropy_ratio=0.0,
+        num_atoms=101,
+        v_min=-20.0,
+        v_max=20.0,
+        critic_hidden_dim=768,
+        actor_hidden_dim=512,
+        use_symmetry=True,
+        alpha_init=0.001,
+        use_autotune=True,
+        use_tanh=True,
+        log_std_max=0.0,
+        log_std_min=-5.0,
+        compile=True,
+        obs_normalization=True,
+        use_layer_norm=True,
+        num_q_networks=2,
+        max_grad_norm=0.0,
+        amp=True,
+        amp_dtype="bf16",
+        weight_decay=0.001,
+        save_interval=1000,
+        logging_interval=100,
+        encoder_obs_key="perception_obs",
+        encoder_obs_shape=(1, 13, 9),
+        use_cnn_encoder=False,
+        actor_obs_keys=["actor_obs"],
+        critic_obs_keys=["critic_obs"],
+    ),
+)
+
 DEFAULTS = {
     "ppo": ppo,
     "fast_sac": fast_sac,
+    "cql" : cql,
 }
