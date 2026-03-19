@@ -27,3 +27,4 @@ src/holosoma/holosoma/data/robots/converted_rank*/
 # other
 *.egg-info
 __pycache__
+offline_data/fastsac_dataset.h5
