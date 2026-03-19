@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import inspect
 import logging
 import os
 import sys
@@ -296,15 +297,19 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
 
         evaluate_one_episode_fn = getattr(algo, "evaluate_one_episode", None)
         max_eval_steps = tyro_config.training.max_eval_steps if tyro_config.training.max_eval_steps is not None else 1000
+        eval_num_envs = max(1, tyro_config.eval_overrides.num_envs)
         i = 1
         while algo.global_step < algo.config.num_learning_iterations:
             offline_learn_fn()
             if callable(evaluate_one_episode_fn):
                 print(f"{i}th Evaluation start")
-                evaluate_one_episode_fn(
-                    max_eval_steps=max_eval_steps,
-                    use_early_termination=False,
-                )
+                eval_kwargs: dict[str, Any] = {
+                    "max_eval_steps": max_eval_steps,
+                    "use_early_termination": False,
+                }
+                if "eval_num_envs" in inspect.signature(evaluate_one_episode_fn).parameters:
+                    eval_kwargs["eval_num_envs"] = eval_num_envs
+                evaluate_one_episode_fn(**eval_kwargs)
                 print(f"{i}th Evaluation end")
             i = i + 1
         # teardown wandb before SimApp closes ungracefully (IsaacLab)

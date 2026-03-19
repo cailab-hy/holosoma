@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import itertools
 import math
 import os
@@ -22,8 +23,10 @@ from holosoma.agents.cql.cql_utils import (
 from holosoma.agents.modules.augmentation_utils import SymmetryUtils
 from holosoma.agents.modules.logging_utils import LoggingHelper
 from holosoma.config_types.algo import CQLConfig
+from holosoma.config_types.env import get_tyro_env_config
 from holosoma.envs.base_task.base_task import BaseTask
 from holosoma.utils.average_meters import TensorAverageMeterDict
+from holosoma.utils.helpers import get_class
 from holosoma.utils.inference_helpers import (
     attach_onnx_metadata,
     export_motion_and_policy_as_onnx,
@@ -190,6 +193,7 @@ class CQLAgent(BaseAlgo):
         self._offline_dataset_path = Path("offline_data/fastsac_dataset.h5")
         self._offline_dataset_cache: dict[str, torch.Tensor] | None = None
         self._offline_num_samples = 0
+        self._eval_envs: dict[int, CQLEnv] = {}
 
 
 
@@ -1241,21 +1245,51 @@ class CQLAgent(BaseAlgo):
             actions = self.actor(normalized_obs)[0]
             obs, _, _, _ = self.env.step(actions)
 
+    def _get_or_create_eval_env(self, eval_num_envs: int) -> CQLEnv:
+        if eval_num_envs <= 0:
+            raise ValueError(f"eval_num_envs must be >= 1, got {eval_num_envs}")
+
+        if eval_num_envs == self.env.num_envs:
+            return self.env
+
+        cached = self._eval_envs.get(eval_num_envs)
+        if cached is not None:
+            return cached
+
+        if self._experiment_config is None:
+            raise RuntimeError(
+                "Experiment config metadata missing. attach_checkpoint_metadata() must be called before evaluation."
+            )
+
+        base_eval_cfg = self._experiment_config.get_eval_config()
+        eval_cfg = dataclasses.replace(
+            base_eval_cfg,
+            training=dataclasses.replace(base_eval_cfg.training, num_envs=eval_num_envs),
+        )
+        eval_env_class = get_class(eval_cfg.env_class)
+        eval_env = eval_env_class(get_tyro_env_config(eval_cfg), device=self.device)
+        wrapped_eval_env = CQLEnv(eval_env, self.config.actor_obs_keys, self.config.critic_obs_keys)
+        self._eval_envs[eval_num_envs] = wrapped_eval_env
+        logger.info(f"Created dedicated evaluation env with num_envs={eval_num_envs}")
+        return wrapped_eval_env
+
     @torch.no_grad()
     def evaluate_one_episode(
         self,
         max_eval_steps: int | None = None,
         use_early_termination: bool = False,
+        eval_num_envs: int | None = None,
         ):
         # 가능하면 별도 eval env를 쓰는 게 가장 안전함
-        self.env.set_is_evaluating()
+        eval_env = self.env if eval_num_envs is None else self._get_or_create_eval_env(eval_num_envs)
+        eval_env.set_is_evaluating()
         was_training = self.actor.training
         self.actor.eval()
         if self.obs_normalization:
             self.obs_normalizer.eval()
 
-        obs = self.env.reset()
-        episode_return = torch.zeros(self.env.num_envs, device=self.device)
+        obs = eval_env.reset()
+        episode_return = torch.zeros(eval_env.num_envs, device=self.device)
         episode_length = 0
         fail_reason = None
 
@@ -1270,7 +1304,7 @@ class CQLAgent(BaseAlgo):
                 normalized_obs = obs
 
             actions = self.actor(normalized_obs)[0]
-            obs, rewards, dones, infos = self.env.step(actions)
+            obs, rewards, dones, infos = eval_env.step(actions)
 
             episode_return += rewards
             episode_length += 1
@@ -1296,8 +1330,8 @@ class CQLAgent(BaseAlgo):
             if self.obs_normalization:
                 self.obs_normalizer.train()
 
-        if hasattr(self.env, "set_is_training"):
-            self.env.set_is_training()
+        if hasattr(eval_env, "set_is_training"):
+            eval_env.set_is_training()
 
         return {
             "episode_return": episode_return.mean().item(),
