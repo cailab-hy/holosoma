@@ -482,7 +482,14 @@ class CQLAgent(BaseAlgo):
                 curr_actions, curr_logp = actor.get_actions_and_log_probs(expanded_obs)
                 next_actions, next_logp = actor.get_actions_and_log_probs(expanded_next_obs)
 
-            rand_actions = torch.empty(B * R, actions.shape[-1], device=self.device).uniform_(-1, 1)
+            # Sample random actions in the same scaled action space as the policy/data.
+            # action = tanh(raw_action) * action_scale + action_bias
+            action_scale = actor.action_scale
+            action_bias = actor.action_bias
+            rand_actions = (
+                torch.empty(B * R, actions.shape[-1], device=self.device).uniform_(-1.0, 1.0) * action_scale
+                + action_bias
+            )
 
             q_data = qnet.get_value(F.softmax(q_outputs, dim=-1))              # [num_q, B]
 
@@ -496,7 +503,8 @@ class CQLAgent(BaseAlgo):
 
             curr_logp = curr_logp.squeeze(-1).reshape(B, R)
             next_logp = next_logp.squeeze(-1).reshape(B, R)
-            random_density = np.log(0.5 ** actions.shape[-1])
+            # log p(a) for uniform over per-dim bounds [bias - scale, bias + scale]
+            random_density = -torch.log(2.0 * action_scale + 1e-6).sum()
 
             cat_q = torch.cat([
                 q_rand - random_density,
