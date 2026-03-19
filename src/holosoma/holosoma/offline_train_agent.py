@@ -295,13 +295,14 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
             )
 
         evaluate_one_episode_fn = getattr(algo, "evaluate_one_episode", None)
+        max_eval_steps = tyro_config.training.max_eval_steps if tyro_config.training.max_eval_steps is not None else 1000
         i = 1
         while algo.global_step < algo.config.num_learning_iterations:
             offline_learn_fn()
             if callable(evaluate_one_episode_fn):
                 print(f"{i}th Evaluation start")
                 evaluate_one_episode_fn(
-                    max_eval_steps=1000,
+                    max_eval_steps=max_eval_steps,
                     use_early_termination=False,
                 )
                 print(f"{i}th Evaluation end")

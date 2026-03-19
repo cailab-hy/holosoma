@@ -84,7 +84,7 @@ g1_29dof_wbt_fast_sac = ExperimentConfig(
         algo.fast_sac,
         config=replace(
             algo.fast_sac.config,
-            num_learning_iterations=100,
+            num_learning_iterations=10000,
             v_max=20.0,
             v_min=-20.0,
             gamma=0.99,  # For motion tracking, high gamma + high num_steps is better

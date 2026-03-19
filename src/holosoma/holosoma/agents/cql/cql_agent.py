@@ -188,7 +188,7 @@ class CQLAgent(BaseAlgo):
         self._cql_weight = 5
         self.eval_step = 1000
         self._offline_dataset_path = Path("offline_data/fastsac_dataset.h5")
-        self._offline_dataset_file: h5py.File | None = None
+        self._offline_dataset_cache: dict[str, torch.Tensor] | None = None
         self._offline_num_samples = 0
 
 
@@ -415,7 +415,18 @@ class CQLAgent(BaseAlgo):
 
     def _update_main(
         self, data: TensorDict
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+    ]:
         args = self.config
 
         scaler = self.scaler
@@ -454,6 +465,7 @@ class CQLAgent(BaseAlgo):
             q_outputs = qnet(critic_observations, actions)
             critic_log_probs = F.log_softmax(q_outputs, dim=-1)
             critic_losses = -torch.sum(target_distributions * critic_log_probs, dim=-1)
+            bellman_loss = critic_losses.mean(dim=1).sum(dim=0)
             #================================ ADDTION CQL LOSS TERM ===================================
             B = actions.shape[0]
             R = self._num_repeat_actions
@@ -492,11 +504,12 @@ class CQLAgent(BaseAlgo):
             ], dim=-1)
 
             log_sum_exp = torch.logsumexp(cat_q / self._temperature, dim=-1) * self._temperature
+            cql_gap = (log_sum_exp - q_data).mean()
             conservative_loss = self._cql_weight * (log_sum_exp - q_data).mean(dim=-1).sum()
 
              #================================ ADDTION CQL LOSS TERM ===================================
 
-            qf_loss = critic_losses.mean(dim=1).sum(dim=0) + conservative_loss
+            qf_loss = bellman_loss + conservative_loss
 
         q_optimizer.zero_grad(set_to_none=True)
         scaler.scale(qf_loss).backward()
@@ -539,6 +552,10 @@ class CQLAgent(BaseAlgo):
             target_value_max.detach(),
             target_value_min.detach(),
             alpha_loss.detach(),
+            conservative_loss.detach(),
+            bellman_loss.detach(),
+            cql_gap.detach(),
+            q_data.mean().detach(),
         )
 
     def _update_pol(self, data: TensorDict) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -678,9 +695,9 @@ class CQLAgent(BaseAlgo):
 
         return prepared_batches
 
-    def _get_offline_dataset_file(self) -> h5py.File:
-        if self._offline_dataset_file is not None:
-            return self._offline_dataset_file
+    def _load_offline_dataset_cache(self) -> dict[str, torch.Tensor]:
+        if self._offline_dataset_cache is not None:
+            return self._offline_dataset_cache
 
         if not self._offline_dataset_path.exists():
             raise FileNotFoundError(
@@ -688,7 +705,6 @@ class CQLAgent(BaseAlgo):
                 "Expected file: offline_data/fastsac_dataset.h5"
             )
 
-        offline_dataset_file = h5py.File(self._offline_dataset_path, "r")
         required_keys = (
             "observations",
             "actions",
@@ -699,33 +715,45 @@ class CQLAgent(BaseAlgo):
             "truncations",
             "dones",
         )
-        missing_keys = [key for key in required_keys if key not in offline_dataset_file]
-        if missing_keys:
-            offline_dataset_file.close()
-            raise KeyError(f"Offline dataset is missing required keys: {missing_keys}")
 
-        self._offline_num_samples = int(
-            offline_dataset_file.attrs.get("num_samples", offline_dataset_file["observations"].shape[0])
-        )
-        if self._offline_num_samples <= 0:
-            offline_dataset_file.close()
-            raise ValueError("Offline dataset has no samples.")
+        with h5py.File(self._offline_dataset_path, "r") as offline_dataset_file:
+            missing_keys = [key for key in required_keys if key not in offline_dataset_file]
+            if missing_keys:
+                raise KeyError(f"Offline dataset is missing required keys: {missing_keys}")
 
-        self._offline_dataset_file = offline_dataset_file
+            self._offline_num_samples = int(
+                offline_dataset_file.attrs.get("num_samples", offline_dataset_file["observations"].shape[0])
+            )
+            if self._offline_num_samples <= 0:
+                raise ValueError("Offline dataset has no samples.")
+
+            def _load_tensor(key: str, dtype: torch.dtype) -> torch.Tensor:
+                array = np.asarray(offline_dataset_file[key][: self._offline_num_samples])
+                tensor = torch.from_numpy(array).to(dtype=dtype).contiguous()
+                if torch.cuda.is_available():
+                    try:
+                        tensor = tensor.pin_memory()
+                    except RuntimeError:
+                        # Pinning can fail under strict memory pressure; fallback to normal CPU tensor.
+                        pass
+                return tensor
+
+            self._offline_dataset_cache = {
+                "observations": _load_tensor("observations", torch.float32),
+                "actions": _load_tensor("actions", torch.float32),
+                "critic_observations": _load_tensor("critic_observations", torch.float32),
+                "next_observations": _load_tensor("next_observations", torch.float32),
+                "next_critic_observations": _load_tensor("next_critic_observations", torch.float32),
+                "rewards": _load_tensor("rewards", torch.float32),
+                "truncations": _load_tensor("truncations", torch.int64),
+                "dones": _load_tensor("dones", torch.int64),
+            }
+
         logger.info(
-            f"Loaded offline dataset from '{self._offline_dataset_path}' "
-            f"with {self._offline_num_samples} samples."
+            f"Cached offline dataset '{self._offline_dataset_path}' in host memory "
+            f"({self._offline_num_samples} samples)."
         )
-        return self._offline_dataset_file
-
-    def _read_offline_dataset_field(self, key: str, indices: np.ndarray) -> np.ndarray:
-        offline_dataset_file = self._get_offline_dataset_file()
-        order = np.argsort(indices)
-        sorted_indices = indices[order]
-        inverse_order = np.empty_like(order)
-        inverse_order[order] = np.arange(order.shape[0])
-        values_sorted = offline_dataset_file[key][sorted_indices]
-        return np.asarray(values_sorted)[inverse_order]
+        return self._offline_dataset_cache
 
     def offline_dataset_random_sampleing(
         self, batch_size: int, num_updates: int, normalize_obs, normalize_critic_obs
@@ -734,7 +762,7 @@ class CQLAgent(BaseAlgo):
 
         Note: function name keeps user's requested spelling.
         """
-        self._get_offline_dataset_file()
+        offline_cache = self._load_offline_dataset_cache()
         samples_per_update = batch_size * self.env.num_envs
         large_batch_size = samples_per_update * num_updates
         replace = large_batch_size > self._offline_num_samples
@@ -745,41 +773,31 @@ class CQLAgent(BaseAlgo):
                 "Sampling with replacement."
             )
 
-        indices = np.random.choice(self._offline_num_samples, size=large_batch_size, replace=replace)
+        if replace:
+            indices = torch.randint(self._offline_num_samples, (large_batch_size,), device="cpu")
+        else:
+            indices = torch.randperm(self._offline_num_samples, device="cpu")[:large_batch_size]
+
+        def _sample_cached(name: str, dtype: torch.dtype) -> torch.Tensor:
+            return offline_cache[name].index_select(0, indices).to(device=self.device, dtype=dtype, non_blocking=True)
 
         large_data = TensorDict(
             {
-                "observations": torch.as_tensor(
-                    self._read_offline_dataset_field("observations", indices), device=self.device, dtype=torch.float
-                ),
-                "actions": torch.as_tensor(
-                    self._read_offline_dataset_field("actions", indices), device=self.device, dtype=torch.float
-                ),
+                "observations": _sample_cached("observations", torch.float32),
+                "actions": _sample_cached("actions", torch.float32),
                 "next": {
-                    "rewards": torch.as_tensor(
-                        self._read_offline_dataset_field("rewards", indices), device=self.device, dtype=torch.float
-                    ),
-                    "dones": torch.as_tensor(
-                        self._read_offline_dataset_field("dones", indices), device=self.device, dtype=torch.long
-                    ),
-                    "truncations": torch.as_tensor(
-                        self._read_offline_dataset_field("truncations", indices), device=self.device, dtype=torch.long
-                    ),
-                    "observations": torch.as_tensor(
-                        self._read_offline_dataset_field("next_observations", indices), device=self.device, dtype=torch.float
-                    ),
+                    "rewards": _sample_cached("rewards", torch.float32),
+                    "dones": _sample_cached("dones", torch.long),
+                    "truncations": _sample_cached("truncations", torch.long),
+                    "observations": _sample_cached("next_observations", torch.float32),
                     "effective_n_steps": torch.ones(large_batch_size, device=self.device, dtype=torch.long),
                 },
-                "critic_observations": torch.as_tensor(
-                    self._read_offline_dataset_field("critic_observations", indices), device=self.device, dtype=torch.float
-                ),
+                "critic_observations": _sample_cached("critic_observations", torch.float32),
             },
             batch_size=large_batch_size,
             device=self.device,
         )
-        large_data["next"]["critic_observations"] = torch.as_tensor(
-            self._read_offline_dataset_field("next_critic_observations", indices), device=self.device, dtype=torch.float
-        )
+        large_data["next"]["critic_observations"] = _sample_cached("next_critic_observations", torch.float32)
 
         if self.config.use_symmetry:
             samples_per_update *= 2
@@ -884,125 +902,127 @@ class CQLAgent(BaseAlgo):
             args = self.config
             device = self.device
             if args.compile:
-                update_main = torch.compile(self._update_main)
-                update_pol = torch.compile(self._update_pol)
-                policy = torch.compile(self.policy)
-                normalize_obs = torch.compile(self.obs_normalizer.forward)
-                normalize_critic_obs = torch.compile(self.critic_obs_normalizer.forward)
+                if not hasattr(self, "_compiled_update_main"):
+                    self._compiled_update_main = torch.compile(self._update_main)
+                    self._compiled_update_pol = torch.compile(self._update_pol)
+                    self._compiled_normalize_obs = torch.compile(self.obs_normalizer.forward)
+                    self._compiled_normalize_critic_obs = torch.compile(self.critic_obs_normalizer.forward)
+                update_main = self._compiled_update_main
+                update_pol = self._compiled_update_pol
+                normalize_obs = self._compiled_normalize_obs
+                normalize_critic_obs = self._compiled_normalize_critic_obs
             else:
                 update_main = self._update_main
                 update_pol = self._update_pol
-                policy = self.policy
                 normalize_obs = self.obs_normalizer.forward
                 normalize_critic_obs = self.critic_obs_normalizer.forward
+
             qnet = self.qnet
             qnet_target = self.qnet_target
             env = self.env
-            # rb = self.rb
 
-            # obs, critic_obs = env.reset_with_critic_obs()
-            # critic_obs = torch.as_tensor(critic_obs, device=device, dtype=torch.float)
-
-            # dones = None
             # Initialize metrics that might not be updated every step
             policy_entropy = torch.tensor(0.0, device=device)
             action_std = torch.tensor(0.0, device=device)
             actor_loss = torch.tensor(0.0, device=device)
             actor_grad_norm = torch.tensor(0.0, device=device)
-            pbar = tqdm.tqdm(total=args.num_learning_iterations, initial=self.global_step)
 
-            while self.global_step <= args.num_learning_iterations:
+            # Train in chunks between evaluation points.
+            next_eval_boundary = ((self.global_step // self.eval_step) + 1) * self.eval_step
+            target_step = min(args.num_learning_iterations, next_eval_boundary)
+            if target_step <= self.global_step:
+                target_step = min(args.num_learning_iterations, self.global_step + 1)
+
+            pbar = tqdm.tqdm(total=max(target_step - self.global_step, 0), initial=0, leave=False)
+            while self.global_step < target_step:
+                self.global_step += 1
+
                 # Synchronize curriculum metrics across GPUs before rollout
                 if self.is_multi_gpu:
                     self._synchronize_curriculum_metrics()
 
                 # NOTE: args.batch_size is the global batch size
                 batch_size = max(args.batch_size // env.num_envs // self.gpu_world_size, 1)
-                if self.global_step > 0:
-                    with self.logging_helper.record_learn_time():
-                        # Use batched sampling: sample once, normalize once, split into updates
-                        # prepared_batches = self._sample_and_prepare_batches(
-                        #     batch_size, args.num_updates, normalize_obs, normalize_critic_obs
-                        # )sampling prepare batches의 역할을 같이 해야해 즉 obsnormalized를 해야하는 부분 obs,critic,next ;;
-                        # 이부분에 offline 랜덤 샘플링 근데 여기에서 sampling prepare batches의 역할을 같이 해야해 즉 obsnormalized를 해야하는 부분
-                        offline_batches = self.offline_dataset_random_sampleing(
-                            batch_size,
-                            args.num_updates,
-                            normalize_obs,
-                            normalize_critic_obs,
-                        )
-                        for i, data in enumerate(offline_batches):
-                            # Data is already normalized, just run the updates
-                            (
-                                buffer_rewards,
-                                critic_grad_norm,
-                                qf_loss,
-                                qf_max,
-                                qf_min,
-                                alpha_loss,
-                            ) = update_main(data)
-                            if args.num_updates > 1:
-                                if i % args.policy_frequency == 1:
-                                    actor_grad_norm, actor_loss, policy_entropy, action_std = update_pol(data)
-                            elif self.global_step % args.policy_frequency == 0:
+                with self.logging_helper.record_learn_time():
+                    offline_batches = self.offline_dataset_random_sampleing(
+                        batch_size,
+                        args.num_updates,
+                        normalize_obs,
+                        normalize_critic_obs,
+                    )
+                    for i, data in enumerate(offline_batches):
+                        # Data is already normalized, just run the updates
+                        (
+                            buffer_rewards,
+                            critic_grad_norm,
+                            qf_loss,
+                            qf_max,
+                            qf_min,
+                            alpha_loss,
+                            conservative_loss,
+                            bellman_loss,
+                            cql_gap,
+                            q_data_mean,
+                        ) = update_main(data)
+                        if args.num_updates > 1:
+                            if i % args.policy_frequency == 1:
                                 actor_grad_norm, actor_loss, policy_entropy, action_std = update_pol(data)
+                        elif self.global_step % args.policy_frequency == 0:
+                            actor_grad_norm, actor_loss, policy_entropy, action_std = update_pol(data)
 
-                            # Accumulate training metrics for smoother logging
-                            current_metrics = {
-                                "actor_loss": actor_loss,
-                                "qf_loss": qf_loss,
-                                "qf_max": qf_max,
-                                "qf_min": qf_min,
-                                "actor_grad_norm": actor_grad_norm,
-                                "critic_grad_norm": critic_grad_norm,
-                                "buffer_rewards": buffer_rewards,
-                                "alpha_loss": alpha_loss,
-                                "alpha_value": self.log_alpha.exp().detach().mean(),
-                                "policy_entropy": policy_entropy,
-                                "action_std": action_std,
-                            }
-                            self.training_metrics.add(current_metrics)
+                        # Accumulate training metrics for smoother logging
+                        current_metrics = {
+                            "actor_loss": actor_loss,
+                            "qf_loss": qf_loss,
+                            "qf_max": qf_max,
+                            "qf_min": qf_min,
+                            "actor_grad_norm": actor_grad_norm,
+                            "critic_grad_norm": critic_grad_norm,
+                            "buffer_rewards": buffer_rewards,
+                            "alpha_loss": alpha_loss,
+                            "alpha_value": self.log_alpha.exp().detach().mean(),
+                            "policy_entropy": policy_entropy,
+                            "action_std": action_std,
+                            "cql_conservative_loss": conservative_loss,
+                            "cql_bellman_loss": bellman_loss,
+                            "cql_gap": cql_gap,
+                            "q_data_mean": q_data_mean,
+                        }
+                        self.training_metrics.add(current_metrics)
 
-                            with torch.no_grad():
-                                src_ps = [p.data for p in qnet.parameters()]
-                                tgt_ps = [p.data for p in qnet_target.parameters()]
-                                torch._foreach_mul_(tgt_ps, 1.0 - args.tau)
-                                torch._foreach_add_(tgt_ps, src_ps, alpha=args.tau)
-
-                    if self.global_step % args.logging_interval == 0:
                         with torch.no_grad():
-                            # Use accumulated training metrics for smoother logging (reduces noise)
-                            accumulated_metrics = self.training_metrics.mean_and_clear()
+                            src_ps = [p.data for p in qnet.parameters()]
+                            tgt_ps = [p.data for p in qnet_target.parameters()]
+                            torch._foreach_mul_(tgt_ps, 1.0 - args.tau)
+                            torch._foreach_add_(tgt_ps, src_ps, alpha=args.tau)
 
-                            # Convert tensor values to float for logging
-                            loss_dict = {}
-                            for key, value in accumulated_metrics.items():
-                                if isinstance(value, torch.Tensor):
-                                    loss_dict[key] = value.item()
-                                else:
-                                    loss_dict[key] = float(value)
+                should_log = (self.global_step % args.logging_interval == 0) or (self.global_step <= 10)
+                if should_log:
+                    with torch.no_grad():
+                        # Use accumulated training metrics for smoother logging (reduces noise)
+                        accumulated_metrics = self.training_metrics.mean_and_clear()
 
-                            # Add current env rewards (not part of training loop accumulation)
-                            #loss_dict["env_rewards"] = rewards.mean().item()
+                        # Convert tensor values to float for logging
+                        loss_dict = {}
+                        for key, value in accumulated_metrics.items():
+                            if isinstance(value, torch.Tensor):
+                                loss_dict[key] = value.item()
+                            else:
+                                loss_dict[key] = float(value)
 
-                        # Use logging helper
-                        self.logging_helper.post_epoch_logging(it=self.global_step, loss_dict=loss_dict, extra_log_dicts={})
-                    if args.save_interval > 0 and self.global_step > 0 and self.global_step % args.save_interval == 0:
-                        if self.is_main_process:
-                            logger.info(f"Saving model at global step {self.global_step}")
-                            self.save(os.path.join(self.log_dir, f"model_{self.global_step:07d}.pt"))
-                            self.export(onnx_file_path=os.path.join(self.log_dir, f"model_{self.global_step:07d}.onnx"))
+                    # Use logging helper
+                    self.logging_helper.post_epoch_logging(it=self.global_step, loss_dict=loss_dict, extra_log_dicts={})
 
-                # Avoid global_step being incremented beyond args.num_learning_iterations, so that the final checkpoint is
-                # saved at exactly args.num_learning_iterations. In the `while` condition, we check for self.global_step <=
-                # args.num_learning_iterations, so that we have complete logging data at the final step too (assuming
-                # `args.num_learning_iterations` is a multiple of `args.logging_interval`).
-                if (self.global_step > 0) and ((self.global_step >= args.num_learning_iterations) or (self.global_step%self.eval_step==0)):
-                    break
-                self.global_step += 1
+                if args.save_interval > 0 and self.global_step % args.save_interval == 0:
+                    if self.is_main_process:
+                        logger.info(f"Saving model at global step {self.global_step}")
+                        self.save(os.path.join(self.log_dir, f"model_{self.global_step:07d}.pt"))
+                        self.export(onnx_file_path=os.path.join(self.log_dir, f"model_{self.global_step:07d}.onnx"))
+
                 pbar.update(1)
+            pbar.close()
 
-            if self.is_main_process:
+            if self.is_main_process and self.global_step >= args.num_learning_iterations:
                 self.save(os.path.join(self.log_dir, f"model_{self.global_step:07d}.pt"))
                 self.export(onnx_file_path=os.path.join(self.log_dir, f"model_{self.global_step:07d}.onnx"))
 
@@ -1104,6 +1124,10 @@ class CQLAgent(BaseAlgo):
                                 qf_max,
                                 qf_min,
                                 alpha_loss,
+                                conservative_loss,
+                                bellman_loss,
+                                cql_gap,
+                                q_data_mean,
                             ) = update_main(data)
                             if args.num_updates > 1:
                                 if i % args.policy_frequency == 1:
@@ -1124,6 +1148,10 @@ class CQLAgent(BaseAlgo):
                                 "alpha_value": self.log_alpha.exp().detach().mean(),
                                 "policy_entropy": policy_entropy,
                                 "action_std": action_std,
+                                "cql_conservative_loss": conservative_loss,
+                                "cql_bellman_loss": bellman_loss,
+                                "cql_gap": cql_gap,
+                                "q_data_mean": q_data_mean,
                             }
                             self.training_metrics.add(current_metrics)
 
@@ -1133,7 +1161,8 @@ class CQLAgent(BaseAlgo):
                                 torch._foreach_mul_(tgt_ps, 1.0 - args.tau)
                                 torch._foreach_add_(tgt_ps, src_ps, alpha=args.tau)
 
-                    if self.global_step % args.logging_interval == 0:
+                    should_log = (self.global_step % args.logging_interval == 0) or (self.global_step <= 10)
+                    if should_log:
                         with torch.no_grad():
                             # Use accumulated training metrics for smoother logging (reduces noise)
                             accumulated_metrics = self.training_metrics.mean_and_clear()
@@ -1391,7 +1420,6 @@ class CQLAgent(BaseAlgo):
         obs = self.env.reset()
         episode_return = torch.zeros(self.env.num_envs, device=self.device)
         episode_length = 0
-        done_flag = False
         fail_reason = None
 
         for t in itertools.count():
@@ -1431,8 +1459,8 @@ class CQLAgent(BaseAlgo):
             if self.obs_normalization:
                 self.obs_normalizer.train()
 
-        # env에 training mode 복구 함수가 있으면 호출
-        # self.env.set_is_training()
+        if hasattr(self.env, "set_is_training"):
+            self.env.set_is_training()
 
         return {
             "episode_return": episode_return.mean().item(),
