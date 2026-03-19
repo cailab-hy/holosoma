@@ -33,7 +33,6 @@ from holosoma.utils.inference_helpers import (
     get_urdf_text_from_robot_config,
 )
 from holosoma.utils.safe_torch_import import (
-    F,
     GradScaler,
     TensorboardSummaryWriter,
     TensorDict,
@@ -183,13 +182,22 @@ class CQLAgent(BaseAlgo):
 
         self.training_metrics = TensorAverageMeterDict()
 
-        self._num_repeat_actions = 10
-        self._temperature =1.0
-        self._cql_weight = 5
+        self._num_repeat_actions = config.cql_num_action_samples
+        self._temperature = config.cql_temperature
+        self._cql_weight = config.cql_weight
         self.eval_step = 1000
         self._offline_dataset_path = Path("offline_data/fastsac_dataset.h5")
         self._offline_dataset_cache: dict[str, torch.Tensor] | None = None
         self._offline_num_samples = 0
+
+        if config.risk_mode not in {"neutral", "cvar"}:
+            raise ValueError(f"Unsupported risk_mode: {config.risk_mode}. Use 'neutral' or 'cvar'.")
+        if not 0.0 < config.cvar_alpha <= 1.0:
+            raise ValueError(f"cvar_alpha must be in (0, 1], got {config.cvar_alpha}")
+        if config.quantile_huber_kappa <= 0.0:
+            raise ValueError(f"quantile_huber_kappa must be > 0, got {config.quantile_huber_kappa}")
+        if config.cql_temperature <= 0.0:
+            raise ValueError(f"cql_temperature must be > 0, got {config.cql_temperature}")
 
 
 
@@ -438,7 +446,7 @@ class CQLAgent(BaseAlgo):
         alpha_optimizer = self.alpha_optimizer
 
         with self._maybe_amp():
-            observations =data["observations"]
+            observations = data["observations"]
             next_observations = data["next"]["observations"]
             critic_observations = data["critic_observations"]
             next_critic_observations = data["next"]["critic_observations"]
@@ -451,22 +459,35 @@ class CQLAgent(BaseAlgo):
             with torch.no_grad():
                 next_state_actions, next_state_log_probs = actor.get_actions_and_log_probs(next_observations)
                 discount = args.gamma ** data["next"]["effective_n_steps"]
-
-                target_distributions = qnet_target.projection(
-                    next_critic_observations,
-                    next_state_actions,
-                    rewards - discount * bootstrap * self.log_alpha.exp() * next_state_log_probs,
-                    bootstrap,
-                    discount,
+                next_target_quantiles_all = qnet_target(next_critic_observations, next_state_actions)
+                next_target_values = qnet_target.get_value(
+                    next_target_quantiles_all,
+                    risk_mode=args.risk_mode,
+                    cvar_alpha=args.cvar_alpha,
                 )
-                target_values = qnet_target.get_value(target_distributions)
+                min_q_indices = next_target_values.argmin(dim=0, keepdim=True)
+                min_q_indices = min_q_indices.unsqueeze(-1).expand(-1, -1, next_target_quantiles_all.shape[-1])
+                next_target_quantiles = next_target_quantiles_all.gather(0, min_q_indices).squeeze(0)
+
+                target_quantiles = rewards.unsqueeze(1) + bootstrap.unsqueeze(1) * discount.unsqueeze(1) * (
+                    next_target_quantiles - self.log_alpha.exp() * next_state_log_probs.unsqueeze(1)
+                )
+                target_values = target_quantiles.mean(dim=-1)
                 target_value_max = target_values.max()
                 target_value_min = target_values.min()
 
             q_outputs = qnet(critic_observations, actions)
-            critic_log_probs = F.log_softmax(q_outputs, dim=-1)
-            critic_losses = -torch.sum(target_distributions * critic_log_probs, dim=-1)
-            bellman_loss = critic_losses.mean(dim=1).sum(dim=0)
+            num_q_networks = q_outputs.shape[0]
+            bellman_loss = torch.stack(
+                [
+                    qnet.quantile_huber_loss(
+                        q_outputs[q_idx],
+                        target_quantiles,
+                        kappa=args.quantile_huber_kappa,
+                    )
+                    for q_idx in range(q_outputs.shape[0])
+                ]
+            ).sum()
             #================================ ADDTION CQL LOSS TERM ===================================
             B = actions.shape[0]
             R = self._num_repeat_actions
@@ -491,30 +512,31 @@ class CQLAgent(BaseAlgo):
                 + action_bias
             )
 
-            q_data = qnet.get_value(F.softmax(q_outputs, dim=-1))              # [num_q, B]
+            q_data_quantiles = q_outputs
 
-            q_rand = qnet.get_value(F.softmax(qnet(expanded_critic_obs, rand_actions), dim=-1))
-            q_curr = qnet.get_value(F.softmax(qnet(expanded_critic_obs, curr_actions), dim=-1))
-            q_next = qnet.get_value(F.softmax(qnet(expanded_next_critic_obs, next_actions), dim=-1))
+            q_rand = qnet(expanded_critic_obs, rand_actions).view(num_q_networks, B, R, -1)
+            q_curr = qnet(expanded_critic_obs, curr_actions).view(num_q_networks, B, R, -1)
+            q_next = qnet(expanded_next_critic_obs, next_actions).view(num_q_networks, B, R, -1)
 
-            q_rand = q_rand.view(self.config.num_q_networks, B, R)
-            q_curr = q_curr.view(self.config.num_q_networks, B, R)
-            q_next = q_next.view(self.config.num_q_networks, B, R)
-
-            curr_logp = curr_logp.squeeze(-1).reshape(B, R)
-            next_logp = next_logp.squeeze(-1).reshape(B, R)
+            curr_logp = curr_logp.reshape(B, R, 1)
+            next_logp = next_logp.reshape(B, R, 1)
             # log p(a) for uniform over per-dim bounds [bias - scale, bias + scale]
             random_density = -torch.log(2.0 * action_scale + 1e-6).sum()
 
-            cat_q = torch.cat([
-                q_rand - random_density,
-                q_curr - curr_logp.unsqueeze(0),
-                q_next - next_logp.unsqueeze(0),
-            ], dim=-1)
+            cat_q = torch.cat(
+                [
+                    q_rand - random_density,
+                    q_curr - curr_logp.unsqueeze(0),
+                    q_next - next_logp.unsqueeze(0),
+                ],
+                dim=2,
+            )
 
-            log_sum_exp = torch.logsumexp(cat_q / self._temperature, dim=-1) * self._temperature
-            cql_gap = (log_sum_exp - q_data).mean()
-            conservative_loss = self._cql_weight * (log_sum_exp - q_data).mean(dim=-1).sum()
+            log_sum_exp = torch.logsumexp(cat_q / self._temperature, dim=2) * self._temperature
+            cql_gap_quantiles = log_sum_exp - q_data_quantiles
+            cql_gap = cql_gap_quantiles.mean()
+            conservative_loss = self._cql_weight * cql_gap_quantiles.mean(dim=(1, 2)).sum()
+            q_data_mean = qnet.get_value(q_outputs, risk_mode="neutral").mean()
 
              #================================ ADDTION CQL LOSS TERM ===================================
 
@@ -564,7 +586,7 @@ class CQLAgent(BaseAlgo):
             conservative_loss.detach(),
             bellman_loss.detach(),
             cql_gap.detach(),
-            q_data.mean().detach(),
+            q_data_mean.detach(),
         )
 
     def _update_pol(self, data: TensorDict) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -586,9 +608,12 @@ class CQLAgent(BaseAlgo):
                 policy_entropy = -log_probs.mean()
 
             q_outputs = qnet(critic_observations, actions)
-            q_probs = F.softmax(q_outputs, dim=-1)
-            q_values = qnet.get_value(q_probs)
-            qf_value = q_values.mean(dim=0)
+            q_values = qnet.get_value(
+                q_outputs,
+                risk_mode=args.risk_mode,
+                cvar_alpha=args.cvar_alpha,
+            )
+            qf_value = q_values.min(dim=0).values
             actor_loss = (self.log_alpha.exp().detach() * log_probs - qf_value).mean()
 
         actor_optimizer.zero_grad(set_to_none=True)

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import math
+
 import torch
-import torch.nn.functional as F
 from torch import nn
 
 
@@ -235,59 +236,14 @@ class DistributionalQNetwork(nn.Module):
         )
         self.v_min = v_min
         self.v_max = v_max
-        self.num_atoms = num_atoms
+        # `num_atoms` is kept for config backward-compatibility.
+        # In CODAC-style training, these outputs are interpreted as quantiles.
+        self.num_quantiles = num_atoms
 
     def forward(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
         x = torch.cat([obs, actions], 1)
         x = self.net(x)
         return x  # noqa: RET504
-
-    def projection(
-        self,
-        obs: torch.Tensor,
-        actions: torch.Tensor,
-        rewards: torch.Tensor,
-        bootstrap: torch.Tensor,
-        discount: torch.Tensor,
-        q_support: torch.Tensor,
-        device: torch.device,
-    ) -> torch.Tensor:
-        delta_z = (self.v_max - self.v_min) / (self.num_atoms - 1)
-        batch_size = rewards.shape[0]
-
-        target_z = rewards.unsqueeze(1) + bootstrap.unsqueeze(1) * discount.unsqueeze(1) * q_support
-        target_z = target_z.clamp(self.v_min, self.v_max)
-        b = (target_z - self.v_min) / delta_z
-        lower = torch.floor(b).long()
-        upper = torch.ceil(b).long()
-
-        is_integer = upper == lower
-        lower_mask = torch.logical_and((lower > 0), is_integer)
-        upper_mask = torch.logical_and((lower == 0), is_integer)
-
-        lower = torch.where(lower_mask, lower - 1, lower)
-        upper = torch.where(upper_mask, upper + 1, upper)
-
-        next_dist = F.softmax(self(obs, actions), dim=1)
-        proj_dist = torch.zeros_like(next_dist)
-        offset = (
-            torch.linspace(0, (batch_size - 1) * self.num_atoms, batch_size, device=device)
-            .unsqueeze(1)
-            .expand(batch_size, self.num_atoms)
-            .long()
-        )
-
-        # Additional safety check for indices
-        lower_indices = (lower + offset).view(-1)
-        upper_indices = (upper + offset).view(-1)
-        max_index = proj_dist.numel() - 1
-
-        lower_indices = torch.clamp(lower_indices, 0, max_index)
-        upper_indices = torch.clamp(upper_indices, 0, max_index)
-
-        proj_dist.view(-1).index_add_(0, lower_indices, (next_dist * (upper.float() - b)).view(-1))
-        proj_dist.view(-1).index_add_(0, upper_indices, (next_dist * (b - lower.float())).view(-1))
-        return proj_dist
 
 
 class Critic(nn.Module):
@@ -325,7 +281,10 @@ class Critic(nn.Module):
         # Setup Q-networks - this will be overridden in subclasses if needed
         self.setup_qnetworks()
 
-        self.register_buffer("q_support", torch.linspace(v_min, v_max, num_atoms, device=device))
+        self.register_buffer(
+            "q_taus",
+            ((torch.arange(num_atoms, device=device, dtype=torch.float32) + 0.5) / num_atoms),
+        )
 
     def setup_qnetworks(self) -> None:
         """Setup Q-networks. Can be overridden by subclasses."""
@@ -355,33 +314,39 @@ class Critic(nn.Module):
         outputs = [qnet(x, actions) for qnet in self.qnets]
         return torch.stack(outputs, dim=0)
 
-    def projection(
-        self,
-        obs: torch.Tensor,
-        actions: torch.Tensor,
-        rewards: torch.Tensor,
-        bootstrap: torch.Tensor,
-        discount: torch.Tensor,
-    ) -> torch.Tensor:
-        """Projection operation that includes q_support directly"""
-        x = self.process_obs(obs)
-        projections = [
-            qnet.projection(
-                x,
-                actions,
-                rewards,
-                bootstrap,
-                discount,
-                self.q_support,
-                self.q_support.device,
-            )
-            for qnet in self.qnets
-        ]
-        return torch.stack(projections, dim=0)
+    def get_value(self, quantiles: torch.Tensor, risk_mode: str = "neutral", cvar_alpha: float = 0.1) -> torch.Tensor:
+        """Aggregate quantiles into scalar state-action values."""
+        if risk_mode == "neutral":
+            return quantiles.mean(dim=-1)
+        if risk_mode == "cvar":
+            if not 0.0 < cvar_alpha <= 1.0:
+                raise ValueError(f"cvar_alpha must be in (0, 1], got {cvar_alpha}")
+            k = max(1, int(math.ceil(cvar_alpha * quantiles.shape[-1])))
+            return quantiles[..., :k].mean(dim=-1)
+        raise ValueError(f"Unknown risk_mode: {risk_mode}")
 
-    def get_value(self, probs: torch.Tensor) -> torch.Tensor:
-        """Calculate value from logits using support"""
-        return torch.sum(probs * self.q_support, dim=-1)
+    def quantile_huber_loss(
+        self,
+        pred_quantiles: torch.Tensor,
+        target_quantiles: torch.Tensor,
+        kappa: float = 1.0,
+    ) -> torch.Tensor:
+        """Quantile regression Huber loss used by quantile critics."""
+        if pred_quantiles.dim() != 2 or target_quantiles.dim() != 2:
+            raise ValueError(
+                "Expected [batch, num_quantiles] for both inputs, "
+                f"got {pred_quantiles.shape} and {target_quantiles.shape}"
+            )
+        td_error = target_quantiles.unsqueeze(1) - pred_quantiles.unsqueeze(2)
+        abs_td_error = td_error.abs()
+        huber = torch.where(
+            abs_td_error <= kappa,
+            0.5 * td_error.pow(2),
+            kappa * (abs_td_error - 0.5 * kappa),
+        )
+        taus = self.q_taus.view(1, -1, 1)
+        quantile_weight = torch.abs(taus - (td_error.detach() < 0).float())
+        return (quantile_weight * huber / kappa).mean(dim=2).sum(dim=1).mean()
 
     def process_obs(self, obs: torch.Tensor) -> torch.Tensor:
         return torch.cat(

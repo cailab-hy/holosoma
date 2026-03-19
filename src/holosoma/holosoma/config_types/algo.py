@@ -344,17 +344,35 @@ class CQLConfig:
     num_updates: int = 8
     """the number of updates to perform per step"""
 
+    cql_num_action_samples: int = 10
+    """number of repeated action samples per state for conservative regularization"""
+
+    cql_temperature: float = 1.0
+    """temperature used in conservative log-sum-exp aggregation"""
+
+    cql_weight: float = 5.0
+    """weight of conservative quantile regularization"""
+
     target_entropy_ratio: float = 0.0
     """the ratio of the target entropy to the number of actions"""
 
+    risk_mode: str = "neutral"
+    """risk objective for policy/value aggregation: neutral or cvar"""
+
+    cvar_alpha: float = 0.1
+    """CVaR alpha used only when risk_mode == cvar"""
+
     num_atoms: int = 101
-    """the number of atoms"""
+    """number of quantile fractions (kept name for backward compatibility)"""
 
     v_min: float = -20.0
     """the minimum value of the support"""
 
     v_max: float = 20.0
     """the maximum value of the support"""
+
+    quantile_huber_kappa: float = 1.0
+    """Huber threshold for quantile regression loss"""
 
     critic_hidden_dim: int = 768
     """the hidden dimension of the critic network"""
