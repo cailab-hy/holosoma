@@ -9,7 +9,7 @@ from tensordict import TensorDict
 from torch import nn
 from torch.amp import GradScaler
 
-from holosoma.config_types.algo import FastSACConfig
+from holosoma.config_types.algo import CQLConfig
 
 
 class SimpleReplayBuffer(nn.Module):
@@ -350,7 +350,7 @@ def save_params(
     q_optimizer: torch.optim.Optimizer,
     alpha_optimizer: torch.optim.Optimizer,
     scaler: GradScaler,
-    args: FastSACConfig,
+    args: CQLConfig,
     save_path: str,
     save_fn=torch.save,
     metadata: dict[str, Any] | None = None,
