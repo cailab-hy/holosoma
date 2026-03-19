@@ -64,8 +64,11 @@ class OfflineFastSACAgent(BaseAlgo):
     ):
         if not config.offline_mode:
             raise ValueError("OfflineFastSACAgent requires config.offline_mode=True")
-        if not config.offline_dataset_path:
-            raise ValueError("OfflineFastSACAgent requires config.offline_dataset_path to be set")
+        if not config.offline_dataset_path and env is None:
+            raise ValueError(
+                "OfflineFastSACAgent requires config.offline_dataset_path to be set, "
+                "or an env to be provided for eval-only mode"
+            )
         if config.actor_obs_dim <= 0 or config.critic_obs_dim <= 0 or config.action_dim <= 0:
             raise ValueError(
                 "OfflineFastSACAgent requires config.actor_obs_dim, critic_obs_dim, "
@@ -211,23 +214,28 @@ class OfflineFastSACAgent(BaseAlgo):
         logger.info(f"actor_obs_dim: {actor_obs_dim}, critic_obs_dim: {critic_obs_dim}, action_dim: {n_act}")
 
         # --- Offline replay buffer ---
-        self.rb = OfflineReplayBuffer(
-            dataset_path=args.offline_dataset_path,
-            device=device,
-        )
-        # Validate dimensions match config
-        assert self.rb.n_obs == actor_obs_dim, (
-            f"Dataset actor_obs_dim {self.rb.n_obs} != config actor_obs_dim {actor_obs_dim}"
-        )
-        assert self.rb.n_critic_obs == critic_obs_dim, (
-            f"Dataset critic_obs_dim {self.rb.n_critic_obs} != config critic_obs_dim {critic_obs_dim}"
-        )
-        assert self.rb.n_act == n_act, (
-            f"Dataset action_dim {self.rb.n_act} != config action_dim {n_act}"
-        )
+        has_dataset = args.offline_dataset_path and os.path.isfile(args.offline_dataset_path)
+        if has_dataset:
+            self.rb = OfflineReplayBuffer(
+                dataset_path=args.offline_dataset_path,
+                device=device,
+            )
+            # Validate dimensions match config
+            assert self.rb.n_obs == actor_obs_dim, (
+                f"Dataset actor_obs_dim {self.rb.n_obs} != config actor_obs_dim {actor_obs_dim}"
+            )
+            assert self.rb.n_critic_obs == critic_obs_dim, (
+                f"Dataset critic_obs_dim {self.rb.n_critic_obs} != config critic_obs_dim {critic_obs_dim}"
+            )
+            assert self.rb.n_act == n_act, (
+                f"Dataset action_dim {self.rb.n_act} != config action_dim {n_act}"
+            )
+        else:
+            self.rb = None  # type: ignore[assignment]
+            logger.info("No dataset provided — replay buffer skipped (eval-only mode)")
 
         # --- Initialize normalizers from dataset statistics ---
-        if args.obs_normalization and args.offline_normalizer_init_mode == "dataset":
+        if has_dataset and args.obs_normalization and args.offline_normalizer_init_mode == "dataset":
             obs_mean, obs_std = self.rb.compute_obs_statistics()
             init_normalizer_from_dataset(self.obs_normalizer, obs_mean, obs_std)  # type: ignore[arg-type]
             logger.info("Initialized obs_normalizer from dataset statistics (frozen)")
@@ -523,6 +531,11 @@ class OfflineFastSACAgent(BaseAlgo):
         logger.info(f"Loaded checkpoint from '{ckpt_path}' (global_step={self.global_step})")
 
     def save(self, path: str) -> None:  # type: ignore[override]
+        metadata = (
+            self._checkpoint_metadata(iteration=self.global_step)
+            if self._experiment_config is not None
+            else {"iteration": self.global_step}
+        )
         save_params(
             self.global_step,
             self.actor,
@@ -538,7 +551,7 @@ class OfflineFastSACAgent(BaseAlgo):
             self.config,
             path,
             save_fn=self.logging_helper.save_checkpoint_artifact,
-            metadata=self._checkpoint_metadata(iteration=self.global_step),
+            metadata=metadata,
         )
 
     # ------------------------------------------------------------------
@@ -730,6 +743,73 @@ class OfflineFastSACAgent(BaseAlgo):
                 return self.actor(normalized_obs)[0]
 
         return ActorWrapper(actor, obs_normalizer if self.obs_normalization else None)
+
+    def export(self, onnx_file_path: str) -> None:
+        """Export the policy as ONNX, matching the online FastSAC export format."""
+        from holosoma.utils.inference_helpers import (
+            attach_onnx_metadata,
+            export_motion_and_policy_as_onnx,
+            export_policy_as_onnx,
+            get_command_ranges_from_env,
+            get_control_gains_from_config,
+            get_urdf_text_from_robot_config,
+        )
+
+        was_training = self.actor.training
+        self.actor.eval()
+        if self.obs_normalization:
+            self.obs_normalizer.eval()
+
+        if self.eval_env is not None:
+            unwrapped_env = self.eval_env
+            motion_command = unwrapped_env.command_manager.get_state("motion_command")
+            if motion_command is not None:
+                export_motion_and_policy_as_onnx(
+                    self.actor_onnx_wrapper,
+                    motion_command,
+                    onnx_file_path,
+                    self.device,
+                )
+            else:
+                example_input = torch.zeros(1, self.actor_obs_dim, device="cpu")
+                export_policy_as_onnx(
+                    wrapper=self.actor_onnx_wrapper,
+                    onnx_file_path=onnx_file_path,
+                    example_obs_dict={"actor_obs": example_input},
+                )
+
+            kp_list, kd_list = get_control_gains_from_config(self.eval_env.robot_config)
+            cmd_ranges = get_command_ranges_from_env(unwrapped_env)
+            urdf_file_path, urdf_str = get_urdf_text_from_robot_config(self.eval_env.robot_config)
+
+            metadata = {
+                "dof_names": self.eval_env.robot_config.dof_names,
+                "kp": kp_list,
+                "kd": kd_list,
+                "command_ranges": cmd_ranges,
+                "robot_urdf": urdf_str,
+                "robot_urdf_path": urdf_file_path,
+            }
+            if self._experiment_config is not None:
+                metadata.update(self._checkpoint_metadata(iteration=self.global_step))
+
+            attach_onnx_metadata(onnx_path=onnx_file_path, metadata=metadata)
+        else:
+            example_input = torch.zeros(1, self.actor_obs_dim, device="cpu")
+            export_policy_as_onnx(
+                wrapper=self.actor_onnx_wrapper,
+                onnx_file_path=onnx_file_path,
+                example_obs_dict={"actor_obs": example_input},
+            )
+
+        self.logging_helper.save_to_wandb(onnx_file_path)
+
+        if was_training:
+            self.actor.train()
+            if self.obs_normalization:
+                self.obs_normalizer.train()
+
+        logger.info(f"Exported ONNX policy to {onnx_file_path}")
 
     @torch.no_grad()
     def evaluate_policy(self, max_eval_steps: int | None = None):

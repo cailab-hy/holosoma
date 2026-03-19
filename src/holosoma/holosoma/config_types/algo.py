@@ -305,6 +305,37 @@ class FastSACConfig:
     actor_obs_keys: List[str] = field(default_factory=lambda: ["actor_obs"])
     critic_obs_keys: List[str] = field(default_factory=lambda: ["critic_obs"])
 
+    # --- Offline mode fields ---
+    offline_mode: bool = False
+    """Whether to use offline training mode."""
+
+    offline_dataset_path: str = ""
+    """Path to the offline HDF5 dataset."""
+
+    actor_obs_dim: int = 0
+    """Actor observation dimension (required for offline mode)."""
+
+    critic_obs_dim: int = 0
+    """Critic observation dimension (required for offline mode)."""
+
+    action_dim: int = 0
+    """Action dimension (required for offline mode)."""
+
+    offline_action_scale: List[float] = field(default_factory=list)
+    """Per-joint action scaling. Empty means ones(action_dim)."""
+
+    offline_normalizer_init_mode: str = "dataset"
+    """How to initialize observation normalizer: 'dataset', 'checkpoint', or 'none'."""
+
+    offline_num_updates_per_epoch: int = 1000
+    """Number of gradient steps per epoch in offline mode."""
+
+    eval_interval: int = 0
+    """Evaluation interval in epochs. 0 disables evaluation."""
+
+    conservative_weight: float = 0.0
+    """Weight for conservative (CQL-style) critic loss. 0 disables it."""
+
 
 @dataclass(frozen=True)
 class PPOAlgoConfig:
