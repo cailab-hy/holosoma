@@ -135,6 +135,7 @@ ISAACSIM_ONLY_WORKFLOWS = [
     "g1-29dof-wbt-fast-sac",
     "g1-29dof-wbt-w-object",
     "g1-29dof-wbt-fast-sac-w-object",
+    "g1-29dof-wbt-cql-w-object",
 ]
 
 
