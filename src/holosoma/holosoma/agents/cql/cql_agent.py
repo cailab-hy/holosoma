@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import dataclasses
 import itertools
 import math
 import os
@@ -23,10 +22,8 @@ from holosoma.agents.cql.cql_utils import (
 from holosoma.agents.modules.augmentation_utils import SymmetryUtils
 from holosoma.agents.modules.logging_utils import LoggingHelper
 from holosoma.config_types.algo import CQLConfig
-from holosoma.config_types.env import get_tyro_env_config
 from holosoma.envs.base_task.base_task import BaseTask
 from holosoma.utils.average_meters import TensorAverageMeterDict
-from holosoma.utils.helpers import get_class
 from holosoma.utils.inference_helpers import (
     attach_onnx_metadata,
     export_motion_and_policy_as_onnx,
@@ -193,7 +190,6 @@ class CQLAgent(BaseAlgo):
         self._offline_dataset_path = Path("offline_data/fastsac_dataset.h5")
         self._offline_dataset_cache: dict[str, torch.Tensor] | None = None
         self._offline_num_samples = 0
-        self._eval_envs: dict[int, CQLEnv] = {}
 
 
 
@@ -893,6 +889,16 @@ class CQLAgent(BaseAlgo):
         # Load checkpoint if specified
         torch_checkpoint = torch.load(ckpt_path, map_location=self.device, weights_only=False)
 
+        checkpoint_args = torch_checkpoint.get("args", {})
+        checkpoint_obs_norm = checkpoint_args.get("obs_normalization")
+        if checkpoint_obs_norm is not None and bool(checkpoint_obs_norm) != bool(self.obs_normalization):
+            raise RuntimeError(
+                "Checkpoint/config mismatch for observation normalization: "
+                f"checkpoint obs_normalization={checkpoint_obs_norm}, "
+                f"current config obs_normalization={self.obs_normalization}. "
+                "Use matching config to preserve reproducibility."
+            )
+
         # Handle DDP-wrapped models
         actor_state_dict = torch_checkpoint["actor_state_dict"]
         qnet_state_dict = torch_checkpoint["qnet_state_dict"]
@@ -900,8 +906,24 @@ class CQLAgent(BaseAlgo):
         self.actor.load_state_dict(actor_state_dict)
         self.qnet.load_state_dict(qnet_state_dict)
 
-        self.obs_normalizer.load_state_dict(torch_checkpoint["obs_normalizer_state"])
-        self.critic_obs_normalizer.load_state_dict(torch_checkpoint["critic_obs_normalizer_state"])
+        obs_norm_state = torch_checkpoint.get("obs_normalizer_state")
+        critic_obs_norm_state = torch_checkpoint.get("critic_obs_normalizer_state")
+        if self.obs_normalization:
+            if not isinstance(obs_norm_state, dict) or not obs_norm_state:
+                raise RuntimeError(
+                    "Checkpoint missing valid obs_normalizer_state while obs normalization is enabled. "
+                    "Cannot guarantee reproducible performance."
+                )
+            if not isinstance(critic_obs_norm_state, dict) or not critic_obs_norm_state:
+                raise RuntimeError(
+                    "Checkpoint missing valid critic_obs_normalizer_state while obs normalization is enabled. "
+                    "Cannot guarantee reproducible performance."
+                )
+
+        self.obs_normalizer.load_state_dict(obs_norm_state if isinstance(obs_norm_state, dict) else {})
+        self.critic_obs_normalizer.load_state_dict(
+            critic_obs_norm_state if isinstance(critic_obs_norm_state, dict) else {}
+        )
         self.qnet_target.load_state_dict(torch_checkpoint["qnet_target_state_dict"])
         self.log_alpha.data.copy_(torch_checkpoint["log_alpha"].to(self.device))
         self.actor_optimizer.load_state_dict(torch_checkpoint["actor_optimizer_state_dict"])
@@ -910,6 +932,18 @@ class CQLAgent(BaseAlgo):
         self.scaler.load_state_dict(torch_checkpoint["grad_scaler_state_dict"])
         self.global_step = torch_checkpoint["global_step"]
         self._restore_env_state(torch_checkpoint.get("env_state"))
+
+        if self.obs_normalization:
+            obs_count = int(getattr(self.obs_normalizer, "count").item()) if hasattr(self.obs_normalizer, "count") else -1
+            critic_count = (
+                int(getattr(self.critic_obs_normalizer, "count").item())
+                if hasattr(self.critic_obs_normalizer, "count")
+                else -1
+            )
+            logger.info(
+                "Loaded observation normalizer states "
+                f"(obs_count={obs_count}, critic_count={critic_count})"
+            )
 
     def offline_learn(self) -> None:
             args = self.config
@@ -1245,51 +1279,21 @@ class CQLAgent(BaseAlgo):
             actions = self.actor(normalized_obs)[0]
             obs, _, _, _ = self.env.step(actions)
 
-    def _get_or_create_eval_env(self, eval_num_envs: int) -> CQLEnv:
-        if eval_num_envs <= 0:
-            raise ValueError(f"eval_num_envs must be >= 1, got {eval_num_envs}")
-
-        if eval_num_envs == self.env.num_envs:
-            return self.env
-
-        cached = self._eval_envs.get(eval_num_envs)
-        if cached is not None:
-            return cached
-
-        if self._experiment_config is None:
-            raise RuntimeError(
-                "Experiment config metadata missing. attach_checkpoint_metadata() must be called before evaluation."
-            )
-
-        base_eval_cfg = self._experiment_config.get_eval_config()
-        eval_cfg = dataclasses.replace(
-            base_eval_cfg,
-            training=dataclasses.replace(base_eval_cfg.training, num_envs=eval_num_envs),
-        )
-        eval_env_class = get_class(eval_cfg.env_class)
-        eval_env = eval_env_class(get_tyro_env_config(eval_cfg), device=self.device)
-        wrapped_eval_env = CQLEnv(eval_env, self.config.actor_obs_keys, self.config.critic_obs_keys)
-        self._eval_envs[eval_num_envs] = wrapped_eval_env
-        logger.info(f"Created dedicated evaluation env with num_envs={eval_num_envs}")
-        return wrapped_eval_env
-
     @torch.no_grad()
     def evaluate_one_episode(
         self,
         max_eval_steps: int | None = None,
         use_early_termination: bool = False,
-        eval_num_envs: int | None = None,
         ):
         # 가능하면 별도 eval env를 쓰는 게 가장 안전함
-        eval_env = self.env if eval_num_envs is None else self._get_or_create_eval_env(eval_num_envs)
-        eval_env.set_is_evaluating()
+        self.env.set_is_evaluating()
         was_training = self.actor.training
         self.actor.eval()
         if self.obs_normalization:
             self.obs_normalizer.eval()
 
-        obs = eval_env.reset()
-        episode_return = torch.zeros(eval_env.num_envs, device=self.device)
+        obs = self.env.reset()
+        episode_return = torch.zeros(self.env.num_envs, device=self.device)
         episode_length = 0
         fail_reason = None
 
@@ -1304,7 +1308,7 @@ class CQLAgent(BaseAlgo):
                 normalized_obs = obs
 
             actions = self.actor(normalized_obs)[0]
-            obs, rewards, dones, infos = eval_env.step(actions)
+            obs, rewards, dones, infos = self.env.step(actions)
 
             episode_return += rewards
             episode_length += 1
@@ -1330,8 +1334,8 @@ class CQLAgent(BaseAlgo):
             if self.obs_normalization:
                 self.obs_normalizer.train()
 
-        if hasattr(eval_env, "set_is_training"):
-            eval_env.set_is_training()
+        if hasattr(self.env, "set_is_training"):
+            self.env.set_is_training()
 
         return {
             "episode_return": episode_return.mean().item(),
