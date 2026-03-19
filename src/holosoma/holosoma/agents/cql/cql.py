@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import math
-
 import torch
 from torch import nn
 
@@ -38,10 +36,8 @@ class Actor(nn.Module):
         self.encoder_obs_key = encoder_obs_key
         self.encoder_obs_shape = encoder_obs_shape
 
-        # Setup the network - this will be overridden in subclasses if needed
         self.setup_network()
 
-        # Register action scaling parameters as buffers
         if action_scale is not None:
             self.register_buffer("action_scale", action_scale.to(device))
         else:
@@ -53,12 +49,10 @@ class Actor(nn.Module):
             self.register_buffer("action_bias", torch.zeros(n_act, device=device))
 
     def setup_network(self) -> None:
-        """Setup the network architecture. Can be overridden by subclasses."""
         n_obs = sum(self.obs_indices[obs_key]["size"] for obs_key in self.obs_keys)
         self._setup_network_with_input_dim(n_obs)
 
     def _setup_network_with_input_dim(self, input_dim: int) -> None:
-        """Setup network with specific input dimension."""
         self.net = nn.Sequential(
             nn.Linear(input_dim, self.hidden_dim, device=self.device),
             nn.LayerNorm(self.hidden_dim, device=self.device) if self.use_layer_norm else nn.Identity(),
@@ -85,9 +79,7 @@ class Actor(nn.Module):
         mean = self.fc_mu(x)
         log_std = self.fc_logstd(x)
         log_std = torch.tanh(log_std)
-        log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (
-            log_std + 1
-        )  # From SpinUp / Denis Yarats
+        log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (log_std + 1)
 
         if self.use_tanh:
             tanh_mean = torch.tanh(mean)
@@ -104,28 +96,42 @@ class Actor(nn.Module):
         raw_action = dist.rsample()
 
         if self.use_tanh:
-            # Apply tanh to get bounded actions in [-1, 1]
             tanh_action = torch.tanh(raw_action)
-            # Scale and bias to get final actions
             action = tanh_action * self.action_scale + self.action_bias
 
-            # Compute log probability with proper Jacobian correction
             log_prob = dist.log_prob(raw_action)
-            # Jacobian correction for tanh transformation
             log_prob -= torch.log(1 - tanh_action.pow(2) + 1e-6)
-            # Jacobian correction for scaling transformation
             log_prob -= torch.log(self.action_scale + 1e-6)
         else:
-            # Non-tanh case
             action = raw_action
             log_prob = dist.log_prob(raw_action)
 
-        log_prob = log_prob.sum(1)
-        return action, log_prob
+        return action, log_prob.sum(1)
+
+    def log_prob_dataset_actions(self, obs: torch.Tensor, dataset_actions: torch.Tensor) -> torch.Tensor:
+        _, mean, log_std = self(obs)
+        std = log_std.exp()
+        dist = torch.distributions.Normal(mean, std)
+
+        if self.use_tanh:
+            normalized_action = (dataset_actions - self.action_bias) / (self.action_scale + 1e-6)
+            normalized_action = normalized_action.clamp(-1.0 + 1e-6, 1.0 - 1e-6)
+            raw_action = 0.5 * (torch.log1p(normalized_action) - torch.log1p(-normalized_action))
+
+            log_prob = dist.log_prob(raw_action)
+            log_prob -= torch.log(1 - normalized_action.pow(2) + 1e-6)
+            log_prob -= torch.log(self.action_scale + 1e-6)
+        else:
+            log_prob = dist.log_prob(dataset_actions)
+
+        return log_prob.sum(dim=1)
 
     @torch.no_grad()
     def explore(
-        self, obs: torch.Tensor, dones: torch.Tensor | None = None, deterministic: bool = False
+        self,
+        obs: torch.Tensor,
+        dones: torch.Tensor | None = None,
+        deterministic: bool = False,
     ) -> torch.Tensor:
         _, mean, log_std = self(obs)
         if deterministic:
@@ -161,11 +167,9 @@ class CNNActor(Actor):
         super().__init__(*args, **kwargs)
 
     def setup_network(self) -> None:
-        """Setup CNN encoder and network with correct input dimensions."""
         if self.encoder_obs_shape is None:
             raise ValueError("encoder_obs_shape must be provided for CNNActor")
 
-        # Create the CNN encoder
         self.encoder = nn.Sequential(
             nn.Conv2d(self.encoder_obs_shape[0], 16, kernel_size=4, stride=2, padding=1, device=self.device),
             nn.ReLU(),
@@ -174,21 +178,16 @@ class CNNActor(Actor):
             nn.Flatten(),
         )
 
-        # Calculate CNN output dimension using mathematical calculation
         cnn_output_dim = calculate_cnn_output_dim(self.encoder_obs_shape)
-
-        # Calculate total input dimension: CNN features + state observations
         state_obs_dim = sum(self.obs_indices[obs_key]["size"] for obs_key in self.obs_keys)
         total_input_dim = cnn_output_dim + state_obs_dim
 
-        # Setup the main network with the correct input dimension
         self._setup_network_with_input_dim(total_input_dim)
 
     def process_obs(self, obs: torch.Tensor) -> torch.Tensor:
         if self.encoder_obs_key is None or self.encoder_obs_shape is None:
             raise ValueError("encoder_obs_key and encoder_obs_shape must be provided for CNNActor")
 
-        # Handle encoder observation
         encoder_obs = torch.cat(
             [obs[..., self.obs_indices[self.encoder_obs_key]["start"] : self.obs_indices[self.encoder_obs_key]["end"]]],
             -1,
@@ -196,7 +195,6 @@ class CNNActor(Actor):
         encoder_obs = encoder_obs.view(encoder_obs.shape[0], *self.encoder_obs_shape)
         encoder_x = self.encoder(encoder_obs)
 
-        # Handle state observations. This could include encoder obs if the user wants
         state_x = torch.cat(
             [
                 obs[..., self.obs_indices[obs_key]["start"] : self.obs_indices[obs_key]["end"]]
@@ -204,24 +202,25 @@ class CNNActor(Actor):
             ],
             -1,
         )
-
-        # Concatenate CNN features with state observations
         return torch.cat([encoder_x, state_x], -1)
 
 
-class DistributionalQNetwork(nn.Module):
+class QNetwork(nn.Module):
     def __init__(
         self,
-        n_obs: int,
+        obs_indices: dict[str, dict[str, int]],
+        obs_keys: list[str],
         n_act: int,
-        num_atoms: int,
-        v_min: float,
-        v_max: float,
         hidden_dim: int,
         use_layer_norm: bool = True,
-        device: torch.device | None = None,
+        device: torch.device | str | None = None,
     ):
         super().__init__()
+        self.obs_indices = obs_indices
+        self.obs_keys = obs_keys
+        self.n_act = n_act
+
+        n_obs = sum(self.obs_indices[obs_key]["size"] for obs_key in self.obs_keys)
         self.net = nn.Sequential(
             nn.Linear(n_obs + n_act, hidden_dim, device=device),
             nn.LayerNorm(hidden_dim, device=device) if use_layer_norm else nn.Identity(),
@@ -232,123 +231,10 @@ class DistributionalQNetwork(nn.Module):
             nn.Linear(hidden_dim // 2, hidden_dim // 4, device=device),
             nn.LayerNorm(hidden_dim // 4, device=device) if use_layer_norm else nn.Identity(),
             nn.SiLU(),
-            nn.Linear(hidden_dim // 4, num_atoms, device=device),
-        )
-        self.v_min = v_min
-        self.v_max = v_max
-        # `num_atoms` is kept for config backward-compatibility.
-        # In CODAC-style training, these outputs are interpreted as quantiles.
-        self.num_quantiles = num_atoms
-
-    def forward(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
-        x = torch.cat([obs, actions], 1)
-        x = self.net(x)
-        return x  # noqa: RET504
-
-
-class Critic(nn.Module):
-    def __init__(
-        self,
-        obs_indices: dict[str, dict[str, int]],
-        obs_keys: list[str],
-        n_act: int,
-        num_atoms: int,
-        v_min: float,
-        v_max: float,
-        hidden_dim: int,
-        use_layer_norm: bool = True,
-        num_q_networks: int = 2,
-        encoder_obs_key: str | None = None,
-        encoder_obs_shape: tuple[int, int, int] | None = None,
-        device: torch.device | None = None,
-    ):
-        super().__init__()
-        self.obs_indices = obs_indices
-        self.obs_keys = obs_keys
-        self.n_act = n_act
-        self.num_atoms = num_atoms
-        self.v_min = v_min
-        self.v_max = v_max
-        self.hidden_dim = hidden_dim
-        self.use_layer_norm = use_layer_norm
-        if num_q_networks < 1:
-            raise ValueError("num_q_networks must be at least 1")
-        self.num_q_networks = num_q_networks
-        self.encoder_obs_key = encoder_obs_key
-        self.encoder_obs_shape = encoder_obs_shape
-        self.device = device
-
-        # Setup Q-networks - this will be overridden in subclasses if needed
-        self.setup_qnetworks()
-
-        self.register_buffer(
-            "q_taus",
-            ((torch.arange(num_atoms, device=device, dtype=torch.float32) + 0.5) / num_atoms),
+            nn.Linear(hidden_dim // 4, 1, device=device),
         )
 
-    def setup_qnetworks(self) -> None:
-        """Setup Q-networks. Can be overridden by subclasses."""
-        n_obs = sum(self.obs_indices[obs_key]["size"] for obs_key in self.obs_keys)
-        self._setup_qnetworks_with_obs_dim(n_obs)
-
-    def _setup_qnetworks_with_obs_dim(self, n_obs: int) -> None:
-        """Setup Q-networks with specific observation dimension."""
-        self.qnets = nn.ModuleList(
-            [
-                DistributionalQNetwork(
-                    n_obs=n_obs,
-                    n_act=self.n_act,
-                    num_atoms=self.num_atoms,
-                    v_min=self.v_min,
-                    v_max=self.v_max,
-                    hidden_dim=self.hidden_dim,
-                    use_layer_norm=self.use_layer_norm,
-                    device=self.device,
-                )
-                for _ in range(self.num_q_networks)
-            ]
-        )
-
-    def forward(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
-        x = self.process_obs(obs)
-        outputs = [qnet(x, actions) for qnet in self.qnets]
-        return torch.stack(outputs, dim=0)
-
-    def get_value(self, quantiles: torch.Tensor, risk_mode: str = "neutral", cvar_alpha: float = 0.1) -> torch.Tensor:
-        """Aggregate quantiles into scalar state-action values."""
-        if risk_mode == "neutral":
-            return quantiles.mean(dim=-1)
-        if risk_mode == "cvar":
-            if not 0.0 < cvar_alpha <= 1.0:
-                raise ValueError(f"cvar_alpha must be in (0, 1], got {cvar_alpha}")
-            k = max(1, int(math.ceil(cvar_alpha * quantiles.shape[-1])))
-            return quantiles[..., :k].mean(dim=-1)
-        raise ValueError(f"Unknown risk_mode: {risk_mode}")
-
-    def quantile_huber_loss(
-        self,
-        pred_quantiles: torch.Tensor,
-        target_quantiles: torch.Tensor,
-        kappa: float = 1.0,
-    ) -> torch.Tensor:
-        """Quantile regression Huber loss used by quantile critics."""
-        if pred_quantiles.dim() != 2 or target_quantiles.dim() != 2:
-            raise ValueError(
-                "Expected [batch, num_quantiles] for both inputs, "
-                f"got {pred_quantiles.shape} and {target_quantiles.shape}"
-            )
-        td_error = target_quantiles.unsqueeze(1) - pred_quantiles.unsqueeze(2)
-        abs_td_error = td_error.abs()
-        huber = torch.where(
-            abs_td_error <= kappa,
-            0.5 * td_error.pow(2),
-            kappa * (abs_td_error - 0.5 * kappa),
-        )
-        taus = self.q_taus.view(1, -1, 1)
-        quantile_weight = torch.abs(taus - (td_error.detach() < 0).float())
-        return (quantile_weight * huber / kappa).mean(dim=2).sum(dim=1).mean()
-
-    def process_obs(self, obs: torch.Tensor) -> torch.Tensor:
+    def _process_obs(self, obs: torch.Tensor) -> torch.Tensor:
         return torch.cat(
             [
                 obs[..., self.obs_indices[obs_key]["start"] : self.obs_indices[obs_key]["end"]]
@@ -357,83 +243,51 @@ class Critic(nn.Module):
             -1,
         )
 
+    def forward(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        x = torch.cat([self._process_obs(obs), actions], dim=1)
+        return self.net(x).squeeze(-1)
 
-class CNNCritic(Critic):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
 
-    def setup_qnetworks(self) -> None:
-        """Setup CNN encoder and Q-networks with correct input dimensions."""
-        if self.encoder_obs_shape is None:
-            raise ValueError("encoder_obs_shape must be provided for CNNCritic")
-
-        # Create the CNN encoder
-        self.encoder = nn.Sequential(
-            nn.Conv2d(self.encoder_obs_shape[0], 16, kernel_size=4, stride=2, padding=1, device=self.device),
-            nn.ReLU(),
-            nn.Conv2d(16, 16, kernel_size=4, stride=2, padding=1, device=self.device),
-            nn.ReLU(),
-            nn.Flatten(),
+class DoubleQCritic(nn.Module):
+    def __init__(
+        self,
+        obs_indices: dict[str, dict[str, int]],
+        obs_keys: list[str],
+        n_act: int,
+        hidden_dim: int,
+        use_layer_norm: bool = True,
+        device: torch.device | str | None = None,
+    ):
+        super().__init__()
+        self.q1 = QNetwork(
+            obs_indices=obs_indices,
+            obs_keys=obs_keys,
+            n_act=n_act,
+            hidden_dim=hidden_dim,
+            use_layer_norm=use_layer_norm,
+            device=device,
+        )
+        self.q2 = QNetwork(
+            obs_indices=obs_indices,
+            obs_keys=obs_keys,
+            n_act=n_act,
+            hidden_dim=hidden_dim,
+            use_layer_norm=use_layer_norm,
+            device=device,
         )
 
-        # Calculate CNN output dimension using mathematical calculation
-        cnn_output_dim = calculate_cnn_output_dim(self.encoder_obs_shape)
+    def forward(self, obs: torch.Tensor, actions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.q1(obs, actions), self.q2(obs, actions)
 
-        # Calculate total input dimension: CNN features + state observations
-        state_obs_dim = sum(self.obs_indices[obs_key]["size"] for obs_key in self.obs_keys)
-        total_obs_dim = cnn_output_dim + state_obs_dim
-
-        # Setup Q-networks with the correct observation dimension
-        self._setup_qnetworks_with_obs_dim(total_obs_dim)
-
-    def process_obs(self, obs: torch.Tensor) -> torch.Tensor:
-        if self.encoder_obs_key is None or self.encoder_obs_shape is None:
-            raise ValueError("encoder_obs_key and encoder_obs_shape must be provided for CNNCritic")
-
-        encoder_obs = torch.cat(
-            [obs[..., self.obs_indices[self.encoder_obs_key]["start"] : self.obs_indices[self.encoder_obs_key]["end"]]],
-            -1,
-        )
-        encoder_obs = encoder_obs.view(encoder_obs.shape[0], *self.encoder_obs_shape)
-        encoder_x = self.encoder(encoder_obs)
-
-        # Handle state observations. This could include encoder obs if the user wants
-        state_x = torch.cat(
-            [
-                obs[..., self.obs_indices[obs_key]["start"] : self.obs_indices[obs_key]["end"]]
-                for obs_key in self.obs_keys
-            ],
-            -1,
-        )
-
-        # Concatenate CNN features with state observations
-        return torch.cat([encoder_x, state_x], -1)
 
 
 def calculate_cnn_output_dim(input_shape: tuple[int, int, int]) -> int:
-    """
-    Calculate CNN output dimension for the fixed CNN architecture.
-
-    The CNN has the following architecture:
-    1. Conv2d(channels, 16, kernel_size=4, stride=2, padding=1)
-    2. Conv2d(16, 16, kernel_size=4, stride=2, padding=1)
-    3. Flatten()
-
-    Args:
-        input_shape: (channels, height, width)
-
-    Returns:
-        Output dimension after flattening
-    """
     channels, height, width = input_shape
 
-    # First conv layer: Conv2d(channels, 16, kernel_size=4, stride=2, padding=1)
     h1 = (height + 2 * 1 - 4) // 2 + 1
     w1 = (width + 2 * 1 - 4) // 2 + 1
 
-    # Second conv layer: Conv2d(16, 16, kernel_size=4, stride=2, padding=1)
     h2 = (h1 + 2 * 1 - 4) // 2 + 1
     w2 = (w1 + 2 * 1 - 4) // 2 + 1
 
-    # Flatten: 16 channels * h2 * w2
     return 16 * h2 * w2

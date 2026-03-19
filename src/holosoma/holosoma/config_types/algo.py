@@ -344,6 +344,9 @@ class CQLConfig:
     num_updates: int = 8
     """the number of updates to perform per step"""
 
+    eval_interval: int = 1000
+    """steps per offline_learn() call when max_steps is not provided"""
+
     cql_num_action_samples: int = 10
     """number of repeated action samples per state for conservative regularization"""
 
@@ -427,6 +430,9 @@ class CQLConfig:
 
     logging_interval: int = 100
     """the interval to log the metrics"""
+
+    offline_dataset_path: str = "offline_data/fastsac_dataset.h5"
+    """path to fixed offline dataset"""
 
     encoder_obs_key: str = "perception_obs"
     """the key of the encoder observation. only valid if use_cnn_encoder is True"""
