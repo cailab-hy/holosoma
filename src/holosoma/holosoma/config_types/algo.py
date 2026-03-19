@@ -461,7 +461,7 @@ class CQLAlgoConfig:
     _recursive_: bool
     """Whether to recursively instantiate."""
 
-    config: FastSACConfig
+    config: CQLConfig
     """Algorithm-specific configuration."""
 
 AlgoInitConfig = Union[PPOConfig, FastSACConfig, CQLConfig]
