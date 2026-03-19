@@ -136,7 +136,7 @@ g1_29dof_wbt_fast_sac = ExperimentConfig(
 
 
 ##for offline rL
-g1_29dof_wbt_fast_sac = ExperimentConfig(
+g1_29dof_wbt_cql = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
         name="g1_29dof_wbt_cql_manager",
@@ -144,9 +144,9 @@ g1_29dof_wbt_fast_sac = ExperimentConfig(
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
     algo=replace(
-        algo.fast_sac,
+        algo.cql,
         config=replace(
-            algo.fast_sac.config,
+            algo.cql.config,
             num_learning_iterations=100,
             v_max=20.0,
             v_min=-20.0,
@@ -246,7 +246,7 @@ g1_29dof_wbt_fast_sac_w_object = replace(
 )
 
 g1_29dof_wbt_cql_w_object = replace(
-    g1_29dof_wbt_fast_sac,
+    g1_29dof_wbt_cql,
     command=command.g1_29dof_wbt_command_w_object,
     robot=replace(
         robot.g1_29dof_w_object,

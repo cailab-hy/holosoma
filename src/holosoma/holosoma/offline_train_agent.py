@@ -286,14 +286,26 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
                 tyro_config, training=dataclasses.replace(tyro_config.training, checkpoint=str(loaded_checkpoint))
             )
             algo.load(loaded_checkpoint)
+
+        offline_learn_fn = getattr(algo, "offline_learn", None)
+        if not callable(offline_learn_fn):
+            raise RuntimeError(
+                f"Selected algorithm '{tyro_config.algo._target_}' does not implement offline_learn(). "
+                "Use a CQL experiment/config (e.g., exp:g1-29dof-wbt-cql-w-object)."
+            )
+
+        evaluate_one_episode_fn = getattr(algo, "evaluate_one_episode", None)
         i = 1
-        while algo.global_step<algo.config.num_learning_iterations:
-            algo.offline_learn()
-            print(f"{i}th Evaluation start")
-            algo.evaluate_one_episode(max_eval_steps=1000,
-            use_early_termination=False,)
-            print(f"{i}th Evaluation end")
-            i=i+1
+        while algo.global_step < algo.config.num_learning_iterations:
+            offline_learn_fn()
+            if callable(evaluate_one_episode_fn):
+                print(f"{i}th Evaluation start")
+                evaluate_one_episode_fn(
+                    max_eval_steps=1000,
+                    use_early_termination=False,
+                )
+                print(f"{i}th Evaluation end")
+            i = i + 1
         # teardown wandb before SimApp closes ungracefully (IsaacLab)
         if is_main_process and wandb_enabled:
             logger.info("Shutting down wandb...")
