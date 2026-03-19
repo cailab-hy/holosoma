@@ -442,6 +442,108 @@ class CQLConfig:
 
 #============================================================================================
 
+
+@dataclass(frozen=True)
+class IQLConfig:
+    num_learning_iterations: int = 25000
+    """total gradient update iterations"""
+
+    critic_learning_rate: float = 3e-4
+    """learning rate for Q networks"""
+
+    value_learning_rate: float = 3e-4
+    """learning rate for value network"""
+
+    actor_learning_rate: float = 3e-4
+    """learning rate for actor network"""
+
+    batch_size: int = 8192
+    """global batch size"""
+
+    num_updates: int = 8
+    """number of gradient updates per outer step"""
+
+    eval_interval: int = 1000
+    """steps per offline_learn() call when max_steps is not provided"""
+
+    discount: float = 0.97
+    """discount factor"""
+
+    tau: float = 0.005
+    """soft update coefficient for Q target"""
+
+    expectile: float = 0.7
+    """expectile coefficient for value regression"""
+
+    beta: float = 3.0
+    """advantage temperature for actor weighting"""
+
+    max_weight: float = 100.0
+    """maximum clip for exp(beta * advantage)"""
+
+    critic_hidden_dim: int = 768
+    """hidden dimension of Q networks"""
+
+    value_hidden_dim: int = 768
+    """hidden dimension of value network"""
+
+    actor_hidden_dim: int = 512
+    """hidden dimension of actor network"""
+
+    use_symmetry: bool = False
+    """whether to apply symmetry augmentation to offline batches"""
+
+    use_tanh: bool = True
+    """whether to use tanh-squashed actor"""
+
+    log_std_max: float = 0.0
+    """maximum log std for actor"""
+
+    log_std_min: float = -5.0
+    """minimum log std for actor"""
+
+    compile: bool = True
+    """whether to use torch.compile for update functions"""
+
+    obs_normalization: bool = True
+    """whether to normalize actor/critic observations"""
+
+    use_layer_norm: bool = True
+    """whether to use layer normalization in networks"""
+
+    max_grad_norm: float = 0.0
+    """max grad norm (0 disables clipping)"""
+
+    amp: bool = True
+    """whether to use AMP"""
+
+    amp_dtype: str = "bf16"
+    """AMP dtype: bf16 or fp16"""
+
+    weight_decay: float = 0.001
+    """weight decay for optimizers"""
+
+    save_interval: int = 1000
+    """checkpoint interval"""
+
+    logging_interval: int = 100
+    """logging interval"""
+
+    offline_dataset_path: str = "offline_data/fastsac_dataset.h5"
+    """path to fixed offline dataset"""
+
+    encoder_obs_key: str = "perception_obs"
+    """encoder observation key, used only when use_cnn_encoder is True"""
+
+    encoder_obs_shape: tuple[int, int, int] = (1, 13, 9)
+    """encoder observation shape, used only when use_cnn_encoder is True"""
+
+    use_cnn_encoder: bool = False
+    """whether to use CNN actor encoder"""
+
+    actor_obs_keys: List[str] = field(default_factory=lambda: ["actor_obs"])
+    critic_obs_keys: List[str] = field(default_factory=lambda: ["critic_obs"])
+
 @dataclass(frozen=True)
 class PPOAlgoConfig:
     """Configuration for algorithm wrapper."""
@@ -482,6 +584,21 @@ class CQLAlgoConfig:
     config: CQLConfig
     """Algorithm-specific configuration."""
 
-AlgoInitConfig = Union[PPOConfig, FastSACConfig, CQLConfig]
 
-AlgoConfig = Union[PPOAlgoConfig, FastSACAlgoConfig, CQLAlgoConfig]
+@dataclass(frozen=True)
+class IQLAlgoConfig:
+    """Configuration for algorithm wrapper."""
+
+    _target_: str
+    """Target algorithm class."""
+
+    _recursive_: bool
+    """Whether to recursively instantiate."""
+
+    config: IQLConfig
+    """Algorithm-specific configuration."""
+
+
+AlgoInitConfig = Union[PPOConfig, FastSACConfig, CQLConfig, IQLConfig]
+
+AlgoConfig = Union[PPOAlgoConfig, FastSACAlgoConfig, CQLAlgoConfig, IQLAlgoConfig]
