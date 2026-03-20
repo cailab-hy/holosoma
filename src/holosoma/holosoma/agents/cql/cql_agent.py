@@ -154,7 +154,7 @@ class CQLAgent(BaseAlgo):
         )
         self.training_metrics = TensorAverageMeterDict()
 
-        self.eval_step = max(1, getattr(config, "eval_interval", 1000))
+        self.eval_step = max(1, config.eval_interval)
         self._num_repeat_actions = config.cql_num_action_samples
         self._temperature = config.cql_temperature
         self._cql_weight = config.cql_weight
@@ -342,7 +342,7 @@ class CQLAgent(BaseAlgo):
             torch._foreach_mul_(tgt_ps, 1.0 - self.config.tau)
             torch._foreach_add_(tgt_ps, src_ps, alpha=self.config.tau)
 
-    def _update_critic(
+    def _update_q(
         self,
         data: TensorDict,
     ) -> tuple[
@@ -376,7 +376,6 @@ class CQLAgent(BaseAlgo):
             with torch.no_grad():
                 next_state_actions, next_state_log_probs = self.actor.get_actions_and_log_probs(next_observations)
                 discount = args.gamma ** data["next"]["effective_n_steps"]  # [B]
-
                 next_q1_target, next_q2_target = self.qnet_target(next_critic_observations, next_state_actions)
                 next_target_min_q = torch.minimum(next_q1_target, next_q2_target)  # [B]
 
@@ -452,19 +451,19 @@ class CQLAgent(BaseAlgo):
             cql_gap = 0.5 * (cql1_loss + cql2_loss)
             q_data_mean = 0.5 * (q1.mean() + q2.mean())
 
-            qf_loss = bellman_loss + conservative_loss
+            q_loss = bellman_loss + conservative_loss
 
         self.q_optimizer.zero_grad(set_to_none=True)
-        scaler.scale(qf_loss).backward()
+        scaler.scale(q_loss).backward()
 
         if self.is_multi_gpu:
             self._all_reduce_model_grads(self.qnet)
 
         scaler.unscale_(self.q_optimizer)
         if args.max_grad_norm > 0:
-            critic_grad_norm = torch.nn.utils.clip_grad_norm_(self.qnet.parameters(), args.max_grad_norm)
+            q_grad_norm = torch.nn.utils.clip_grad_norm_(self.qnet.parameters(), args.max_grad_norm)
         else:
-            critic_grad_norm = torch.tensor(0.0, device=self.device)
+            q_grad_norm = torch.tensor(0.0, device=self.device)
 
         scaler.step(self.q_optimizer)
         scaler.update()
@@ -474,7 +473,6 @@ class CQLAgent(BaseAlgo):
             self.alpha_optimizer.zero_grad(set_to_none=True)
             with self._maybe_amp():
                 alpha_loss = (-self.log_alpha.exp() * (next_state_log_probs.detach() + self.target_entropy)).mean()
-
             scaler.scale(alpha_loss).backward()
 
             if self.is_multi_gpu and self.log_alpha.grad is not None:
@@ -487,8 +485,8 @@ class CQLAgent(BaseAlgo):
 
         return (
             rewards.mean().detach(),
-            critic_grad_norm.detach(),
-            qf_loss.detach(),
+            q_grad_norm.detach(),
+            q_loss.detach(),
             target_value_max.detach(),
             target_value_min.detach(),
             alpha_loss.detach(),
@@ -509,14 +507,14 @@ class CQLAgent(BaseAlgo):
             actor_observations = data["observations"]  # [B, actor_obs_dim]
             critic_observations = data["critic_observations"]  # [B, critic_obs_dim]
 
-            actions, log_probs = self.actor.get_actions_and_log_probs(actor_observations)  # [B, act], [B]
+            actions, log_probs = self.actor.get_actions_and_log_probs(actor_observations)  # [B, act_dim], [B]
             with torch.no_grad():
                 _, _, log_std = self.actor(actor_observations)
                 action_std = log_std.exp().mean()
                 policy_entropy = -log_probs.mean()
 
             q1_pi, q2_pi = self.qnet(critic_observations, actions)
-            qf_value = torch.minimum(q1_pi, q2_pi)  # [B]
+            qf_value = torch.minimum(q1_pi, q2_pi)
             actor_loss = (self.log_alpha.exp().detach() * log_probs - qf_value).mean()
 
         self.actor_optimizer.zero_grad(set_to_none=True)
@@ -648,7 +646,6 @@ class CQLAgent(BaseAlgo):
             samples_per_update *= 2
 
             augmented_large_data: Dict[str, torch.Tensor | Dict[str, torch.Tensor]] = {"next": {}}
-
             augmented_large_data["observations"] = self.symmetry_utils.augment_observations(
                 obs=large_data["observations"],
                 env=self.env,
@@ -681,7 +678,6 @@ class CQLAgent(BaseAlgo):
             augmented_large_data["next"]["effective_n_steps"] = large_data["next"]["effective_n_steps"].repeat(
                 num_aug
             )  # type: ignore[index]
-
             large_data = augmented_large_data
 
         large_data["observations"] = normalize_obs(large_data["observations"])
@@ -689,7 +685,7 @@ class CQLAgent(BaseAlgo):
         large_data["critic_observations"] = normalize_critic_obs(large_data["critic_observations"])
         large_data["next"]["critic_observations"] = normalize_critic_obs(large_data["next"]["critic_observations"])
 
-        prepared_batches = []
+        prepared_batches: list[TensorDict] = []
         for i in range(num_updates):
             start_idx = i * samples_per_update
             end_idx = (i + 1) * samples_per_update
@@ -711,7 +707,6 @@ class CQLAgent(BaseAlgo):
                 device=self.device,
             )
             batch_data["next"]["critic_observations"] = large_data["next"]["critic_observations"][start_idx:end_idx]
-
             prepared_batches.append(batch_data)
 
         return prepared_batches
@@ -781,7 +776,7 @@ class CQLAgent(BaseAlgo):
         args = self.config
 
         if max_steps is None:
-            max_steps = self.eval_step
+            max_steps = args.eval_interval if args.eval_interval > 0 else args.num_learning_iterations - self.global_step
 
         if max_steps <= 0:
             return
@@ -791,13 +786,13 @@ class CQLAgent(BaseAlgo):
             return
 
         if args.compile:
-            if not hasattr(self, "_compiled_update_critic"):
-                self._compiled_update_critic = torch.compile(self._update_critic)
+            if not hasattr(self, "_compiled_update_q"):
+                self._compiled_update_q = torch.compile(self._update_q)
                 self._compiled_update_actor = torch.compile(self._update_actor)
-            update_critic = self._compiled_update_critic
+            update_q = self._compiled_update_q
             update_actor = self._compiled_update_actor
         else:
-            update_critic = self._update_critic
+            update_q = self._update_q
             update_actor = self._update_actor
 
         normalize_obs = self.obs_normalizer.forward
@@ -821,29 +816,27 @@ class CQLAgent(BaseAlgo):
 
                 for data in offline_batches:
                     (
-                        rewards_mean,
-                        critic_grad_norm,
-                        qf_loss,
-                        target_value_max,
-                        target_value_min,
+                        reward_mean,
+                        q_grad_norm,
+                        q_loss,
+                        q_target_max,
+                        q_target_min,
                         alpha_loss,
                         conservative_loss,
                         bellman_loss,
                         cql_gap,
                         q_data_mean,
-                    ) = update_critic(data)
-
+                    ) = update_q(data)
                     actor_grad_norm, actor_loss, policy_entropy, action_std = update_actor(data)
-
                     self._soft_update_q_target()
 
                     self.training_metrics.add(
                         {
-                            "buffer_rewards": rewards_mean,
-                            "critic_grad_norm": critic_grad_norm,
-                            "qf_loss": qf_loss,
-                            "target_value_max": target_value_max,
-                            "target_value_min": target_value_min,
+                            "buffer_rewards": reward_mean,
+                            "q_grad_norm": q_grad_norm,
+                            "q_loss": q_loss,
+                            "q_target_max": q_target_max,
+                            "q_target_min": q_target_min,
                             "alpha_loss": alpha_loss,
                             "alpha_value": self.log_alpha.exp().detach().mean(),
                             "actor_grad_norm": actor_grad_norm,
@@ -874,7 +867,6 @@ class CQLAgent(BaseAlgo):
                     self.export(onnx_file_path=os.path.join(self.log_dir, f"model_{self.global_step:07d}.onnx"))
 
             pbar.update(1)
-
         pbar.close()
 
         if self.is_main_process and self.global_step >= args.num_learning_iterations:
@@ -1071,3 +1063,4 @@ class CQLAgent(BaseAlgo):
             "episode_length": int(episode_length),
             "stop_reason": stop_reason,
         }
+
