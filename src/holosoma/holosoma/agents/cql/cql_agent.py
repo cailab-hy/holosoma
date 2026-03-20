@@ -347,6 +347,14 @@ class CQLAgent(BaseAlgo):
         action_bias = self.actor.action_bias.to(dtype=actions.dtype)
         return (actions - action_bias) / (action_scale + 1e-6)
 
+    def _normalize_log_probs_for_q_action_space(self, log_probs: torch.Tensor) -> torch.Tensor:
+        # get_actions_and_log_probs returns log-prob in scaled-action measure.
+        # Q/CQL are trained on normalized actions, so we convert the measure.
+        log_scale_sum = torch.log(self.actor.action_scale.float() + 1e-6).sum().to(
+            device=log_probs.device, dtype=log_probs.dtype
+        )
+        return log_probs + log_scale_sum
+
     def _update_q(
         self,
         data: TensorDict,
@@ -382,11 +390,12 @@ class CQLAgent(BaseAlgo):
             with torch.no_grad():
                 next_state_actions, next_state_log_probs = self.actor.get_actions_and_log_probs(next_observations)
                 next_state_actions_normalized = self._normalize_actions_for_q(next_state_actions)
+                next_state_log_probs_normalized = self._normalize_log_probs_for_q_action_space(next_state_log_probs)
                 discount = args.gamma ** data["next"]["effective_n_steps"]  # [B]
                 next_q1_target, next_q2_target = self.qnet_target(next_critic_observations, next_state_actions_normalized)
                 next_target_min_q = torch.minimum(next_q1_target, next_q2_target)  # [B]
 
-                q_target = rewards + discount * bootstrap * (next_target_min_q )#- alpha * next_state_log_probs)  # [B]
+                q_target = rewards + discount * bootstrap * (next_target_min_q - alpha * next_state_log_probs_normalized)
                 target_value_max = q_target.max()
                 target_value_min = q_target.min()
 
@@ -412,12 +421,14 @@ class CQLAgent(BaseAlgo):
                 next_actions, next_logp = self.actor.get_actions_and_log_probs(expanded_next_obs)
                 curr_actions_normalized = self._normalize_actions_for_q(curr_actions)
                 next_actions_normalized = self._normalize_actions_for_q(next_actions)
+                curr_logp = self._normalize_log_probs_for_q_action_space(curr_logp)
+                next_logp = self._normalize_log_probs_for_q_action_space(next_logp)
 
             rand_actions = torch.empty(bsz * num_repeat, actions.shape[-1], device=self.device).uniform_(-1.0, 1.0)
 
             q1_rand, q2_rand = self.qnet(expanded_critic_obs, rand_actions)
             q1_curr, q2_curr = self.qnet(expanded_critic_obs, curr_actions_normalized)
-            q1_next, q2_next = self.qnet(expanded_next_critic_obs, next_actions_normalized)
+            q1_next, q2_next = self.qnet(expanded_critic_obs, next_actions_normalized)
 
             q1_rand = q1_rand.view(bsz, num_repeat)
             q2_rand = q2_rand.view(bsz, num_repeat)
@@ -477,7 +488,8 @@ class CQLAgent(BaseAlgo):
             self.alpha_optimizer.zero_grad(set_to_none=True)
             with self._maybe_amp():
                 _, log_probs = self.actor.get_actions_and_log_probs(observations)
-                alpha_loss = (-self.log_alpha.exp() * (log_probs.detach() + self.target_entropy)).mean()
+                normalized_log_probs = self._normalize_log_probs_for_q_action_space(log_probs)
+                alpha_loss = (-self.log_alpha.exp() * (normalized_log_probs.detach() + self.target_entropy)).mean()
             scaler.scale(alpha_loss).backward()
 
             if self.is_multi_gpu and self.log_alpha.grad is not None:
@@ -514,6 +526,7 @@ class CQLAgent(BaseAlgo):
 
             actions, log_probs = self.actor.get_actions_and_log_probs(actor_observations)  # [B, act_dim], [B]
             actions_normalized = self._normalize_actions_for_q(actions)
+            normalized_log_probs = self._normalize_log_probs_for_q_action_space(log_probs)
             with torch.no_grad():
                 _, _, log_std = self.actor(actor_observations)
                 action_std = log_std.exp().mean()
@@ -521,7 +534,7 @@ class CQLAgent(BaseAlgo):
 
             q1_pi, q2_pi = self.qnet(critic_observations, actions_normalized)
             qf_value = torch.minimum(q1_pi, q2_pi)
-            actor_loss = (self.log_alpha.exp().detach() * log_probs - qf_value).mean()
+            actor_loss = (self.log_alpha.exp().detach() * normalized_log_probs - qf_value).mean()
 
         self.actor_optimizer.zero_grad(set_to_none=True)
         scaler.scale(actor_loss).backward()
