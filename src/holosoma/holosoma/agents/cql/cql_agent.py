@@ -342,6 +342,11 @@ class CQLAgent(BaseAlgo):
             torch._foreach_mul_(tgt_ps, 1.0 - self.config.tau)
             torch._foreach_add_(tgt_ps, src_ps, alpha=self.config.tau)
 
+    def _normalize_actions_for_q(self, actions: torch.Tensor) -> torch.Tensor:
+        action_scale = self.actor.action_scale.to(dtype=actions.dtype)
+        action_bias = self.actor.action_bias.to(dtype=actions.dtype)
+        return (actions - action_bias) / (action_scale + 1e-6)
+
     def _update_q(
         self,
         data: TensorDict,
@@ -366,6 +371,7 @@ class CQLAgent(BaseAlgo):
             critic_observations = data["critic_observations"]  # [B, critic_obs_dim]
             next_critic_observations = data["next"]["critic_observations"]  # [B, critic_obs_dim]
             actions = data["actions"]  # [B, action_dim]
+            actions_normalized = self._normalize_actions_for_q(actions)
             rewards = data["next"]["rewards"]  # [B]
             dones = data["next"]["dones"].bool()  # [B]
             truncations = data["next"]["truncations"].bool()  # [B]
@@ -375,15 +381,16 @@ class CQLAgent(BaseAlgo):
 
             with torch.no_grad():
                 next_state_actions, next_state_log_probs = self.actor.get_actions_and_log_probs(next_observations)
+                next_state_actions_normalized = self._normalize_actions_for_q(next_state_actions)
                 discount = args.gamma ** data["next"]["effective_n_steps"]  # [B]
-                next_q1_target, next_q2_target = self.qnet_target(next_critic_observations, next_state_actions)
+                next_q1_target, next_q2_target = self.qnet_target(next_critic_observations, next_state_actions_normalized)
                 next_target_min_q = torch.minimum(next_q1_target, next_q2_target)  # [B]
 
-                q_target = rewards + discount * bootstrap * (next_target_min_q - alpha * next_state_log_probs)  # [B]
+                q_target = rewards + discount * bootstrap * (next_target_min_q )#- alpha * next_state_log_probs)  # [B]
                 target_value_max = q_target.max()
                 target_value_min = q_target.min()
 
-            q1, q2 = self.qnet(critic_observations, actions)  # [B], [B]
+            q1, q2 = self.qnet(critic_observations, actions_normalized)  # [B], [B]
             bellman_loss = F.mse_loss(q1, q_target) + F.mse_loss(q2, q_target)
 
             bsz = actions.shape[0]
@@ -403,17 +410,14 @@ class CQLAgent(BaseAlgo):
             with torch.no_grad():
                 curr_actions, curr_logp = self.actor.get_actions_and_log_probs(expanded_obs)
                 next_actions, next_logp = self.actor.get_actions_and_log_probs(expanded_next_obs)
+                curr_actions_normalized = self._normalize_actions_for_q(curr_actions)
+                next_actions_normalized = self._normalize_actions_for_q(next_actions)
 
-            action_scale = self.actor.action_scale
-            action_bias = self.actor.action_bias
-            rand_actions = (
-                torch.empty(bsz * num_repeat, actions.shape[-1], device=self.device).uniform_(-1.0, 1.0) * action_scale
-                + action_bias
-            )
+            rand_actions = torch.empty(bsz * num_repeat, actions.shape[-1], device=self.device).uniform_(-1.0, 1.0)
 
             q1_rand, q2_rand = self.qnet(expanded_critic_obs, rand_actions)
-            q1_curr, q2_curr = self.qnet(expanded_critic_obs, curr_actions)
-            q1_next, q2_next = self.qnet(expanded_next_critic_obs, next_actions)
+            q1_curr, q2_curr = self.qnet(expanded_critic_obs, curr_actions_normalized)
+            q1_next, q2_next = self.qnet(expanded_next_critic_obs, next_actions_normalized)
 
             q1_rand = q1_rand.view(bsz, num_repeat)
             q2_rand = q2_rand.view(bsz, num_repeat)
@@ -425,7 +429,7 @@ class CQLAgent(BaseAlgo):
             curr_logp = curr_logp.view(bsz, num_repeat)
             next_logp = next_logp.view(bsz, num_repeat)
 
-            random_density = -torch.log(2.0 * action_scale + 1e-6).sum()
+            random_density = math.log(0.5) * actions.shape[-1]
 
             cat_q1 = torch.cat(
                 [
@@ -472,7 +476,8 @@ class CQLAgent(BaseAlgo):
         if self.config.use_autotune:
             self.alpha_optimizer.zero_grad(set_to_none=True)
             with self._maybe_amp():
-                alpha_loss = (-self.log_alpha.exp() * (next_state_log_probs.detach() + self.target_entropy)).mean()
+                _, log_probs = self.actor.get_actions_and_log_probs(observations)
+                alpha_loss = (-self.log_alpha.exp() * (log_probs.detach() + self.target_entropy)).mean()
             scaler.scale(alpha_loss).backward()
 
             if self.is_multi_gpu and self.log_alpha.grad is not None:
@@ -508,12 +513,13 @@ class CQLAgent(BaseAlgo):
             critic_observations = data["critic_observations"]  # [B, critic_obs_dim]
 
             actions, log_probs = self.actor.get_actions_and_log_probs(actor_observations)  # [B, act_dim], [B]
+            actions_normalized = self._normalize_actions_for_q(actions)
             with torch.no_grad():
                 _, _, log_std = self.actor(actor_observations)
                 action_std = log_std.exp().mean()
                 policy_entropy = -log_probs.mean()
 
-            q1_pi, q2_pi = self.qnet(critic_observations, actions)
+            q1_pi, q2_pi = self.qnet(critic_observations, actions_normalized)
             qf_value = torch.minimum(q1_pi, q2_pi)
             actor_loss = (self.log_alpha.exp().detach() * log_probs - qf_value).mean()
 
@@ -1063,4 +1069,3 @@ class CQLAgent(BaseAlgo):
             "episode_length": int(episode_length),
             "stop_reason": stop_reason,
         }
-
