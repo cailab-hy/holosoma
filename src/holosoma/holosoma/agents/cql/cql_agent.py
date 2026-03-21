@@ -229,8 +229,16 @@ class CQLAgent(BaseAlgo):
             self.critic_obs_normalizer = nn.Identity()
 
         n_act = self.env.robot_config.actions_dim
-        action_scale = env._action_boundaries # if args.use_tanh else torch.ones(n_act, device=device)
+        self._action_boundaries = env._action_boundaries.to(device=device, dtype=torch.float32)
+
+        # Critic operates in normalized action space [-1, 1].
+        # Keep actor outputs normalized and rescale only right before env.step().
+        action_scale = torch.ones(n_act, device=device)
         action_bias = torch.zeros(n_act, device=device)
+        if not args.use_tanh:
+            raise ValueError(
+                "CQL normalized-action training requires use_tanh=True so actor outputs stay in [-1, 1]."
+            )
 
         actor_obs_keys = list(args.actor_obs_keys)
         if args.use_cnn_encoder:
@@ -365,8 +373,8 @@ class CQLAgent(BaseAlgo):
             next_observations = data["next"]["observations"]  # [B, actor_obs_dim]
             critic_observations = data["critic_observations"]  # [B, critic_obs_dim]
             next_critic_observations = data["next"]["critic_observations"]  # [B, critic_obs_dim]
-            actions = data["actions"]  # [B, action_dim]
-            # actions_normalized = self.actor.normalize_actions_for_q(actions)
+            dataset_actions = data["actions"]  # [B, action_dim] in env-action space
+            actions = self.actions_normalized(dataset_actions)  # [B, action_dim] in normalized [-1, 1] space
             rewards = data["next"]["rewards"]  # [B]
             dones = data["next"]["dones"].bool()  # [B]
             truncations = data["next"]["truncations"].bool()  # [B]
@@ -386,7 +394,7 @@ class CQLAgent(BaseAlgo):
                 target_value_max = q_target.max()
                 target_value_min = q_target.min()
 
-            q1, q2 = self.qnet(critic_observations, actions) #  [B]
+            q1, q2 = self.qnet(critic_observations, actions)  # [B], [B]
             bellman_loss = F.mse_loss(q1, q_target) + F.mse_loss(q2, q_target)
 
             bsz = actions.shape[0]
@@ -504,8 +512,6 @@ class CQLAgent(BaseAlgo):
             critic_observations = data["critic_observations"]  # [B, critic_obs_dim]
 
             actions, log_probs = self.actor.get_actions_and_log_probs(actor_observations)  # [B, act_dim], [B]
-            # actions_normalized = actions
-            # normalized_log_probs = self.actor.normalize_log_probs_for_q_action_space(log_probs)
             with torch.no_grad():
                 _, _, log_std = self.actor(actor_observations)
                 action_std = log_std.exp().mean()
@@ -771,9 +777,14 @@ class CQLAgent(BaseAlgo):
         self._restore_env_state(torch_checkpoint.get("env_state"))
 
     def actions_normalized(self, actions: torch.Tensor) -> torch.Tensor:
-        action_scale =self._action_boundaries.to(device=actions.device, dtype=actions.dtype)
-        return (actions ) / (action_scale + 1e-6)
-    
+        action_scale = self._action_boundaries.to(device=actions.device, dtype=actions.dtype)
+        normalized_actions = actions / (action_scale + 1e-6)
+        return normalized_actions.clamp(-1.0, 1.0)
+
+    def actions_denormalized(self, actions: torch.Tensor) -> torch.Tensor:
+        action_scale = self._action_boundaries.to(device=actions.device, dtype=actions.dtype)
+        return actions.clamp(-1.0, 1.0) * action_scale
+
     def offline_learn(self, max_steps: int | None = None) -> None:
         args = self.config
 
@@ -816,7 +827,6 @@ class CQLAgent(BaseAlgo):
                     normalize_critic_obs=normalize_critic_obs,
                 )
                 for data in offline_batches:
-                    data["actions"] = self.actions_normalized(data["actions"])
                     (
                         reward_mean,
                         q_grad_norm,
@@ -918,7 +928,7 @@ class CQLAgent(BaseAlgo):
                 normalized_obs = obs_normalizer(obs["actor_obs"], update=False)
             else:
                 normalized_obs = obs["actor_obs"]
-            return policy(normalized_obs)[0]
+            return self.actions_denormalized(policy(normalized_obs)[0])
 
         return policy_fn
 
@@ -928,19 +938,28 @@ class CQLAgent(BaseAlgo):
         obs_normalizer = copy.deepcopy(self.obs_normalizer).to("cpu")
 
         class ActorWrapper(nn.Module):
-            def __init__(self, actor, obs_normalizer):
+            def __init__(self, actor, obs_normalizer, action_boundaries):
                 super().__init__()
                 self.actor = actor
                 self.obs_normalizer = obs_normalizer
+                self.register_buffer("action_boundaries", action_boundaries)
 
             def forward(self, actor_obs):
                 if self.obs_normalizer is not None:
                     normalized_obs = self.obs_normalizer(actor_obs, update=False)
                 else:
                     normalized_obs = actor_obs
-                return self.actor(normalized_obs)[0]
+                normalized_actions = self.actor(normalized_obs)[0].clamp(-1.0, 1.0)
+                return normalized_actions * self.action_boundaries.to(
+                    device=normalized_actions.device,
+                    dtype=normalized_actions.dtype,
+                )
 
-        return ActorWrapper(actor, obs_normalizer if self.obs_normalization else None)
+        return ActorWrapper(
+            actor,
+            obs_normalizer if self.obs_normalization else None,
+            self._action_boundaries.to("cpu"),
+        )
 
     def export(self, onnx_file_path: str) -> None:
         was_training = self.actor.training
@@ -1001,8 +1020,7 @@ class CQLAgent(BaseAlgo):
                 normalized_obs = self.obs_normalizer(obs, update=False)
             else:
                 normalized_obs = obs
-            actions = self.actor(normalized_obs)[0]
-            actions=self._action_boundaries * actions
+            actions = self.actions_denormalized(self.actor(normalized_obs)[0])
             obs, _, _, _ = self.env.step(actions)
 
     @torch.no_grad()
@@ -1034,8 +1052,7 @@ class CQLAgent(BaseAlgo):
             else:
                 normalized_obs = obs
 
-            actions = self.actor(normalized_obs)[0]
-            actions=self._action_boundaries * actions
+            actions = self.actions_denormalized(self.actor(normalized_obs)[0])
             obs, rewards, dones, infos = self.env.step(actions)
 
             episode_return += float(rewards[eval_env_idx].item())
