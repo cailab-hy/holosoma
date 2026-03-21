@@ -366,7 +366,7 @@ class CQLAgent(BaseAlgo):
             critic_observations = data["critic_observations"]  # [B, critic_obs_dim]
             next_critic_observations = data["next"]["critic_observations"]  # [B, critic_obs_dim]
             actions = data["actions"]  # [B, action_dim]
-            actions_normalized = self.actor.normalize_actions_for_q(actions)
+            # actions_normalized = self.actor.normalize_actions_for_q(actions)
             rewards = data["next"]["rewards"]  # [B]
             dones = data["next"]["dones"].bool()  # [B]
             truncations = data["next"]["truncations"].bool()  # [B]
@@ -386,7 +386,7 @@ class CQLAgent(BaseAlgo):
                 target_value_max = q_target.max()
                 target_value_min = q_target.min()
 
-            q1, q2 = self.qnet(critic_observations, actions_normalized)  # [B], [B]
+            q1, q2 = self.qnet(critic_observations, actions) #  [B]
             bellman_loss = F.mse_loss(q1, q_target) + F.mse_loss(q2, q_target)
 
             bsz = actions.shape[0]
@@ -770,6 +770,10 @@ class CQLAgent(BaseAlgo):
         self.global_step = int(torch_checkpoint.get("global_step", 0))
         self._restore_env_state(torch_checkpoint.get("env_state"))
 
+    def actions_normalized(self, actions: torch.Tensor) -> torch.Tensor:
+        action_scale =self._action_boundaries.to(device=actions.device, dtype=actions.dtype)
+        return (actions ) / (action_scale + 1e-6)
+    
     def offline_learn(self, max_steps: int | None = None) -> None:
         args = self.config
 
@@ -811,8 +815,8 @@ class CQLAgent(BaseAlgo):
                     normalize_obs=normalize_obs,
                     normalize_critic_obs=normalize_critic_obs,
                 )
-
                 for data in offline_batches:
+                    data["actions"] = self.actions_normalized(data["actions"])
                     (
                         reward_mean,
                         q_grad_norm,
