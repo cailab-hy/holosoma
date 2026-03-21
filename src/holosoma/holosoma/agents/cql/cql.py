@@ -136,24 +136,24 @@ class Actor(nn.Module):
 
         return log_prob.sum(dim=1)
 
-    def normalize_actions_for_q(self, actions: torch.Tensor) -> torch.Tensor:
-        action_scale = self.action_scale.to(device=actions.device, dtype=actions.dtype)
-        action_bias = self.action_bias.to(device=actions.device, dtype=actions.dtype)
-        return (actions - action_bias) / (action_scale + 1e-6)
+    # def normalize_actions_for_q(self, actions: torch.Tensor) -> torch.Tensor:
+    #     action_scale = self.action_scale.to(device=actions.device, dtype=actions.dtype)
+    #     action_bias = self.action_bias.to(device=actions.device, dtype=actions.dtype)
+    #     return (actions - action_bias) / (action_scale + 1e-6)
 
-    def normalize_log_probs_for_q_action_space(self, log_probs: torch.Tensor) -> torch.Tensor:
-        # get_actions_and_log_probs returns log-probs in scaled-action measure.
-        # CQL Q-net uses normalized actions, so convert measure accordingly.
-        log_scale_sum = torch.log(self.action_scale.float() + 1e-6).sum().to(
-            device=log_probs.device, dtype=log_probs.dtype
-        )
-        return log_probs + log_scale_sum
+    # def normalize_log_probs_for_q_action_space(self, log_probs: torch.Tensor) -> torch.Tensor:
+    #     # get_actions_and_log_probs returns log-probs in scaled-action measure.
+    #     # CQL Q-net uses normalized actions, so convert measure accordingly.
+    #     log_scale_sum = torch.log(self.action_scale.float() + 1e-6).sum().to(
+    #         device=log_probs.device, dtype=log_probs.dtype
+    #     )
+    #     return log_probs + log_scale_sum
 
-    def get_actions_and_log_probs_for_q(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        actions, log_probs = self.get_actions_and_log_probs(obs)
-        actions_normalized = self.normalize_actions_for_q(actions)
-        log_probs_normalized = self.normalize_log_probs_for_q_action_space(log_probs)
-        return actions_normalized, log_probs_normalized
+    # def get_actions_and_log_probs_for_q(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    #     actions, log_probs = self.get_actions_and_log_probs(obs)
+    #     actions_normalized = self.normalize_actions_for_q(actions)
+    #     log_probs_normalized = self.normalize_log_probs_for_q_action_space(log_probs)
+    #     return actions_normalized, log_probs_normalized
 
     @torch.no_grad()
     def explore(
@@ -234,24 +234,24 @@ class CNNActor(Actor):
         )
         return torch.cat([encoder_x, state_x], -1)
 
-    def normalize_actions_for_q(self, actions: torch.Tensor) -> torch.Tensor:
-        action_scale = self.action_scale.to(device=actions.device, dtype=actions.dtype)
-        action_bias = self.action_bias.to(device=actions.device, dtype=actions.dtype)
-        return (actions - action_bias) / (action_scale + 1e-6)
+    # def normalize_actions_for_q(self, actions: torch.Tensor) -> torch.Tensor:
+    #     action_scale = self.action_scale.to(device=actions.device, dtype=actions.dtype)
+    #     action_bias = self.action_bias.to(device=actions.device, dtype=actions.dtype)
+    #     return (actions - action_bias) / (action_scale + 1e-6)
 
-    def normalize_log_probs_for_q_action_space(self, log_probs: torch.Tensor) -> torch.Tensor:
-        # get_actions_and_log_probs returns log-probs in scaled-action measure.
-        # CQL Q-net uses normalized actions, so convert measure accordingly.
-        log_scale_sum = torch.log(self.action_scale.float() + 1e-6).sum().to(
-            device=log_probs.device, dtype=log_probs.dtype
-        )
-        return log_probs + log_scale_sum
+    # def normalize_log_probs_for_q_action_space(self, log_probs: torch.Tensor) -> torch.Tensor:
+    #     # get_actions_and_log_probs returns log-probs in scaled-action measure.
+    #     # CQL Q-net uses normalized actions, so convert measure accordingly.
+    #     log_scale_sum = torch.log(self.action_scale.float() + 1e-6).sum().to(
+    #         device=log_probs.device, dtype=log_probs.dtype
+    #     )
+    #     return log_probs + log_scale_sum
 
-    def get_actions_and_log_probs_for_q(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        actions, log_probs = self.get_actions_and_log_probs(obs)
-        actions_normalized = self.normalize_actions_for_q(actions)
-        log_probs_normalized = self.normalize_log_probs_for_q_action_space(log_probs)
-        return actions_normalized, log_probs_normalized
+    # def get_actions_and_log_probs_for_q(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    #     actions, log_probs = self.get_actions_and_log_probs(obs)
+    #     actions_normalized = self.normalize_actions_for_q(actions)
+    #     log_probs_normalized = self.normalize_log_probs_for_q_action_space(log_probs)
+    #     return actions_normalized, log_probs_normalized
 
 class QNetwork(nn.Module):
     def __init__(
