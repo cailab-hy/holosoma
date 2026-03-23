@@ -373,8 +373,8 @@ class CQLAgent(BaseAlgo):
             next_observations = data["next"]["observations"]  # [B, actor_obs_dim]
             critic_observations = data["critic_observations"]  # [B, critic_obs_dim]
             next_critic_observations = data["next"]["critic_observations"]  # [B, critic_obs_dim]
-            dataset_actions = data["actions"]  # [B, action_dim] in env-action space
-            actions = self.actions_normalized(dataset_actions)  # [B, action_dim] in normalized [-1, 1] space
+            actions = data["actions"]  # [B, action_dim] in env-action space
+            #actions = self.actions_normalized(dataset_actions)  # [B, action_dim] in normalized [-1, 1] space
             rewards = data["next"]["rewards"]  # [B]
             dones = data["next"]["dones"].bool()  # [B]
             truncations = data["next"]["truncations"].bool()  # [B]
