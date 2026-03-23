@@ -373,8 +373,8 @@ class CQLAgent(BaseAlgo):
             next_observations = data["next"]["observations"]  # [B, actor_obs_dim]
             critic_observations = data["critic_observations"]  # [B, critic_obs_dim]
             next_critic_observations = data["next"]["critic_observations"]  # [B, critic_obs_dim]
-            actions = data["actions"]  # [B, action_dim] in env-action space
-            #actions = self.actions_normalized(dataset_actions)  # [B, action_dim] in normalized [-1, 1] space
+            dataset_actions = data["actions"]  # [B, action_dim] in env-action space
+            actions = self.actions_normalized(dataset_actions)  # [B, action_dim] in normalized [-1, 1] space
             rewards = data["next"]["rewards"]  # [B]
             dones = data["next"]["dones"].bool()  # [B]
             truncations = data["next"]["truncations"].bool()  # [B]
@@ -610,7 +610,7 @@ class CQLAgent(BaseAlgo):
         normalize_critic_obs,
     ) -> list[TensorDict]:
         offline_cache = self._load_offline_dataset_cache()
-        samples_per_update = batch_size * self.env.num_envs
+        samples_per_update = batch_size
         large_batch_size = samples_per_update * num_updates
         replace = large_batch_size > self._offline_num_samples
 
@@ -808,6 +808,12 @@ class CQLAgent(BaseAlgo):
             update_q = self._update_q
             update_actor = self._update_actor
 
+        if self.env.num_envs > 1 and self.is_main_process:
+            logger.warning(
+                "Offline CQL does not use vectorized environment rollouts. "
+                f"Current num_envs={self.env.num_envs} only increases simulator memory usage."
+            )
+
         normalize_obs = self.obs_normalizer.forward
         normalize_critic_obs = self.critic_obs_normalizer.forward
 
@@ -818,7 +824,7 @@ class CQLAgent(BaseAlgo):
             if self.is_multi_gpu:
                 self._synchronize_curriculum_metrics()
 
-            batch_size = max(args.batch_size // self.env.num_envs // self.gpu_world_size, 1)
+            batch_size = max(args.batch_size // self.gpu_world_size, 1)
             with self.logging_helper.record_learn_time():
                 offline_batches = self.offline_dataset_random_sampling(
                     batch_size=batch_size,

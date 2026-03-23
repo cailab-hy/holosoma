@@ -332,7 +332,7 @@ class CQLConfig:
     tau: float = 0.125
     """target smoothing coefficient (default: 0.005)"""
 
-    batch_size: int = 8192
+    batch_size: int = 2048
     """the batch size of sample from the replay memory"""
 
     learning_starts: int = 10

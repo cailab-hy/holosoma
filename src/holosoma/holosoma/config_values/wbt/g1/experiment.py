@@ -140,7 +140,7 @@ g1_29dof_wbt_cql = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
         name="g1_29dof_wbt_cql_manager",
-        num_envs=8192,
+        num_envs=1,
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
     algo=replace(
@@ -152,9 +152,9 @@ g1_29dof_wbt_cql = ExperimentConfig(
             num_updates=4,
             target_entropy_ratio=0.5,
             tau=0.05,
-            cql_num_action_samples=20,
+            cql_num_action_samples=10,
             cql_temperature=1.0,
-            cql_weight=1,
+            cql_weight=0.05,
             use_tanh=True,
             use_symmetry=False,
         ),
@@ -203,7 +203,7 @@ g1_29dof_wbt_iql = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
         name="g1_29dof_wbt_iql_manager",
-        num_envs=8192,
+        num_envs=1,
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
     algo=replace(
