@@ -165,6 +165,7 @@ class CQL_RHO_Agent(BaseAlgo):
         self._offline_dataset_path = Path(config.offline_dataset_path)
         self._offline_dataset_cache: dict[str, torch.Tensor] | None = None
         self._offline_num_samples = 0
+        self._critic_update_step = 0
 
         if config.cql_num_action_samples <= 0:
             raise ValueError(f"cql_num_action_samples must be > 0, got {config.cql_num_action_samples}")
@@ -178,6 +179,8 @@ class CQL_RHO_Agent(BaseAlgo):
             raise ValueError(f"tau must be in (0, 1], got {config.tau}")
         if config.alpha_init <= 0.0:
             raise ValueError(f"alpha_init must be > 0, got {config.alpha_init}")
+        if config.policy_frequency <= 0:
+            raise ValueError(f"policy_frequency must be > 0, got {config.policy_frequency}")
         if not (0.0 < self._rho <= 1.0):
             raise ValueError(f"cvar_alpha (rho) must be in (0, 1], got {self._rho}")
 
@@ -909,7 +912,18 @@ class CQL_RHO_Agent(BaseAlgo):
                         cql_gap,
                         q_data_mean,
                     ) = update_q(data)
-                    actor_grad_norm, actor_loss, policy_entropy, action_std = update_actor(data)
+                    self._critic_update_step += 1
+                    is_actor_warmup = self.global_step <= args.actor_warmup_steps
+                    is_actor_update_step = (not is_actor_warmup) and (
+                        self._critic_update_step % args.policy_frequency == 0
+                    )
+                    if is_actor_update_step:
+                        actor_grad_norm, actor_loss, policy_entropy, action_std = update_actor(data)
+                    else:
+                        actor_grad_norm = torch.tensor(0.0, device=self.device)
+                        actor_loss = torch.tensor(0.0, device=self.device)
+                        policy_entropy = torch.tensor(0.0, device=self.device)
+                        action_std = torch.tensor(0.0, device=self.device)
                     self._soft_update_q_target()
 
                     self.training_metrics.add(
@@ -929,6 +943,8 @@ class CQL_RHO_Agent(BaseAlgo):
                             "cql_bellman_loss": bellman_loss,
                             "cql_gap": cql_gap,
                             "q_data_mean": q_data_mean,
+                            "is_actor_warmup": float(is_actor_warmup),
+                            "is_actor_update_step": float(is_actor_update_step),
                         }
                     )
 

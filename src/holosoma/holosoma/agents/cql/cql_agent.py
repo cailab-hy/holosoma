@@ -162,6 +162,7 @@ class CQLAgent(BaseAlgo):
         self._offline_dataset_path = Path(config.offline_dataset_path)
         self._offline_dataset_cache: dict[str, torch.Tensor] | None = None
         self._offline_num_samples = 0
+        self._critic_update_step = 0
 
         if config.cql_num_action_samples <= 0:
             raise ValueError(f"cql_num_action_samples must be > 0, got {config.cql_num_action_samples}")
@@ -175,6 +176,8 @@ class CQLAgent(BaseAlgo):
             raise ValueError(f"tau must be in (0, 1], got {config.tau}")
         if config.alpha_init <= 0.0:
             raise ValueError(f"alpha_init must be > 0, got {config.alpha_init}")
+        if config.policy_frequency <= 0:
+            raise ValueError(f"policy_frequency must be > 0, got {config.policy_frequency}")
 
     def setup(self) -> None:
         logger.info("Setting up scalar offline CQL")
@@ -940,7 +943,12 @@ class CQLAgent(BaseAlgo):
                         q_data_mean,
                     ) = update_q(data)
 
-                    if self.global_step > args.actor_warmup_steps:
+                    self._critic_update_step += 1
+                    is_actor_warmup = self.global_step <= args.actor_warmup_steps
+                    is_actor_update_step = (not is_actor_warmup) and (
+                        self._critic_update_step % args.policy_frequency == 0
+                    )
+                    if is_actor_update_step:
                         actor_grad_norm, actor_loss, policy_entropy, action_std = update_actor(data)
                     else:
                         actor_grad_norm = torch.tensor(0.0, device=self.device)
@@ -968,7 +976,8 @@ class CQLAgent(BaseAlgo):
                             "cql_bellman_loss": bellman_loss,
                             "cql_gap": cql_gap,
                             "q_data_mean": q_data_mean,
-                            "is_actor_warmup": float(self.global_step <= args.actor_warmup_steps),
+                            "is_actor_warmup": float(is_actor_warmup),
+                            "is_actor_update_step": float(is_actor_update_step),
                             **action_ood_stats,
                         }
                     )
