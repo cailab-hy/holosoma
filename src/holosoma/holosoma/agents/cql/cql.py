@@ -83,12 +83,11 @@ class Actor(nn.Module):
         log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (log_std + 1)
 
         if self.use_tanh:
-            tanh_mean = torch.tanh(mean)
-            action = tanh_mean * self.action_scale + self.action_bias
+            u_action = torch.tanh(mean)
         else:
-            action = mean
+            u_action = mean
 
-        return action, mean, log_std
+        return u_action, mean, log_std
 
     def get_actions_and_log_probs(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         _, mean, log_std = self(obs)
@@ -97,24 +96,21 @@ class Actor(nn.Module):
         raw_action = dist.rsample()
 
         if self.use_tanh:
-            tanh_action = torch.tanh(raw_action)
-            action = tanh_action * self.action_scale + self.action_bias
-
+            u_action = torch.tanh(raw_action)
             log_prob = dist.log_prob(raw_action)
-            log_prob -= torch.log(1 - tanh_action.pow(2) + 1e-6)
-            log_prob -= torch.log(self.action_scale + 1e-6)
+            log_prob -= torch.log(1 - u_action.pow(2) + 1e-6)
         else:
-            action = raw_action
+            u_action = raw_action
             log_prob = dist.log_prob(raw_action)
 
-        return action, log_prob.sum(1)
+        return u_action, log_prob.sum(1)
 
-    def log_prob_dataset_actions(self, obs: torch.Tensor, dataset_actions: torch.Tensor) -> torch.Tensor:
-        """Compute log pi(a_data | s) for squashed Gaussian actor.
+    def log_prob_dataset_actions(self, obs: torch.Tensor, dataset_u_actions: torch.Tensor) -> torch.Tensor:
+        """Compute log pi(u_data | s) for squashed Gaussian actor in normalized u-space.
 
         Shapes:
         - obs: [B, actor_obs_dim]
-        - dataset_actions: [B, action_dim] (already in scaled action space)
+        - dataset_u_actions: [B, action_dim] (normalized action space)
         - return: [B]
         """
         _, mean, log_std = self(obs)
@@ -122,17 +118,15 @@ class Actor(nn.Module):
         dist = torch.distributions.Normal(mean, std)
 
         if self.use_tanh:
-            normalized_action = (dataset_actions - self.action_bias) / (self.action_scale + 1e-6)
-            normalized_action = normalized_action.clamp(-1.0 + 1e-6, 1.0 - 1e-6)
+            dataset_u_actions = dataset_u_actions.clamp(-1.0 + 1e-6, 1.0 - 1e-6)
 
             # atanh(x) = 0.5 * (log(1 + x) - log(1 - x))
-            raw_action = 0.5 * (torch.log1p(normalized_action) - torch.log1p(-normalized_action))
+            raw_action = 0.5 * (torch.log1p(dataset_u_actions) - torch.log1p(-dataset_u_actions))
 
             log_prob = dist.log_prob(raw_action)
-            log_prob -= torch.log(1 - normalized_action.pow(2) + 1e-6)
-            log_prob -= torch.log(self.action_scale + 1e-6)
+            log_prob -= torch.log(1 - dataset_u_actions.pow(2) + 1e-6)
         else:
-            log_prob = dist.log_prob(dataset_actions)
+            log_prob = dist.log_prob(dataset_u_actions)
 
         return log_prob.sum(dim=1)
 
@@ -144,24 +138,20 @@ class Actor(nn.Module):
         dones: torch.Tensor | None = None,
         deterministic: bool = False,
     ) -> torch.Tensor:
-        _, mean, log_std = self(obs)
+        u_action_mean, mean, log_std = self(obs)
         if deterministic:
-            if self.use_tanh:
-                tanh_mean = torch.tanh(mean)
-                return tanh_mean * self.action_scale + self.action_bias
-            return mean
+            return u_action_mean
 
         std = log_std.exp()
         dist = torch.distributions.Normal(mean, std)
         raw_action = dist.rsample()
 
         if self.use_tanh:
-            tanh_action = torch.tanh(raw_action)
-            action = tanh_action * self.action_scale + self.action_bias
+            u_action = torch.tanh(raw_action)
         else:
-            action = raw_action
+            u_action = raw_action
 
-        return action
+        return u_action
 
     def process_obs(self, obs: torch.Tensor) -> torch.Tensor:
         return torch.cat(
@@ -304,5 +294,4 @@ def calculate_cnn_output_dim(input_shape: tuple[int, int, int]) -> int:
     w2 = (w1 + 2 * 1 - 4) // 2 + 1
 
     return 16 * h2 * w2
-
 

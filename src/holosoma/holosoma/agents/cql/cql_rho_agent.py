@@ -304,16 +304,14 @@ class CQL_RHO_Agent(BaseAlgo):
             betas=(0.9, 0.95),
         )
 
-        self._log_action_scale_sum = torch.log(self.actor.action_scale.float() + 1e-6).sum().to(device=device)
+        def _env_policy(obs: torch.Tensor, dones: torch.Tensor | None = None, deterministic: bool = False) -> torch.Tensor:
+            u_actions = self.actor.explore(obs, dones=dones, deterministic=deterministic)
+            return self._to_env_actions(u_actions)
 
-        self.policy = self.actor.explore
+        self.policy = _env_policy
         logger.info(
             f"CQL(rho) dims: actor_obs_dim={actor_obs_dim}, critic_obs_dim={critic_obs_dim}, "
             f"n_act={n_act}, rho={self._rho:.3f}"
-        )
-        logger.info(
-            f"CQL(rho) action-scale entropy offset (sum log action_scale) = "
-            f"{self._log_action_scale_sum.item():.3f}"
         )
 
         if args.use_symmetry:
@@ -360,17 +358,25 @@ class CQL_RHO_Agent(BaseAlgo):
             torch._foreach_mul_(tgt_ps, 1.0 - self.config.tau)
             torch._foreach_add_(tgt_ps, src_ps, alpha=self.config.tau)
 
-    def _to_normalized_action_log_prob(self, log_probs: torch.Tensor) -> torch.Tensor:
-        # Actor returns log-prob in final scaled-action measure.
-        # For entropy/autotuning in u-space, remove constant action-scale Jacobian term.
-        log_scale_sum = self._log_action_scale_sum.to(device=log_probs.device, dtype=log_probs.dtype)
-        return log_probs + log_scale_sum
-
     def _to_u_actions(self, actions: torch.Tensor) -> torch.Tensor:
-        # Map final action-space tensors to normalized u-space in [-1, 1].
+        # Map env action-space tensors to normalized u-space in [-1, 1].
         action_scale = self.actor.action_scale.to(device=actions.device, dtype=actions.dtype)
         action_bias = self.actor.action_bias.to(device=actions.device, dtype=actions.dtype)
         return ((actions - action_bias) / (action_scale + 1e-6)).clamp(-1.0, 1.0)
+
+    def _to_env_actions(self, u_actions: torch.Tensor) -> torch.Tensor:
+        # Map normalized u-space tensors in [-1, 1] to env action-space.
+        action_scale = self.actor.action_scale.to(device=u_actions.device, dtype=u_actions.dtype)
+        action_bias = self.actor.action_bias.to(device=u_actions.device, dtype=u_actions.dtype)
+        return u_actions * action_scale + action_bias
+
+    def _maybe_to_u_actions(self, actions: torch.Tensor) -> torch.Tensor:
+        if actions.numel() == 0:
+            return actions
+        max_abs = actions.detach().abs().max()
+        if bool((max_abs <= 1.05).item()):
+            return actions.clamp(-1.0, 1.0)
+        return self._to_u_actions(actions)
 
     def _rho_tail_mean(self, values: torch.Tensor) -> torch.Tensor:
         # rho == 1.0: standard batch mean (vanilla CQL)
@@ -406,8 +412,7 @@ class CQL_RHO_Agent(BaseAlgo):
             next_observations = data["next"]["observations"]  # [B, actor_obs_dim]
             critic_observations = data["critic_observations"]  # [B, critic_obs_dim]
             next_critic_observations = data["next"]["critic_observations"]  # [B, critic_obs_dim]
-            dataset_actions = data["actions"]  # [B, action_dim] in final env-action space
-            dataset_actions_u = self._to_u_actions(dataset_actions)  # [B, action_dim] in normalized u-space
+            dataset_actions_u = self._maybe_to_u_actions(data["actions"])  # [B, action_dim] in normalized u-space
             rewards = data["next"]["rewards"]  # [B]
             dones = data["next"]["dones"].bool()  # [B]
             truncations = data["next"]["truncations"].bool()  # [B]
@@ -416,21 +421,19 @@ class CQL_RHO_Agent(BaseAlgo):
             alpha = self.log_alpha.exp().detach()
 
             with torch.no_grad():
-                next_state_actions, next_state_log_probs = self.actor.get_actions_and_log_probs(next_observations)
-                next_state_actions_u = self._to_u_actions(next_state_actions)
-                next_state_log_probs = self._to_normalized_action_log_prob(next_state_log_probs)
+                next_state_actions_u, next_state_log_probs_u = self.actor.get_actions_and_log_probs(next_observations)
                 discount = args.gamma ** data["next"]["effective_n_steps"]  # [B]
                 next_q1_target, next_q2_target = self.qnet_target(next_critic_observations, next_state_actions_u)
                 next_target_min_q = torch.minimum(next_q1_target, next_q2_target)  # [B]
 
-                q_target = rewards + discount * bootstrap * (next_target_min_q - alpha * next_state_log_probs)
+                q_target = rewards + discount * bootstrap * (next_target_min_q - alpha * next_state_log_probs_u)
                 target_value_max = q_target.max()
                 target_value_min = q_target.min()
 
             q1, q2 = self.qnet(critic_observations, dataset_actions_u)  # [B], [B] in u-space
             bellman_loss = F.mse_loss(q1, q_target) + F.mse_loss(q2, q_target)
 
-            bsz = dataset_actions.shape[0]
+            bsz = dataset_actions_u.shape[0]
             num_repeat = self._num_repeat_actions
 
             # Candidate-action expansion for CQL:
@@ -444,14 +447,10 @@ class CQL_RHO_Agent(BaseAlgo):
             )
 
             with torch.no_grad():
-                curr_actions, curr_logp = self.actor.get_actions_and_log_probs(expanded_obs)
-                next_actions, next_logp = self.actor.get_actions_and_log_probs(expanded_next_obs)
+                curr_actions_u, curr_logp_u = self.actor.get_actions_and_log_probs(expanded_obs)
+                next_actions_u, next_logp_u = self.actor.get_actions_and_log_probs(expanded_next_obs)
 
-            curr_actions_u = self._to_u_actions(curr_actions)
-            next_actions_u = self._to_u_actions(next_actions)
-            curr_logp = self._to_normalized_action_log_prob(curr_logp)
-            next_logp = self._to_normalized_action_log_prob(next_logp)
-            rand_actions = torch.empty(bsz * num_repeat, dataset_actions.shape[-1], device=self.device).uniform_(-1.0, 1.0)
+            rand_actions = torch.empty(bsz * num_repeat, dataset_actions_u.shape[-1], device=self.device).uniform_(-1.0, 1.0)
 
             q1_rand, q2_rand = self.qnet(expanded_critic_obs, rand_actions)
             q1_curr, q2_curr = self.qnet(expanded_critic_obs, curr_actions_u)
@@ -464,27 +463,27 @@ class CQL_RHO_Agent(BaseAlgo):
             q1_next = q1_next.view(bsz, num_repeat)
             q2_next = q2_next.view(bsz, num_repeat)
 
-            curr_logp = curr_logp.view(bsz, num_repeat)
-            next_logp = next_logp.view(bsz, num_repeat)
+            curr_logp_u = curr_logp_u.view(bsz, num_repeat)
+            next_logp_u = next_logp_u.view(bsz, num_repeat)
 
             # Uniform random-action proposal in normalized u-space [-1, 1]^D:
             # mu(u) = 0.5^D
             # log mu(u) = D * log(0.5)
-            random_density = math.log(0.5) * dataset_actions.shape[-1]
+            random_density = math.log(0.5) * dataset_actions_u.shape[-1]
 
             cat_q1 = torch.cat(
                 [
                     q1_rand - random_density,
-                    q1_curr - curr_logp,
-                    q1_next - next_logp,
+                    q1_curr - curr_logp_u,
+                    q1_next - next_logp_u,
                 ],
                 dim=1,
             )
             cat_q2 = torch.cat(
                 [
                     q2_rand - random_density,
-                    q2_curr - curr_logp,
-                    q2_next - next_logp,
+                    q2_curr - curr_logp_u,
+                    q2_next - next_logp_u,
                 ],
                 dim=1,
             )
@@ -520,9 +519,8 @@ class CQL_RHO_Agent(BaseAlgo):
         if self.config.use_autotune:
             self.alpha_optimizer.zero_grad(set_to_none=True)
             with self._maybe_amp():
-                _, log_probs = self.actor.get_actions_and_log_probs(observations)
-                log_probs_for_alpha = self._to_normalized_action_log_prob(log_probs)
-                alpha_loss = (-self.log_alpha.exp() * (log_probs_for_alpha.detach() + self.target_entropy)).mean()
+                _, log_probs_u = self.actor.get_actions_and_log_probs(observations)
+                alpha_loss = (-self.log_alpha.exp() * (log_probs_u.detach() + self.target_entropy)).mean()
             scaler.scale(alpha_loss).backward()
 
             if self.is_multi_gpu and self.log_alpha.grad is not None:
@@ -557,17 +555,15 @@ class CQL_RHO_Agent(BaseAlgo):
             actor_observations = data["observations"]  # [B, actor_obs_dim]
             critic_observations = data["critic_observations"]  # [B, critic_obs_dim]
 
-            actions, log_probs = self.actor.get_actions_and_log_probs(actor_observations)  # [B, act_dim], [B]
-            actions_u = self._to_u_actions(actions)
-            log_probs = self._to_normalized_action_log_prob(log_probs)
+            actions_u, log_probs_u = self.actor.get_actions_and_log_probs(actor_observations)  # [B, act_dim], [B]
             with torch.no_grad():
                 _, _, log_std = self.actor(actor_observations)
                 action_std = log_std.exp().mean()
-                policy_entropy = -log_probs.mean()
+                policy_entropy = -log_probs_u.mean()
 
             q1_pi, q2_pi = self.qnet(critic_observations, actions_u)
             qf_value = torch.minimum(q1_pi, q2_pi)
-            actor_loss = (self.log_alpha.exp().detach() * log_probs - qf_value).mean()
+            actor_loss = (self.log_alpha.exp().detach() * log_probs_u - qf_value).mean()
 
         self.actor_optimizer.zero_grad(set_to_none=True)
         scaler.scale(actor_loss).backward()
@@ -759,6 +755,9 @@ class CQL_RHO_Agent(BaseAlgo):
             )  # type: ignore[index]
             large_data = augmented_large_data
 
+        # Keep sampled dataset actions in normalized u-space for all learning updates.
+        large_data["actions"] = self._maybe_to_u_actions(large_data["actions"]).clamp(-1.0, 1.0)
+
         large_data["observations"] = normalize_obs(large_data["observations"])
         large_data["next"]["observations"] = normalize_obs(large_data["next"]["observations"])
         large_data["critic_observations"] = normalize_critic_obs(large_data["critic_observations"])
@@ -795,6 +794,13 @@ class CQL_RHO_Agent(BaseAlgo):
             return
 
         torch_checkpoint = torch.load(ckpt_path, map_location=self.device, weights_only=False)
+        checkpoint_action_mode = torch_checkpoint.get("action_space_mode", "legacy_env_scaled_actor")
+        if checkpoint_action_mode != "u_space_normalized_training_v2":
+            logger.warning(
+                "Loading a legacy checkpoint saved before full normalized-action training mode "
+                "(action_space_mode=u_space_normalized_training_v2). "
+                "Weights are compatible, but policy semantics/log-prob measure differ."
+            )
 
         checkpoint_args = torch_checkpoint.get("args", {})
         checkpoint_obs_norm = checkpoint_args.get("obs_normalization")
@@ -973,6 +979,8 @@ class CQL_RHO_Agent(BaseAlgo):
 
     def save(self, path: str) -> None:  # type: ignore[override]
         env_state = self._collect_env_state()
+        metadata = self._checkpoint_metadata(iteration=self.global_step)
+        metadata["action_space_mode"] = "u_space_normalized_training_v2"
         save_params(
             self.global_step,
             self.actor,
@@ -989,7 +997,7 @@ class CQL_RHO_Agent(BaseAlgo):
             path,
             save_fn=self.logging_helper.save_checkpoint_artifact,
             env_state=env_state or None,
-            metadata=self._checkpoint_metadata(iteration=self.global_step),
+            metadata=metadata,
         )
 
     @torch.no_grad()
@@ -1014,7 +1022,8 @@ class CQL_RHO_Agent(BaseAlgo):
                 normalized_obs = obs_normalizer(obs["actor_obs"], update=False)
             else:
                 normalized_obs = obs["actor_obs"]
-            return policy(normalized_obs)[0]
+            u_actions = policy(normalized_obs)[0]
+            return self._to_env_actions(u_actions)
 
         return policy_fn
 
@@ -1022,23 +1031,30 @@ class CQL_RHO_Agent(BaseAlgo):
     def actor_onnx_wrapper(self):
         actor = copy.deepcopy(self.actor).to("cpu")
         obs_normalizer = copy.deepcopy(self.obs_normalizer).to("cpu")
+        action_scale = copy.deepcopy(self.actor.action_scale).to("cpu")
+        action_bias = copy.deepcopy(self.actor.action_bias).to("cpu")
 
         class ActorWrapper(nn.Module):
-            def __init__(self, actor, obs_normalizer):
+            def __init__(self, actor, obs_normalizer, action_scale, action_bias):
                 super().__init__()
                 self.actor = actor
                 self.obs_normalizer = obs_normalizer
+                self.register_buffer("action_scale", action_scale)
+                self.register_buffer("action_bias", action_bias)
 
             def forward(self, actor_obs):
                 if self.obs_normalizer is not None:
                     normalized_obs = self.obs_normalizer(actor_obs, update=False)
                 else:
                     normalized_obs = actor_obs
-                return self.actor(normalized_obs)[0]
+                u_actions = self.actor(normalized_obs)[0]
+                return u_actions * self.action_scale + self.action_bias
 
         return ActorWrapper(
             actor,
             obs_normalizer if self.obs_normalization else None,
+            action_scale,
+            action_bias,
         )
 
     def export(self, onnx_file_path: str) -> None:
@@ -1100,8 +1116,9 @@ class CQL_RHO_Agent(BaseAlgo):
                 normalized_obs = self.obs_normalizer(obs, update=False)
             else:
                 normalized_obs = obs
-            actions = self.actor(normalized_obs)[0]
-            obs, _, _, _ = self.env.step(actions)
+            u_actions = self.actor(normalized_obs)[0]
+            env_actions = self._to_env_actions(u_actions)
+            obs, _, _, _ = self.env.step(env_actions)
 
     @torch.no_grad()
     def evaluate_one_episode(
@@ -1132,8 +1149,9 @@ class CQL_RHO_Agent(BaseAlgo):
             else:
                 normalized_obs = obs
 
-            actions = self.actor(normalized_obs)[0]
-            obs, rewards, dones, infos = self.env.step(actions)
+            u_actions = self.actor(normalized_obs)[0]
+            env_actions = self._to_env_actions(u_actions)
+            obs, rewards, dones, infos = self.env.step(env_actions)
 
             episode_return += float(rewards[eval_env_idx].item())
             episode_length += 1
