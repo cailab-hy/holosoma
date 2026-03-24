@@ -654,23 +654,23 @@ class CQLAgent(BaseAlgo):
                 # log mu(u) = D * log(0.5)
                 random_density = math.log(0.5) * dataset_actions_u.shape[-1]
 
-                rand_overflow = self._compute_support_overflow(rand_actions).view(bsz, num_repeat)
-                curr_overflow = self._compute_support_overflow(curr_actions_u).view(bsz, num_repeat)
-                next_overflow = self._compute_support_overflow(next_actions_u).view(bsz, num_repeat)
+                # rand_overflow = self._compute_support_overflow(rand_actions).view(bsz, num_repeat)
+                # curr_overflow = self._compute_support_overflow(curr_actions_u).view(bsz, num_repeat)
+                # next_overflow = self._compute_support_overflow(next_actions_u).view(bsz, num_repeat)
 
-                rand_focus_weight = self._boundary_focus_weight(rand_overflow)
-                curr_focus_weight = self._boundary_focus_weight(curr_overflow)
-                next_focus_weight = self._boundary_focus_weight(next_overflow)
+                # rand_focus_weight = self._boundary_focus_weight(rand_overflow)
+                # curr_focus_weight = self._boundary_focus_weight(curr_overflow)
+                # next_focus_weight = self._boundary_focus_weight(next_overflow)
 
                 cat_q1_terms = [
-                    q1_rand - random_density + rand_focus_weight,
-                    q1_curr - curr_logp_u + curr_focus_weight,
-                    q1_next - next_logp_u + next_focus_weight,
+                    q1_rand - random_density, #+ rand_focus_weight,
+                    q1_curr - curr_logp_u, #+ curr_focus_weight,
+                    q1_next - next_logp_u, #+ next_focus_weight,
                 ]
                 cat_q2_terms = [
-                    q2_rand - random_density + rand_focus_weight,
-                    q2_curr - curr_logp_u + curr_focus_weight,
-                    q2_next - next_logp_u + next_focus_weight,
+                    q2_rand - random_density, #+ rand_focus_weight,
+                    q2_curr - curr_logp_u, #+ curr_focus_weight,
+                    q2_next - next_logp_u, #+ next_focus_weight,
                 ]
 
                 boundary_overflow_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
@@ -706,19 +706,21 @@ class CQLAgent(BaseAlgo):
                 cat_q1 = torch.cat(cat_q1_terms, dim=1)
                 cat_q2 = torch.cat(cat_q2_terms, dim=1)
 
-                proposal_focus_bonus_mean = torch.cat(
-                    [
-                        rand_focus_weight,
-                        curr_focus_weight,
-                        next_focus_weight,
-                    ]
-                    + (
-                        [boundary_focus_weight]
-                        if self._use_boundary_proposal
-                        else []
-                    ),
-                    dim=1,
-                )
+                proposal_focus_bonus_mean = boundary_focus_weight
+
+                # proposal_focus_bonus_mean = torch.cat(
+                #     [
+                #         rand_focus_weight,
+                #         curr_focus_weight,
+                #         next_focus_weight,
+                #     ]
+                #     + (
+                #         [boundary_focus_weight]
+                #         if self._use_boundary_proposal
+                #         else []
+                #     ),
+                #     dim=1,
+                # )
                 proposal_focus_bonus_mean = proposal_focus_bonus_mean.mean()
 
                 cql1_loss = (torch.logsumexp(cat_q1 / self._temperature, dim=1) * self._temperature - q1).mean()
@@ -726,9 +728,9 @@ class CQLAgent(BaseAlgo):
 
                 conservative_loss = self._cql_weight * (cql1_loss + cql2_loss)
                 cql_gap = 0.5 * (cql1_loss + cql2_loss)
-                rand_overflow_mean = rand_overflow.mean()
-                curr_overflow_mean = curr_overflow.mean()
-                next_overflow_mean = next_overflow.mean()
+                rand_overflow_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                curr_overflow_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                next_overflow_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             else:
                 conservative_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 cql_gap = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
