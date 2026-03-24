@@ -1,3 +1,4 @@
+import dataclasses
 from holosoma.config_types.algo import (
     FastSACAlgoConfig,
     FastSACConfig,
@@ -159,6 +160,12 @@ cql = CQLAlgoConfig(
     ),
 )
 
+
+cql_rho = dataclasses.replace(
+    cql,
+    _target_="holosoma.agents.cql.cql_rho_agent.CQL_RHO_Agent",
+)
+
 iql = IQLAlgoConfig(
     _target_="holosoma.agents.iql.iql_agent.IQLAgent",
     _recursive_=False,
@@ -204,5 +211,6 @@ DEFAULTS = {
     "ppo": ppo,
     "fast_sac": fast_sac,
     "cql": cql,
+    "cql_rho": cql_rho,
     "iql": iql,
 }
