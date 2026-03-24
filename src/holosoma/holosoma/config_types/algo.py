@@ -443,7 +443,7 @@ class CQLConfig:
     use_cnn_encoder: bool = False
     """whether to use CNN for the encoder"""
 
-    actor_warmup_steps: int = 1000
+    actor_warmup_steps: int = 500
     # offline 붕괴 방지
 
     actor_obs_keys: List[str] = field(default_factory=lambda: ["actor_obs"])
