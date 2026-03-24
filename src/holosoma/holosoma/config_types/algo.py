@@ -356,6 +356,27 @@ class CQLConfig:
     cql_weight: float = 5.0
     """weight of conservative quantile regularization"""
 
+    use_boundary_proposal: bool = True
+    """whether to add structured support-boundary negative proposals"""
+
+    boundary_num_action_samples: int = 10
+    """number of repeated boundary-focused negative actions per state"""
+
+    boundary_eps: float = 0.05
+    """small outward overflow factor relative to (p99 - p1) support width"""
+
+    boundary_noise_scale: float = 0.02
+    """noise scale for boundary proposals relative to support width"""
+
+    boundary_focus_mu: float = 0.05
+    """target overflow level where conservative weighting peaks"""
+
+    boundary_focus_sigma: float = 0.05
+    """spread of overflow-focused weighting (must be > 0)"""
+
+    boundary_focus_scale: float = 2.0
+    """amplitude of boundary-focused weighting bonus on conservative logits"""
+
     target_entropy_ratio: float = 0.0
     """the ratio of the target entropy to the number of actions"""
 

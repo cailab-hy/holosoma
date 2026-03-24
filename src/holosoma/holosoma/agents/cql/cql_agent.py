@@ -158,6 +158,15 @@ class CQLAgent(BaseAlgo):
         self._num_repeat_actions = config.cql_num_action_samples
         self._temperature = config.cql_temperature
         self._cql_weight = config.cql_weight
+        self._use_boundary_proposal = config.use_boundary_proposal
+        self._boundary_num_repeat_actions = config.boundary_num_action_samples
+
+        # Offline action-support statistics in normalized u-space.
+        self._action_p1: torch.Tensor | None = None
+        self._action_p50: torch.Tensor | None = None
+        self._action_p99: torch.Tensor | None = None
+        self._action_mean: torch.Tensor | None = None
+        self._action_std: torch.Tensor | None = None
 
         self._offline_dataset_path = Path(config.offline_dataset_path)
         self._offline_dataset_cache: dict[str, torch.Tensor] | None = None
@@ -170,6 +179,18 @@ class CQLAgent(BaseAlgo):
             raise ValueError(f"cql_temperature must be > 0, got {config.cql_temperature}")
         if config.cql_weight < 0.0:
             raise ValueError(f"cql_weight must be >= 0, got {config.cql_weight}")
+        if config.boundary_num_action_samples <= 0:
+            raise ValueError(
+                f"boundary_num_action_samples must be > 0, got {config.boundary_num_action_samples}"
+            )
+        if config.boundary_eps < 0.0:
+            raise ValueError(f"boundary_eps must be >= 0, got {config.boundary_eps}")
+        if config.boundary_noise_scale < 0.0:
+            raise ValueError(f"boundary_noise_scale must be >= 0, got {config.boundary_noise_scale}")
+        if config.boundary_focus_sigma <= 0.0:
+            raise ValueError(f"boundary_focus_sigma must be > 0, got {config.boundary_focus_sigma}")
+        if config.boundary_focus_scale < 0.0:
+            raise ValueError(f"boundary_focus_scale must be >= 0, got {config.boundary_focus_scale}")
         if config.gamma <= 0.0 or config.gamma > 1.0:
             raise ValueError(f"gamma must be in (0, 1], got {config.gamma}")
         if config.tau <= 0.0 or config.tau > 1.0:
@@ -373,6 +394,106 @@ class CQLAgent(BaseAlgo):
         return self._to_u_actions(actions)
 
     @torch.no_grad()
+    def _compute_and_store_action_support_stats(self, offline_actions: torch.Tensor) -> None:
+        """Compute dataset action support stats in normalized u-space and cache them."""
+        actions_u = self._maybe_to_u_actions(offline_actions).float().clamp(-1.0, 1.0)  # [N, act_dim]
+        quantiles = torch.tensor([0.01, 0.50, 0.99], device=actions_u.device, dtype=actions_u.dtype)
+        action_q = torch.quantile(actions_u, q=quantiles, dim=0)  # [3, act_dim]
+
+        self._action_p1 = action_q[0].to(self.device)
+        self._action_p50 = action_q[1].to(self.device)
+        self._action_p99 = action_q[2].to(self.device)
+        self._action_mean = actions_u.mean(dim=0).to(self.device)
+        self._action_std = actions_u.std(dim=0, unbiased=False).clamp_min(1e-6).to(self.device)
+
+        support_width = (self._action_p99 - self._action_p1).clamp_min(1e-6)
+        logger.info(
+            "Stored action support stats (u-space): "
+            f"mean(p1)={self._action_p1.mean().item():.4f}, "
+            f"mean(p50)={self._action_p50.mean().item():.4f}, "
+            f"mean(p99)={self._action_p99.mean().item():.4f}, "
+            f"mean(width)={support_width.mean().item():.4f}"
+        )
+
+    def _get_action_support_stats(
+        self, ref_tensor: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        if (
+            self._action_p1 is None
+            or self._action_p50 is None
+            or self._action_p99 is None
+            or self._action_mean is None
+            or self._action_std is None
+        ):
+            raise RuntimeError(
+                "Action support statistics are not initialized. "
+                "Run _load_offline_dataset_cache() before CQL updates."
+            )
+
+        return (
+            self._action_p1.to(device=ref_tensor.device, dtype=ref_tensor.dtype),
+            self._action_p50.to(device=ref_tensor.device, dtype=ref_tensor.dtype),
+            self._action_p99.to(device=ref_tensor.device, dtype=ref_tensor.dtype),
+            self._action_mean.to(device=ref_tensor.device, dtype=ref_tensor.dtype),
+            self._action_std.to(device=ref_tensor.device, dtype=ref_tensor.dtype),
+        )
+
+    def _sample_boundary_negative_actions(self, dataset_actions_u: torch.Tensor, num_repeat: int) -> torch.Tensor:
+        """Sample structured negatives just outside dataset support boundaries in u-space.
+
+        Args:
+            dataset_actions_u: [B, act_dim] normalized dataset actions.
+            num_repeat: number of negatives per state.
+
+        Returns:
+            boundary_actions_u: [B * num_repeat, act_dim]
+        """
+        if num_repeat <= 0:
+            raise ValueError(f"num_repeat must be > 0, got {num_repeat}")
+
+        bsz, act_dim = dataset_actions_u.shape
+        repeated_actions = dataset_actions_u[:, None, :].expand(bsz, num_repeat, act_dim).reshape(bsz * num_repeat, act_dim)
+        p1, p50, p99, _, _ = self._get_action_support_stats(repeated_actions)
+
+        support_width = (p99 - p1).clamp_min(1e-3)  # [act_dim]
+        direction = torch.where(repeated_actions >= p50, 1.0, -1.0)  # outward sign from median
+
+        dist_to_boundary = torch.where(
+            direction > 0.0,
+            (p99 - repeated_actions).clamp_min(0.0),
+            (repeated_actions - p1).clamp_min(0.0),
+        )  # [B*N, act_dim]
+
+        overflow_mag = (
+            self.config.boundary_eps * support_width
+            + self.config.boundary_noise_scale * support_width * torch.randn_like(repeated_actions).abs()
+        ).clamp_min(1e-6)
+
+        # Push each action to the nearest outward boundary, then slightly overflow.
+        boundary_actions_u = (repeated_actions + direction * (dist_to_boundary + overflow_mag)).clamp(-1.0, 1.0)
+        return boundary_actions_u
+
+    def _compute_support_overflow(self, actions_u: torch.Tensor) -> torch.Tensor:
+        """Return scalar support overflow per action.
+
+        overflow = mean_i( relu(a_i - p99_i) + relu(p1_i - a_i) )
+        """
+        orig_shape = actions_u.shape[:-1]
+        flat_actions = actions_u.reshape(-1, actions_u.shape[-1])
+        p1, _, p99, _, _ = self._get_action_support_stats(flat_actions)
+
+        overflow_per_dim = torch.relu(flat_actions - p99) + torch.relu(p1 - flat_actions)  # [N, act_dim]
+        overflow = overflow_per_dim.mean(dim=-1)  # [N]
+        return overflow.reshape(orig_shape)
+
+    def _boundary_focus_weight(self, overflow: torch.Tensor) -> torch.Tensor:
+        """Boundary-focused weighting: peaks around small positive overflow (Gaussian bump)."""
+        sigma = max(float(self.config.boundary_focus_sigma), 1e-6)
+        centered = (overflow - float(self.config.boundary_focus_mu)) / sigma
+        bump = torch.exp(-0.5 * centered.pow(2))
+        return 1.0 + float(self.config.boundary_focus_scale) * bump
+
+    @torch.no_grad()
     def _compute_action_ood_stats(self, data: TensorDict) -> dict[str, torch.Tensor]:
         """Compute per-dimension dataset-vs-policy action coverage stats in normalized u-space."""
         dataset_actions = data["actions"]  # [B, action_dim] expected in u-space
@@ -431,6 +552,13 @@ class CQLAgent(BaseAlgo):
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
     ]:
         args = self.config
         scaler = self.scaler
@@ -465,6 +593,7 @@ class CQLAgent(BaseAlgo):
             if self._cql_weight > 0.0:
                 bsz = dataset_actions_u.shape[0]
                 num_repeat = self._num_repeat_actions
+                boundary_num_repeat = self._boundary_num_repeat_actions
 
                 # Candidate-action expansion for CQL:
                 # expanded_obs/expanded_critic_obs/expanded_next_obs: [B * N, obs_dim]
@@ -504,31 +633,91 @@ class CQLAgent(BaseAlgo):
                 # log mu(u) = D * log(0.5)
                 random_density = math.log(0.5) * dataset_actions_u.shape[-1]
 
-                cat_q1 = torch.cat(
+                rand_overflow = self._compute_support_overflow(rand_actions).view(bsz, num_repeat)
+                curr_overflow = self._compute_support_overflow(curr_actions_u).view(bsz, num_repeat)
+                next_overflow = self._compute_support_overflow(next_actions_u).view(bsz, num_repeat)
+
+                rand_focus_weight = self._boundary_focus_weight(rand_overflow)
+                curr_focus_weight = self._boundary_focus_weight(curr_overflow)
+                next_focus_weight = self._boundary_focus_weight(next_overflow)
+
+                cat_q1_terms = [
+                    q1_rand - random_density + rand_focus_weight,
+                    q1_curr - curr_logp_u + curr_focus_weight,
+                    q1_next - next_logp_u + next_focus_weight,
+                ]
+                cat_q2_terms = [
+                    q2_rand - random_density + rand_focus_weight,
+                    q2_curr - curr_logp_u + curr_focus_weight,
+                    q2_next - next_logp_u + next_focus_weight,
+                ]
+
+                boundary_overflow_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                q_boundary_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                boundary_logit_bonus_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+
+                if self._use_boundary_proposal:
+                    expanded_boundary_critic_obs = critic_observations[:, None, :].expand(
+                        bsz, boundary_num_repeat, -1
+                    ).reshape(bsz * boundary_num_repeat, -1)
+                    boundary_actions_u = self._sample_boundary_negative_actions(
+                        dataset_actions_u=dataset_actions_u,
+                        num_repeat=boundary_num_repeat,
+                    )  # [B * Nb, act_dim]
+
+                    # NOTE:
+                    # Boundary proposal is a structured dataset-conditioned sampler.
+                    # We currently add this branch without exact proposal-density correction.
+                    q1_boundary, q2_boundary = self.qnet(expanded_boundary_critic_obs, boundary_actions_u)
+                    q1_boundary = q1_boundary.view(bsz, boundary_num_repeat)
+                    q2_boundary = q2_boundary.view(bsz, boundary_num_repeat)
+
+                    boundary_overflow = self._compute_support_overflow(boundary_actions_u).view(bsz, boundary_num_repeat)
+                    boundary_focus_weight = self._boundary_focus_weight(boundary_overflow)
+
+                    cat_q1_terms.append(q1_boundary + boundary_focus_weight)
+                    cat_q2_terms.append(q2_boundary + boundary_focus_weight)
+
+                    boundary_overflow_mean = boundary_overflow.mean()
+                    q_boundary_mean = 0.5 * (q1_boundary.mean() + q2_boundary.mean())
+                    boundary_logit_bonus_mean = boundary_focus_weight.mean()
+
+                cat_q1 = torch.cat(cat_q1_terms, dim=1)
+                cat_q2 = torch.cat(cat_q2_terms, dim=1)
+
+                proposal_focus_weight_mean = torch.cat(
                     [
-                        q1_rand - random_density,
-                        q1_curr - curr_logp_u,
-                        q1_next - next_logp_u,
-                    ],
+                        rand_focus_weight,
+                        curr_focus_weight,
+                        next_focus_weight,
+                    ]
+                    + (
+                        [boundary_focus_weight]
+                        if self._use_boundary_proposal
+                        else []
+                    ),
                     dim=1,
                 )
-                cat_q2 = torch.cat(
-                    [
-                        q2_rand - random_density,
-                        q2_curr - curr_logp_u,
-                        q2_next - next_logp_u,
-                    ],
-                    dim=1,
-                )
+                proposal_focus_weight_mean = proposal_focus_weight_mean.mean()
 
                 cql1_loss = (torch.logsumexp(cat_q1 / self._temperature, dim=1) * self._temperature - q1).mean()
                 cql2_loss = (torch.logsumexp(cat_q2 / self._temperature, dim=1) * self._temperature - q2).mean()
 
                 conservative_loss = self._cql_weight * (cql1_loss + cql2_loss)
                 cql_gap = 0.5 * (cql1_loss + cql2_loss)
+                rand_overflow_mean = rand_overflow.mean()
+                curr_overflow_mean = curr_overflow.mean()
+                next_overflow_mean = next_overflow.mean()
             else:
                 conservative_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 cql_gap = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                rand_overflow_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                curr_overflow_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                next_overflow_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                boundary_overflow_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                proposal_focus_weight_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                q_boundary_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                boundary_logit_bonus_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
 
             q_loss = bellman_loss + conservative_loss
 
@@ -574,6 +763,13 @@ class CQLAgent(BaseAlgo):
             bellman_loss.detach(),
             cql_gap.detach(),
             q_data_mean.detach(),
+            rand_overflow_mean.detach(),
+            curr_overflow_mean.detach(),
+            next_overflow_mean.detach(),
+            boundary_overflow_mean.detach(),
+            proposal_focus_weight_mean.detach(),
+            q_boundary_mean.detach(),
+            boundary_logit_bonus_mean.detach(),
         )
 
     def _update_actor(
@@ -621,6 +817,8 @@ class CQLAgent(BaseAlgo):
 
     def _load_offline_dataset_cache(self) -> dict[str, torch.Tensor]:
         if self._offline_dataset_cache is not None:
+            if self._action_p1 is None:
+                self._compute_and_store_action_support_stats(self._offline_dataset_cache["actions"])
             return self._offline_dataset_cache
 
         if not self._offline_dataset_path.exists():
@@ -690,6 +888,9 @@ class CQLAgent(BaseAlgo):
                 "truncations": _load_scalar_tensor("truncations", torch.int64),
                 "dones": _load_scalar_tensor("dones", torch.int64),
             }
+
+        # Precompute dataset support stats for boundary-focused support-aware CQL.
+        self._compute_and_store_action_support_stats(self._offline_dataset_cache["actions"])
 
         action_abs_max = self._offline_dataset_cache["actions"].abs().max(dim=0).values
         action_scale = self.actor.action_scale.to(device=action_abs_max.device, dtype=action_abs_max.dtype)
@@ -949,6 +1150,13 @@ class CQLAgent(BaseAlgo):
                         bellman_loss,
                         cql_gap,
                         q_data_mean,
+                        rand_overflow_mean,
+                        curr_overflow_mean,
+                        next_overflow_mean,
+                        boundary_overflow_mean,
+                        proposal_focus_weight_mean,
+                        q_boundary_mean,
+                        boundary_logit_bonus_mean,
                     ) = update_q(data)
 
                     self._critic_update_step += 1
@@ -984,6 +1192,13 @@ class CQLAgent(BaseAlgo):
                             "cql_bellman_loss": bellman_loss,
                             "cql_gap": cql_gap,
                             "q_data_mean": q_data_mean,
+                            "cql_support/rand_overflow_mean": rand_overflow_mean,
+                            "cql_support/curr_overflow_mean": curr_overflow_mean,
+                            "cql_support/next_overflow_mean": next_overflow_mean,
+                            "cql_support/boundary_overflow_mean": boundary_overflow_mean,
+                            "cql_support/focus_weight_mean": proposal_focus_weight_mean,
+                            "cql_support/boundary_q_mean": q_boundary_mean,
+                            "cql_support/boundary_logit_bonus_mean": boundary_logit_bonus_mean,
                             "is_actor_warmup": float(is_actor_warmup),
                             "is_actor_update_step": float(is_actor_update_step),
                             **action_ood_stats,
