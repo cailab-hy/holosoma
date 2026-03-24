@@ -160,6 +160,7 @@ class CQLAgent(BaseAlgo):
         self._cql_weight = config.cql_weight
         self._use_boundary_proposal = config.use_boundary_proposal
         self._boundary_num_repeat_actions = config.boundary_num_action_samples
+        self._boundary_sparse_dims = config.boundary_sparse_dims
 
         # Offline action-support statistics in normalized u-space.
         self._action_p1: torch.Tensor | None = None
@@ -187,6 +188,8 @@ class CQLAgent(BaseAlgo):
             raise ValueError(f"boundary_eps must be >= 0, got {config.boundary_eps}")
         if config.boundary_noise_scale < 0.0:
             raise ValueError(f"boundary_noise_scale must be >= 0, got {config.boundary_noise_scale}")
+        if config.boundary_sparse_dims <= 0:
+            raise ValueError(f"boundary_sparse_dims must be > 0, got {config.boundary_sparse_dims}")
         if config.boundary_focus_sigma <= 0.0:
             raise ValueError(f"boundary_focus_sigma must be > 0, got {config.boundary_focus_sigma}")
         if config.boundary_focus_scale < 0.0:
@@ -383,20 +386,20 @@ class CQLAgent(BaseAlgo):
         action_bias = self.actor.action_bias.to(device=u_actions.device, dtype=u_actions.dtype)
         return u_actions * action_scale + action_bias
 
-    def _maybe_to_u_actions(self, actions: torch.Tensor) -> torch.Tensor:
-        # Backward-compatible conversion helper:
-        # if values already look normalized, keep as-is; otherwise convert from env scale.
+    def _assert_u_actions(self, actions: torch.Tensor, name: str) -> None:
         if actions.numel() == 0:
-            return actions
+            return
         max_abs = actions.detach().abs().max()
-        if bool((max_abs <= 1.05).item()):
-            return actions.clamp(-1.0, 1.0)
-        return self._to_u_actions(actions)
+        if bool((max_abs > 1.05).item()):
+            raise RuntimeError(
+                f"{name} must be normalized u-actions in [-1, 1], got max abs {max_abs.item():.4f}."
+            )
 
     @torch.no_grad()
     def _compute_and_store_action_support_stats(self, offline_actions: torch.Tensor) -> None:
         """Compute dataset action support stats in normalized u-space and cache them."""
-        actions_u = self._maybe_to_u_actions(offline_actions).float().clamp(-1.0, 1.0)  # [N, act_dim]
+        self._assert_u_actions(offline_actions, "offline_actions")
+        actions_u = offline_actions.float().clamp(-1.0, 1.0)  # [N, act_dim]
         quantiles = torch.tensor([0.01, 0.50, 0.99], device=actions_u.device, dtype=actions_u.dtype)
         action_q = torch.quantile(actions_u, q=quantiles, dim=0)  # [3, act_dim]
 
@@ -452,7 +455,9 @@ class CQLAgent(BaseAlgo):
             raise ValueError(f"num_repeat must be > 0, got {num_repeat}")
 
         bsz, act_dim = dataset_actions_u.shape
-        repeated_actions = dataset_actions_u[:, None, :].expand(bsz, num_repeat, act_dim).reshape(bsz * num_repeat, act_dim)
+        repeated_actions = dataset_actions_u[:, None, :].expand(bsz, num_repeat, act_dim).reshape(
+            bsz * num_repeat, act_dim
+        )
         p1, p50, p99, _, _ = self._get_action_support_stats(repeated_actions)
 
         support_width = (p99 - p1).clamp_min(1e-3)  # [act_dim]
@@ -469,8 +474,21 @@ class CQLAgent(BaseAlgo):
             + self.config.boundary_noise_scale * support_width * torch.randn_like(repeated_actions).abs()
         ).clamp_min(1e-6)
 
-        # Push each action to the nearest outward boundary, then slightly overflow.
-        boundary_actions_u = (repeated_actions + direction * (dist_to_boundary + overflow_mag)).clamp(-1.0, 1.0)
+        # Sparse boundary perturbation:
+        # perturb only a few dims per sample to cross support boundary slightly.
+        sparse_dims = max(1, min(int(self._boundary_sparse_dims), act_dim))
+        _, sparse_idx = torch.topk(
+            dist_to_boundary,
+            k=sparse_dims,
+            dim=1,
+            largest=False,
+            sorted=False,
+        )  # [B*N, sparse_dims]
+        sparse_mask = torch.zeros_like(repeated_actions)
+        sparse_mask.scatter_(1, sparse_idx, 1.0)
+
+        boundary_delta = direction * (dist_to_boundary + overflow_mag)
+        boundary_actions_u = (repeated_actions + sparse_mask * boundary_delta).clamp(-1.0, 1.0)
         return boundary_actions_u
 
     def _compute_support_overflow(self, actions_u: torch.Tensor) -> torch.Tensor:
@@ -491,7 +509,8 @@ class CQLAgent(BaseAlgo):
         sigma = max(float(self.config.boundary_focus_sigma), 1e-6)
         centered = (overflow - float(self.config.boundary_focus_mu)) / sigma
         bump = torch.exp(-0.5 * centered.pow(2))
-        return 1.0 + float(self.config.boundary_focus_scale) * bump
+        # Return bonus only (baseline 0). Do not add constant 1.
+        return float(self.config.boundary_focus_scale) * bump
 
     @torch.no_grad()
     def _compute_action_ood_stats(self, data: TensorDict) -> dict[str, torch.Tensor]:
@@ -502,7 +521,8 @@ class CQLAgent(BaseAlgo):
         # Deterministic policy action from actor.forward (already in u-space).
         policy_actions_u = self.actor(actor_observations)[0]  # [B, action_dim] in u-space
 
-        dataset_actions_u = self._maybe_to_u_actions(dataset_actions).float()  # [B, action_dim]
+        self._assert_u_actions(dataset_actions, "batch_dataset_actions")
+        dataset_actions_u = dataset_actions.float().clamp(-1.0, 1.0)  # [B, action_dim]
         policy_actions_u = policy_actions_u.float()
 
         quantiles = torch.tensor([0.01, 0.50, 0.99], device=dataset_actions_u.device, dtype=dataset_actions_u.dtype)
@@ -568,7 +588,8 @@ class CQLAgent(BaseAlgo):
             next_observations = data["next"]["observations"]  # [B, actor_obs_dim]
             critic_observations = data["critic_observations"]  # [B, critic_obs_dim]
             next_critic_observations = data["next"]["critic_observations"]  # [B, critic_obs_dim]
-            dataset_actions_u = self._maybe_to_u_actions(data["actions"])  # [B, action_dim] in normalized u-space
+            self._assert_u_actions(data["actions"], "batch_dataset_actions")
+            dataset_actions_u = data["actions"].clamp(-1.0, 1.0)  # [B, action_dim] in normalized u-space
             rewards = data["next"]["rewards"]  # [B]
             dones = data["next"]["dones"].bool()  # [B]
             truncations = data["next"]["truncations"].bool()  # [B]
@@ -685,7 +706,7 @@ class CQLAgent(BaseAlgo):
                 cat_q1 = torch.cat(cat_q1_terms, dim=1)
                 cat_q2 = torch.cat(cat_q2_terms, dim=1)
 
-                proposal_focus_weight_mean = torch.cat(
+                proposal_focus_bonus_mean = torch.cat(
                     [
                         rand_focus_weight,
                         curr_focus_weight,
@@ -698,7 +719,7 @@ class CQLAgent(BaseAlgo):
                     ),
                     dim=1,
                 )
-                proposal_focus_weight_mean = proposal_focus_weight_mean.mean()
+                proposal_focus_bonus_mean = proposal_focus_bonus_mean.mean()
 
                 cql1_loss = (torch.logsumexp(cat_q1 / self._temperature, dim=1) * self._temperature - q1).mean()
                 cql2_loss = (torch.logsumexp(cat_q2 / self._temperature, dim=1) * self._temperature - q2).mean()
@@ -715,7 +736,7 @@ class CQLAgent(BaseAlgo):
                 curr_overflow_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 next_overflow_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 boundary_overflow_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-                proposal_focus_weight_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                proposal_focus_bonus_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 q_boundary_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 boundary_logit_bonus_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
 
@@ -767,7 +788,7 @@ class CQLAgent(BaseAlgo):
             curr_overflow_mean.detach(),
             next_overflow_mean.detach(),
             boundary_overflow_mean.detach(),
-            proposal_focus_weight_mean.detach(),
+            proposal_focus_bonus_mean.detach(),
             q_boundary_mean.detach(),
             boundary_logit_bonus_mean.detach(),
         )
@@ -889,9 +910,6 @@ class CQLAgent(BaseAlgo):
                 "dones": _load_scalar_tensor("dones", torch.int64),
             }
 
-        # Precompute dataset support stats for boundary-focused support-aware CQL.
-        self._compute_and_store_action_support_stats(self._offline_dataset_cache["actions"])
-
         action_abs_max = self._offline_dataset_cache["actions"].abs().max(dim=0).values
         action_scale = self.actor.action_scale.to(device=action_abs_max.device, dtype=action_abs_max.dtype)
         over_scale_ratio = (action_abs_max / (action_scale + 1e-6)).max().item()
@@ -899,6 +917,13 @@ class CQLAgent(BaseAlgo):
             f"Offline action range check: max(|a|/action_scale)={over_scale_ratio:.3f} "
             "(expected near <= 1 for tanh-scaled actions)"
         )
+
+        # Fix learning-space semantics: keep dataset actions as normalized u-space in cache.
+        self._offline_dataset_cache["actions"] = self._to_u_actions(self._offline_dataset_cache["actions"]).contiguous()
+        self._assert_u_actions(self._offline_dataset_cache["actions"], "offline_dataset_actions_u")
+
+        # Precompute dataset support stats for boundary-focused support-aware CQL.
+        self._compute_and_store_action_support_stats(self._offline_dataset_cache["actions"])
 
         logger.info(
             f"Cached offline dataset '{self._offline_dataset_path}' in host memory "
@@ -988,8 +1013,9 @@ class CQLAgent(BaseAlgo):
             )  # type: ignore[index]
             large_data = augmented_large_data
 
-        # Keep sampled dataset actions in normalized u-space for all learning updates.
-        large_data["actions"] = self._maybe_to_u_actions(large_data["actions"]).clamp(-1.0, 1.0)
+        # Keep sampled dataset actions strictly in normalized u-space for all learning updates.
+        self._assert_u_actions(large_data["actions"], "sampled_dataset_actions_u")
+        large_data["actions"] = large_data["actions"].clamp(-1.0, 1.0)
 
         large_data["observations"] = normalize_obs(large_data["observations"])
         large_data["next"]["observations"] = normalize_obs(large_data["next"]["observations"])
@@ -1154,7 +1180,7 @@ class CQLAgent(BaseAlgo):
                         curr_overflow_mean,
                         next_overflow_mean,
                         boundary_overflow_mean,
-                        proposal_focus_weight_mean,
+                        proposal_focus_bonus_mean,
                         q_boundary_mean,
                         boundary_logit_bonus_mean,
                     ) = update_q(data)
@@ -1196,7 +1222,7 @@ class CQLAgent(BaseAlgo):
                             "cql_support/curr_overflow_mean": curr_overflow_mean,
                             "cql_support/next_overflow_mean": next_overflow_mean,
                             "cql_support/boundary_overflow_mean": boundary_overflow_mean,
-                            "cql_support/focus_weight_mean": proposal_focus_weight_mean,
+                            "cql_support/focus_bonus_mean": proposal_focus_bonus_mean,
                             "cql_support/boundary_q_mean": q_boundary_mean,
                             "cql_support/boundary_logit_bonus_mean": boundary_logit_bonus_mean,
                             "is_actor_warmup": float(is_actor_warmup),
