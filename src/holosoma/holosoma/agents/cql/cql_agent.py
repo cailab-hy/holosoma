@@ -360,6 +360,51 @@ class CQLAgent(BaseAlgo):
         action_bias = self.actor.action_bias.to(device=actions.device, dtype=actions.dtype)
         return ((actions - action_bias) / (action_scale + 1e-6)).clamp(-1.0, 1.0)
 
+    @torch.no_grad()
+    def _compute_action_ood_stats(self, data: TensorDict) -> dict[str, torch.Tensor]:
+        """Compute per-dimension dataset-vs-policy action coverage stats in normalized u-space."""
+        dataset_actions = data["actions"]  # [B, action_dim] in final env-action space
+        actor_observations = data["observations"]  # [B, actor_obs_dim]
+
+        # Deterministic policy action (mean action from actor.forward).
+        policy_actions = self.actor(actor_observations)[0]  # [B, action_dim] in final env-action space
+
+        dataset_actions_u = self._to_u_actions(dataset_actions).float()  # [B, action_dim]
+        policy_actions_u = self._to_u_actions(policy_actions).float()  # [B, action_dim]
+
+        quantiles = torch.tensor([0.01, 0.50, 0.99], device=dataset_actions_u.device, dtype=dataset_actions_u.dtype)
+        dataset_q = torch.quantile(dataset_actions_u, q=quantiles, dim=0)  # [3, action_dim]
+        policy_q = torch.quantile(policy_actions_u, q=quantiles, dim=0)  # [3, action_dim]
+
+        dataset_p1, dataset_p50, dataset_p99 = dataset_q[0], dataset_q[1], dataset_q[2]
+        policy_p1, policy_p50, policy_p99 = policy_q[0], policy_q[1], policy_q[2]
+
+        # Positive overflow means policy exceeds dataset support band.
+        upper_overflow = torch.clamp(policy_p99 - dataset_p99, min=0.0)
+        lower_overflow = torch.clamp(dataset_p1 - policy_p1, min=0.0)
+
+        stats: dict[str, torch.Tensor] = {
+            "action_ood/mean_upper_overflow": upper_overflow.abs().mean(),
+            "action_ood/mean_lower_overflow": lower_overflow.abs().mean(),
+            "action_ood/max_upper_overflow": upper_overflow.max(),
+            "action_ood/max_lower_overflow": lower_overflow.max(),
+            "action_ood/policy_abs_u_mean": policy_actions_u.abs().mean(),
+            "action_ood/dataset_abs_u_mean": dataset_actions_u.abs().mean(),
+        }
+
+        num_detail_dims = min(4, int(dataset_actions_u.shape[-1]))
+        for dim_idx in range(num_detail_dims):
+            stats[f"action_ood/dim{dim_idx}_dataset_p1"] = dataset_p1[dim_idx]
+            stats[f"action_ood/dim{dim_idx}_dataset_p50"] = dataset_p50[dim_idx]
+            stats[f"action_ood/dim{dim_idx}_dataset_p99"] = dataset_p99[dim_idx]
+            stats[f"action_ood/dim{dim_idx}_policy_p1"] = policy_p1[dim_idx]
+            stats[f"action_ood/dim{dim_idx}_policy_p50"] = policy_p50[dim_idx]
+            stats[f"action_ood/dim{dim_idx}_policy_p99"] = policy_p99[dim_idx]
+            stats[f"action_ood/dim{dim_idx}_upper_overflow"] = upper_overflow[dim_idx]
+            stats[f"action_ood/dim{dim_idx}_lower_overflow"] = lower_overflow[dim_idx]
+
+        return stats
+
     def _update_q(
         self,
         data: TensorDict,
@@ -905,6 +950,7 @@ class CQLAgent(BaseAlgo):
 
                     self._soft_update_q_target()
 
+                    action_ood_stats = self._compute_action_ood_stats(data)
                     self.training_metrics.add(
                         {
                             "buffer_rewards": reward_mean,
@@ -923,6 +969,7 @@ class CQLAgent(BaseAlgo):
                             "cql_gap": cql_gap,
                             "q_data_mean": q_data_mean,
                             "is_actor_warmup": float(self.global_step <= args.actor_warmup_steps),
+                            **action_ood_stats,
                         }
                     )
                 # for data in offline_batches:
