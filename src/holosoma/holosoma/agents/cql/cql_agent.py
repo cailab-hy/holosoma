@@ -296,8 +296,13 @@ class CQLAgent(BaseAlgo):
             betas=(0.9, 0.95),
         )
 
+        self._log_action_scale_sum = torch.log(self.actor.action_scale.float() + 1e-6).sum().to(device=device)
+
         self.policy = self.actor.explore
         logger.info(f"CQL dims: actor_obs_dim={actor_obs_dim}, critic_obs_dim={critic_obs_dim}, n_act={n_act}")
+        logger.info(
+            f"CQL action-scale entropy offset (sum log action_scale) = {self._log_action_scale_sum.item():.3f}"
+        )
 
         if args.use_symmetry:
             self.symmetry_utils = SymmetryUtils(env._env)
@@ -343,6 +348,13 @@ class CQLAgent(BaseAlgo):
             torch._foreach_mul_(tgt_ps, 1.0 - self.config.tau)
             torch._foreach_add_(tgt_ps, src_ps, alpha=self.config.tau)
 
+    def _to_normalized_action_log_prob(self, log_probs: torch.Tensor) -> torch.Tensor:
+        # Actor returns log-prob in final scaled-action measure.
+        # For entropy autotuning, remove constant action-scale Jacobian term
+        # so target_entropy does not depend on unit scaling.
+        log_scale_sum = self._log_action_scale_sum.to(device=log_probs.device, dtype=log_probs.dtype)
+        return log_probs + log_scale_sum
+
     def _update_q(
         self,
         data: TensorDict,
@@ -387,70 +399,76 @@ class CQLAgent(BaseAlgo):
             q1, q2 = self.qnet(critic_observations, dataset_actions)  # [B], [B]
             bellman_loss = F.mse_loss(q1, q_target) + F.mse_loss(q2, q_target)
 
-            bsz = dataset_actions.shape[0]
-            num_repeat = self._num_repeat_actions
-
-            # Candidate-action expansion for CQL:
-            # expanded_obs/expanded_critic_obs/expanded_next_obs: [B * N, obs_dim]
-            expanded_obs = observations[:, None, :].expand(bsz, num_repeat, -1).reshape(bsz * num_repeat, -1)
-            expanded_critic_obs = critic_observations[:, None, :].expand(bsz, num_repeat, -1).reshape(
-                bsz * num_repeat, -1
-            )
-            expanded_next_obs = next_observations[:, None, :].expand(bsz, num_repeat, -1).reshape(
-                bsz * num_repeat, -1
-            )
-
-            with torch.no_grad():
-                curr_actions, curr_logp = self.actor.get_actions_and_log_probs(expanded_obs)
-                next_actions, next_logp = self.actor.get_actions_and_log_probs(expanded_next_obs)
-
-            action_scale = self.actor.action_scale.to(device=self.device, dtype=dataset_actions.dtype)
-            action_bias = self.actor.action_bias.to(device=self.device, dtype=dataset_actions.dtype)
-            rand_actions = torch.empty(bsz * num_repeat, dataset_actions.shape[-1], device=self.device).uniform_(-1.0, 1.0)
-            rand_actions = rand_actions * action_scale + action_bias
-
-            q1_rand, q2_rand = self.qnet(expanded_critic_obs, rand_actions)
-            q1_curr, q2_curr = self.qnet(expanded_critic_obs, curr_actions)
-            q1_next, q2_next = self.qnet(expanded_critic_obs, next_actions)
-
-            q1_rand = q1_rand.view(bsz, num_repeat)
-            q2_rand = q2_rand.view(bsz, num_repeat)
-            q1_curr = q1_curr.view(bsz, num_repeat)
-            q2_curr = q2_curr.view(bsz, num_repeat)
-            q1_next = q1_next.view(bsz, num_repeat)
-            q2_next = q2_next.view(bsz, num_repeat)
-
-            curr_logp = curr_logp.view(bsz, num_repeat)
-            next_logp = next_logp.view(bsz, num_repeat)
-
-            # Uniform random-action proposal in final action space:
-            # mu(a) = Π_i [1 / (2 * action_scale_i)]
-            # log mu(a) = Σ_i [log(0.5) - log(action_scale_i)]
-            random_density = (math.log(0.5) - torch.log(action_scale + 1e-6)).sum()
-
-            cat_q1 = torch.cat(
-                [
-                    q1_rand - random_density,
-                    q1_curr - curr_logp,
-                    q1_next - next_logp,
-                ],
-                dim=1,
-            )
-            cat_q2 = torch.cat(
-                [
-                    q2_rand - random_density,
-                    q2_curr - curr_logp,
-                    q2_next - next_logp,
-                ],
-                dim=1,
-            )
-
-            cql1_loss = (torch.logsumexp(cat_q1 / self._temperature, dim=1) * self._temperature - q1).mean()
-            cql2_loss = (torch.logsumexp(cat_q2 / self._temperature, dim=1) * self._temperature - q2).mean()
-
-            conservative_loss = self._cql_weight * (cql1_loss + cql2_loss)
-            cql_gap = 0.5 * (cql1_loss + cql2_loss)
             q_data_mean = 0.5 * (q1.mean() + q2.mean())
+            if self._cql_weight > 0.0:
+                bsz = dataset_actions.shape[0]
+                num_repeat = self._num_repeat_actions
+
+                # Candidate-action expansion for CQL:
+                # expanded_obs/expanded_critic_obs/expanded_next_obs: [B * N, obs_dim]
+                expanded_obs = observations[:, None, :].expand(bsz, num_repeat, -1).reshape(bsz * num_repeat, -1)
+                expanded_critic_obs = critic_observations[:, None, :].expand(bsz, num_repeat, -1).reshape(
+                    bsz * num_repeat, -1
+                )
+                expanded_next_obs = next_observations[:, None, :].expand(bsz, num_repeat, -1).reshape(
+                    bsz * num_repeat, -1
+                )
+
+                with torch.no_grad():
+                    curr_actions, curr_logp = self.actor.get_actions_and_log_probs(expanded_obs)
+                    next_actions, next_logp = self.actor.get_actions_and_log_probs(expanded_next_obs)
+
+                action_scale = self.actor.action_scale.to(device=self.device, dtype=dataset_actions.dtype)
+                action_bias = self.actor.action_bias.to(device=self.device, dtype=dataset_actions.dtype)
+                rand_actions = torch.empty(
+                    bsz * num_repeat, dataset_actions.shape[-1], device=self.device
+                ).uniform_(-1.0, 1.0)
+                rand_actions = rand_actions * action_scale + action_bias
+
+                q1_rand, q2_rand = self.qnet(expanded_critic_obs, rand_actions)
+                q1_curr, q2_curr = self.qnet(expanded_critic_obs, curr_actions)
+                q1_next, q2_next = self.qnet(expanded_critic_obs, next_actions)
+
+                q1_rand = q1_rand.view(bsz, num_repeat)
+                q2_rand = q2_rand.view(bsz, num_repeat)
+                q1_curr = q1_curr.view(bsz, num_repeat)
+                q2_curr = q2_curr.view(bsz, num_repeat)
+                q1_next = q1_next.view(bsz, num_repeat)
+                q2_next = q2_next.view(bsz, num_repeat)
+
+                curr_logp = curr_logp.view(bsz, num_repeat)
+                next_logp = next_logp.view(bsz, num_repeat)
+
+                # Uniform random-action proposal in final action space:
+                # mu(a) = Π_i [1 / (2 * action_scale_i)]
+                # log mu(a) = Σ_i [log(0.5) - log(action_scale_i)]
+                random_density = (math.log(0.5) - torch.log(action_scale + 1e-6)).sum()
+
+                cat_q1 = torch.cat(
+                    [
+                        q1_rand - random_density,
+                        q1_curr - curr_logp,
+                        q1_next - next_logp,
+                    ],
+                    dim=1,
+                )
+                cat_q2 = torch.cat(
+                    [
+                        q2_rand - random_density,
+                        q2_curr - curr_logp,
+                        q2_next - next_logp,
+                    ],
+                    dim=1,
+                )
+
+                cql1_loss = (torch.logsumexp(cat_q1 / self._temperature, dim=1) * self._temperature - q1).mean()
+                cql2_loss = (torch.logsumexp(cat_q2 / self._temperature, dim=1) * self._temperature - q2).mean()
+
+                conservative_loss = self._cql_weight * (cql1_loss + cql2_loss)
+                cql_gap = 0.5 * (cql1_loss + cql2_loss)
+            else:
+                conservative_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                cql_gap = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
 
             q_loss = bellman_loss + conservative_loss
 
@@ -474,7 +492,8 @@ class CQLAgent(BaseAlgo):
             self.alpha_optimizer.zero_grad(set_to_none=True)
             with self._maybe_amp():
                 _, log_probs = self.actor.get_actions_and_log_probs(observations)
-                alpha_loss = (-self.log_alpha.exp() * (log_probs.detach() + self.target_entropy)).mean()
+                log_probs_for_alpha = self._to_normalized_action_log_prob(log_probs)
+                alpha_loss = (-self.log_alpha.exp() * (log_probs_for_alpha.detach() + self.target_entropy)).mean()
             scaler.scale(alpha_loss).backward()
 
             if self.is_multi_gpu and self.log_alpha.grad is not None:
