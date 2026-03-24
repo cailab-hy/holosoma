@@ -388,6 +388,7 @@ class CQLAgent(BaseAlgo):
 
             with torch.no_grad():
                 next_state_actions, next_state_log_probs = self.actor.get_actions_and_log_probs(next_observations)
+                next_state_log_probs=self._to_normalized_action_log_prob(next_state_log_probs)
                 discount = args.gamma ** data["next"]["effective_n_steps"]  # [B]
                 next_q1_target, next_q2_target = self.qnet_target(next_critic_observations, next_state_actions)
                 next_target_min_q = torch.minimum(next_q1_target, next_q2_target)  # [B]
@@ -529,6 +530,7 @@ class CQLAgent(BaseAlgo):
             critic_observations = data["critic_observations"]  # [B, critic_obs_dim]
 
             actions, log_probs = self.actor.get_actions_and_log_probs(actor_observations)  # [B, act_dim], [B]
+            log_probs = self._to_normalized_action_log_prob(log_probs)
             with torch.no_grad():
                 _, _, log_std = self.actor(actor_observations)
                 action_std = log_std.exp().mean()
