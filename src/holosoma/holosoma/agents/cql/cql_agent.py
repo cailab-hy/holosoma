@@ -598,7 +598,20 @@ class CQLAgent(BaseAlgo):
             alpha = self.log_alpha.exp().detach()
 
             with torch.no_grad():
-                next_state_actions_u, next_state_log_probs_u = self.actor.get_actions_and_log_probs(next_observations)
+                next_state_actions_u, next_mean, next_log_std = self.actor(next_observations)
+
+                std = next_log_std.exp()
+                dist = torch.distributions.Normal(next_mean, std)
+
+                if self.actor.use_tanh:
+                    # deterministic action 기준 log-prob 계산
+                    clipped_u = next_state_actions_u.clamp(-1.0 + 1e-6, 1.0 - 1e-6)
+                    raw_action = 0.5 * (torch.log1p(clipped_u) - torch.log1p(-clipped_u))
+                    next_state_log_probs_u = dist.log_prob(raw_action)
+                    next_state_log_probs_u -= torch.log(1 - clipped_u.pow(2) + 1e-6)
+                    next_state_log_probs_u = next_state_log_probs_u.sum(1)
+                else:
+                    next_state_log_probs_u = dist.log_prob(next_state_actions_u).sum(1)
                 discount = args.gamma ** data["next"]["effective_n_steps"]  # [B]
                 next_q1_target, next_q2_target = self.qnet_target(next_critic_observations, next_state_actions_u)
                 next_target_min_q = torch.minimum(next_q1_target, next_q2_target)  # [B]
