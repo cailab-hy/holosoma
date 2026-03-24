@@ -37,7 +37,11 @@ class TensorAverageMeter:
         self.tensors = []
 
     def add(self, x):
-        if len(x.shape) == 0:
+        if not isinstance(x, torch.Tensor):
+            x = torch.as_tensor(x)
+        else:
+            x = x.detach()
+        if x.ndim == 0:
             x = x.unsqueeze(0)
         self.tensors.append(x)
 
