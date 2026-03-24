@@ -356,29 +356,20 @@ class CQLConfig:
     cql_weight: float = 5.0
     """weight of conservative quantile regularization"""
 
-    use_boundary_proposal: bool = True
-    """whether to add structured support-boundary negative proposals"""
+    use_support_aware_backup: bool = True
+    """whether to use support-aware Bellman backup action selection"""
 
-    boundary_num_action_samples: int = 2
-    """number of repeated boundary-focused negative actions per state"""
+    backup_support_penalty: float = 10.0
+    """lambda_support used in score = Q_target - lambda_support * overflow"""
 
-    boundary_eps: float = 0.01
-    """small outward overflow factor relative to (p99 - p1) support width"""
+    backup_mode: str = "project_select"
+    """support-aware backup mode. currently only 'project_select' is supported"""
 
-    boundary_noise_scale: float = 0.005
-    """noise scale for boundary proposals relative to support width"""
+    support_percentile_low: float = 1.0
+    """low percentile used for action support band in normalized u-space"""
 
-    boundary_sparse_dims: int = 3
-    """number of action dimensions to perturb per boundary sample (sparse proposal)"""
-
-    boundary_focus_mu: float = 0.02
-    """target overflow level where conservative weighting peaks"""
-
-    boundary_focus_sigma: float = 0.02
-    """spread of overflow-focused weighting (must be > 0)"""
-
-    boundary_focus_scale: float = 0.25
-    """amplitude of boundary-focused weighting bonus on conservative logits"""
+    support_percentile_high: float = 99.0
+    """high percentile used for action support band in normalized u-space"""
 
     target_entropy_ratio: float = 0.0
     """the ratio of the target entropy to the number of actions"""
@@ -468,22 +459,7 @@ class CQLConfig:
     """whether to use CNN for the encoder"""
 
     actor_warmup_steps: int = 500
-    # offline 붕괴 방지
-
-    use_actor_bc_reg: bool = False
-    """enable small BC regularization on actor loss (diagnostic hybrid baseline)"""
-
-    actor_bc_weight: float = 0.0
-    """base coefficient for actor BC regularization"""
-
-    actor_bc_loss_type: str = "mse"
-    """actor BC loss type: mse or log_prob"""
-
-    actor_bc_warmup_only: bool = False
-    """apply BC regularization only during actor warmup window"""
-
-    actor_bc_decay_steps: int = 0
-    """linearly decay actor BC coefficient over these global steps (0 disables decay)"""
+    """number of initial global steps where actor update is skipped"""
 
     actor_obs_keys: List[str] = field(default_factory=lambda: ["actor_obs"])
     critic_obs_keys: List[str] = field(default_factory=lambda: ["critic_obs"])
