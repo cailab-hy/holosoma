@@ -553,6 +553,82 @@ class IQLConfig:
     actor_obs_keys: List[str] = field(default_factory=lambda: ["actor_obs"])
     critic_obs_keys: List[str] = field(default_factory=lambda: ["critic_obs"])
 
+
+@dataclass(frozen=True)
+class BCConfig:
+    num_learning_iterations: int = 25000
+    """total gradient update iterations"""
+
+    actor_learning_rate: float = 3e-4
+    """learning rate for actor network"""
+
+    batch_size: int = 8192
+    """global batch size"""
+
+    num_updates: int = 8
+    """number of gradient updates per outer step"""
+
+    eval_interval: int = 1000
+    """steps per offline_learn() call when max_steps is not provided"""
+
+    actor_hidden_dim: int = 512
+    """hidden dimension of actor network"""
+
+    use_symmetry: bool = False
+    """whether to apply symmetry augmentation to offline batches"""
+
+    use_tanh: bool = True
+    """whether to use tanh-squashed actor"""
+
+    log_std_max: float = 0.0
+    """maximum log std for actor"""
+
+    log_std_min: float = -5.0
+    """minimum log std for actor"""
+
+    compile: bool = True
+    """whether to use torch.compile for update functions"""
+
+    obs_normalization: bool = True
+    """whether to normalize actor observations"""
+
+    use_layer_norm: bool = True
+    """whether to use layer normalization in actor"""
+
+    max_grad_norm: float = 0.0
+    """max grad norm (0 disables clipping)"""
+
+    amp: bool = True
+    """whether to use AMP"""
+
+    amp_dtype: str = "bf16"
+    """AMP dtype: bf16 or fp16"""
+
+    weight_decay: float = 0.001
+    """weight decay for optimizer"""
+
+    save_interval: int = 1000
+    """checkpoint interval"""
+
+    logging_interval: int = 100
+    """logging interval"""
+
+    offline_dataset_path: str = "offline_data/fastsac_dataset.h5"
+    """path to fixed offline dataset"""
+
+    encoder_obs_key: str = "perception_obs"
+    """encoder observation key, used only when use_cnn_encoder is True"""
+
+    encoder_obs_shape: tuple[int, int, int] = (1, 13, 9)
+    """encoder observation shape, used only when use_cnn_encoder is True"""
+
+    use_cnn_encoder: bool = False
+    """whether to use CNN actor encoder"""
+
+    actor_obs_keys: List[str] = field(default_factory=lambda: ["actor_obs"])
+    critic_obs_keys: List[str] = field(default_factory=lambda: ["critic_obs"])
+
+
 @dataclass(frozen=True)
 class PPOAlgoConfig:
     """Configuration for algorithm wrapper."""
@@ -608,6 +684,20 @@ class IQLAlgoConfig:
     """Algorithm-specific configuration."""
 
 
-AlgoInitConfig = Union[PPOConfig, FastSACConfig, CQLConfig, IQLConfig]
+@dataclass(frozen=True)
+class BCAlgoConfig:
+    """Configuration for algorithm wrapper."""
 
-AlgoConfig = Union[PPOAlgoConfig, FastSACAlgoConfig, CQLAlgoConfig, IQLAlgoConfig]
+    _target_: str
+    """Target algorithm class."""
+
+    _recursive_: bool
+    """Whether to recursively instantiate."""
+
+    config: BCConfig
+    """Algorithm-specific configuration."""
+
+
+AlgoInitConfig = Union[PPOConfig, FastSACConfig, CQLConfig, IQLConfig, BCConfig]
+
+AlgoConfig = Union[PPOAlgoConfig, FastSACAlgoConfig, CQLAlgoConfig, IQLAlgoConfig, BCAlgoConfig]

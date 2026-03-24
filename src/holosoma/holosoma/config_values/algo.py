@@ -1,5 +1,7 @@
 import dataclasses
 from holosoma.config_types.algo import (
+    BCAlgoConfig,
+    BCConfig,
     FastSACAlgoConfig,
     FastSACConfig,
     IQLAlgoConfig,
@@ -207,10 +209,43 @@ iql = IQLAlgoConfig(
     ),
 )
 
+bc = BCAlgoConfig(
+    _target_="holosoma.agents.bc.bc_agent.BCAgent",
+    _recursive_=False,
+    config=BCConfig(
+        num_learning_iterations=50000,
+        actor_learning_rate=3e-4,
+        batch_size=8192,
+        num_updates=8,
+        eval_interval=1000,
+        actor_hidden_dim=512,
+        use_symmetry=True,
+        use_tanh=True,
+        log_std_max=0.0,
+        log_std_min=-5.0,
+        compile=True,
+        obs_normalization=True,
+        use_layer_norm=True,
+        max_grad_norm=0.0,
+        amp=True,
+        amp_dtype="bf16",
+        weight_decay=0.001,
+        save_interval=1000,
+        logging_interval=100,
+        offline_dataset_path="offline_data/fastsac_dataset.h5",
+        encoder_obs_key="perception_obs",
+        encoder_obs_shape=(1, 13, 9),
+        use_cnn_encoder=False,
+        actor_obs_keys=["actor_obs"],
+        critic_obs_keys=["critic_obs"],
+    ),
+)
+
 DEFAULTS = {
     "ppo": ppo,
     "fast_sac": fast_sac,
     "cql": cql,
     "cql_rho": cql_rho,
     "iql": iql,
+    "bc": bc,
 }
