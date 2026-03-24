@@ -470,6 +470,21 @@ class CQLConfig:
     actor_warmup_steps: int = 500
     # offline 붕괴 방지
 
+    use_actor_bc_reg: bool = False
+    """enable small BC regularization on actor loss (diagnostic hybrid baseline)"""
+
+    actor_bc_weight: float = 0.0
+    """base coefficient for actor BC regularization"""
+
+    actor_bc_loss_type: str = "mse"
+    """actor BC loss type: mse or log_prob"""
+
+    actor_bc_warmup_only: bool = False
+    """apply BC regularization only during actor warmup window"""
+
+    actor_bc_decay_steps: int = 0
+    """linearly decay actor BC coefficient over these global steps (0 disables decay)"""
+
     actor_obs_keys: List[str] = field(default_factory=lambda: ["actor_obs"])
     critic_obs_keys: List[str] = field(default_factory=lambda: ["critic_obs"])
 

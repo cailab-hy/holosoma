@@ -194,14 +194,6 @@ class CQLAgent(BaseAlgo):
             raise ValueError(f"boundary_focus_sigma must be > 0, got {config.boundary_focus_sigma}")
         if config.boundary_focus_scale < 0.0:
             raise ValueError(f"boundary_focus_scale must be >= 0, got {config.boundary_focus_scale}")
-        if config.actor_bc_weight < 0.0:
-            raise ValueError(f"actor_bc_weight must be >= 0, got {config.actor_bc_weight}")
-        if config.actor_bc_loss_type not in ("mse", "log_prob"):
-            raise ValueError(
-                f"actor_bc_loss_type must be one of ('mse', 'log_prob'), got {config.actor_bc_loss_type}"
-            )
-        if config.actor_bc_decay_steps < 0:
-            raise ValueError(f"actor_bc_decay_steps must be >= 0, got {config.actor_bc_decay_steps}")
         if config.gamma <= 0.0 or config.gamma > 1.0:
             raise ValueError(f"gamma must be in (0, 1], got {config.gamma}")
         if config.tau <= 0.0 or config.tau > 1.0:
@@ -520,27 +512,6 @@ class CQLAgent(BaseAlgo):
         # Return bonus only (baseline 0). Do not add constant 1.
         return float(self.config.boundary_focus_scale) * bump
 
-    def _get_actor_bc_coef(self) -> float:
-        """Return effective BC regularization coefficient for current global step.
-
-        This is for a diagnostic hybrid baseline: pure CQL actor loss + small BC term.
-        """
-        if not self.config.use_actor_bc_reg:
-            return 0.0
-
-        coef = float(self.config.actor_bc_weight)
-        if coef <= 0.0:
-            return 0.0
-
-        if self.config.actor_bc_warmup_only and self.global_step > self.config.actor_warmup_steps:
-            return 0.0
-
-        if self.config.actor_bc_decay_steps > 0:
-            decay_ratio = 1.0 - (float(self.global_step) / float(self.config.actor_bc_decay_steps))
-            coef *= max(0.0, decay_ratio)
-
-        return max(0.0, coef)
-
     @torch.no_grad()
     def _compute_action_ood_stats(self, data: TensorDict) -> dict[str, torch.Tensor]:
         """Compute per-dimension dataset-vs-policy action coverage stats in normalized u-space."""
@@ -748,10 +719,22 @@ class CQLAgent(BaseAlgo):
                 cat_q1 = torch.cat(cat_q1_terms, dim=1)
                 cat_q2 = torch.cat(cat_q2_terms, dim=1)
 
-                if self._use_boundary_proposal:
-                    proposal_focus_bonus_mean = boundary_focus_weight.mean()
-                else:
-                    proposal_focus_bonus_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                proposal_focus_bonus_mean = boundary_focus_weight
+
+                # proposal_focus_bonus_mean = torch.cat(
+                #     [
+                #         rand_focus_weight,
+                #         curr_focus_weight,
+                #         next_focus_weight,
+                #     ]
+                #     + (
+                #         [boundary_focus_weight]
+                #         if self._use_boundary_proposal
+                #         else []
+                #     ),
+                #     dim=1,
+                # )
+                proposal_focus_bonus_mean = proposal_focus_bonus_mean.mean()
 
                 cql1_loss = (torch.logsumexp(cat_q1 / self._temperature, dim=1) * self._temperature - q1).mean()
                 cql2_loss = (torch.logsumexp(cat_q2 / self._temperature, dim=1) * self._temperature - q2).mean()
@@ -828,59 +811,26 @@ class CQLAgent(BaseAlgo):
     def _update_actor(
         self,
         data: TensorDict,
-    ) -> tuple[
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-    ]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         args = self.config
         scaler = self.scaler
 
         with self._maybe_amp():
             actor_observations = data["observations"]  # [B, actor_obs_dim]
             critic_observations = data["critic_observations"]  # [B, critic_obs_dim]
-            self._assert_u_actions(data["actions"], "actor_batch_dataset_actions")
-            dataset_actions_u = data["actions"].clamp(-1.0, 1.0)  # [B, act_dim]
 
-            actor_mean_actions_u, _, log_std = self.actor(actor_observations)  # [B, act_dim], _, [B, act_dim]
             actions_u, log_probs_u = self.actor.get_actions_and_log_probs(actor_observations)  # [B, act_dim], [B]
             with torch.no_grad():
+                _, _, log_std = self.actor(actor_observations)
                 action_std = log_std.exp().mean()
                 policy_entropy = -log_probs_u.mean()
 
             q1_pi, q2_pi = self.qnet(critic_observations, actions_u)
             qf_value = torch.minimum(q1_pi, q2_pi)
-            actor_rl_loss = (self.log_alpha.exp().detach() * log_probs_u - qf_value).mean()
-
-            actor_bc_coef_value = self._get_actor_bc_coef()
-            actor_bc_coef = torch.tensor(actor_bc_coef_value, device=self.device, dtype=actor_rl_loss.dtype)
-            actor_bc_active = torch.tensor(
-                float(actor_bc_coef_value > 0.0),
-                device=self.device,
-                dtype=actor_rl_loss.dtype,
-            )
-
-            if actor_bc_coef_value > 0.0:
-                if self.config.actor_bc_loss_type == "mse":
-                    actor_bc_loss = F.mse_loss(actor_mean_actions_u, dataset_actions_u)
-                elif self.config.actor_bc_loss_type == "log_prob":
-                    actor_bc_loss = -self.actor.log_prob_dataset_actions(actor_observations, dataset_actions_u).mean()
-                else:
-                    raise ValueError(f"Unsupported actor_bc_loss_type: {self.config.actor_bc_loss_type}")
-            else:
-                actor_bc_loss = torch.zeros((), device=self.device, dtype=actor_rl_loss.dtype)
-
-            # Diagnostic hybrid baseline:
-            # keep pure CQL actor RL objective and add only a small BC regularizer.
-            actor_total_loss = actor_rl_loss + actor_bc_coef * actor_bc_loss
+            actor_loss = (self.log_alpha.exp().detach() * log_probs_u - qf_value).mean()
 
         self.actor_optimizer.zero_grad(set_to_none=True)
-        scaler.scale(actor_total_loss).backward()
+        scaler.scale(actor_loss).backward()
 
         if self.is_multi_gpu:
             self._all_reduce_model_grads(self.actor)
@@ -896,11 +846,7 @@ class CQLAgent(BaseAlgo):
 
         return (
             actor_grad_norm.detach(),
-            actor_rl_loss.detach(),
-            actor_total_loss.detach(),
-            actor_bc_loss.detach(),
-            actor_bc_coef.detach(),
-            actor_bc_active.detach(),
+            actor_loss.detach(),
             policy_entropy.detach(),
             action_std.detach(),
         )
@@ -1260,23 +1206,10 @@ class CQLAgent(BaseAlgo):
                         self._critic_update_step % args.policy_frequency == 0
                     )
                     if is_actor_update_step:
-                        (
-                            actor_grad_norm,
-                            actor_rl_loss,
-                            actor_total_loss,
-                            actor_bc_loss,
-                            actor_bc_coef,
-                            actor_bc_active,
-                            policy_entropy,
-                            action_std,
-                        ) = update_actor(data)
+                        actor_grad_norm, actor_loss, policy_entropy, action_std = update_actor(data)
                     else:
                         actor_grad_norm = torch.tensor(0.0, device=self.device)
-                        actor_rl_loss = torch.tensor(0.0, device=self.device)
-                        actor_total_loss = torch.tensor(0.0, device=self.device)
-                        actor_bc_loss = torch.tensor(0.0, device=self.device)
-                        actor_bc_coef = torch.tensor(0.0, device=self.device)
-                        actor_bc_active = torch.tensor(0.0, device=self.device)
+                        actor_loss = torch.tensor(0.0, device=self.device)
                         policy_entropy = torch.tensor(0.0, device=self.device)
                         action_std = torch.tensor(0.0, device=self.device)
 
@@ -1293,11 +1226,7 @@ class CQLAgent(BaseAlgo):
                             "alpha_loss": alpha_loss,
                             "alpha_value": self.log_alpha.exp().detach().mean(),
                             "actor_grad_norm": actor_grad_norm,
-                            "actor_rl_loss": actor_rl_loss,
-                            "actor_total_loss": actor_total_loss,
-                            "actor_bc_loss": actor_bc_loss,
-                            "actor_bc_coef": actor_bc_coef,
-                            "actor_bc_active": actor_bc_active,
+                            "actor_loss": actor_loss,
                             "policy_entropy": policy_entropy,
                             "action_std": action_std,
                             "cql_conservative_loss": conservative_loss,
