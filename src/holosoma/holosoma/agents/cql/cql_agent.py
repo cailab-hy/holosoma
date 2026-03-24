@@ -894,7 +894,15 @@ class CQLAgent(BaseAlgo):
                         cql_gap,
                         q_data_mean,
                     ) = update_q(data)
-                    actor_grad_norm, actor_loss, policy_entropy, action_std = update_actor(data)
+
+                    if self.global_step > args.actor_warmup_steps:
+                        actor_grad_norm, actor_loss, policy_entropy, action_std = update_actor(data)
+                    else:
+                        actor_grad_norm = torch.tensor(0.0, device=self.device)
+                        actor_loss = torch.tensor(0.0, device=self.device)
+                        policy_entropy = torch.tensor(0.0, device=self.device)
+                        action_std = torch.tensor(0.0, device=self.device)
+
                     self._soft_update_q_target()
 
                     self.training_metrics.add(
@@ -914,8 +922,44 @@ class CQLAgent(BaseAlgo):
                             "cql_bellman_loss": bellman_loss,
                             "cql_gap": cql_gap,
                             "q_data_mean": q_data_mean,
+                            "is_actor_warmup": float(self.global_step <= args.actor_warmup_steps),
                         }
                     )
+                # for data in offline_batches:
+                #     (
+                #         reward_mean,
+                #         q_grad_norm,
+                #         q_loss,
+                #         q_target_max,
+                #         q_target_min,
+                #         alpha_loss,
+                #         conservative_loss,
+                #         bellman_loss,
+                #         cql_gap,
+                #         q_data_mean,
+                #     ) = update_q(data)
+                #     actor_grad_norm, actor_loss, policy_entropy, action_std = update_actor(data)
+                #     self._soft_update_q_target()
+
+                #     self.training_metrics.add(
+                #         {
+                #             "buffer_rewards": reward_mean,
+                #             "q_grad_norm": q_grad_norm,
+                #             "q_loss": q_loss,
+                #             "q_target_max": q_target_max,
+                #             "q_target_min": q_target_min,
+                #             "alpha_loss": alpha_loss,
+                #             "alpha_value": self.log_alpha.exp().detach().mean(),
+                #             "actor_grad_norm": actor_grad_norm,
+                #             "actor_loss": actor_loss,
+                #             "policy_entropy": policy_entropy,
+                #             "action_std": action_std,
+                #             "cql_conservative_loss": conservative_loss,
+                #             "cql_bellman_loss": bellman_loss,
+                #             "cql_gap": cql_gap,
+                #             "q_data_mean": q_data_mean,
+                #         }
+                #     )
 
             should_log = (self.global_step % args.logging_interval == 0) or (self.global_step <= 10)
             if should_log:

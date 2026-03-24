@@ -928,7 +928,6 @@ class CQL_RHO_Agent(BaseAlgo):
                             "cql_conservative_loss": conservative_loss,
                             "cql_bellman_loss": bellman_loss,
                             "cql_gap": cql_gap,
-                            "cql_rho": torch.tensor(self._rho, device=self.device),
                             "q_data_mean": q_data_mean,
                         }
                     )
