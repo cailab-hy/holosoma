@@ -15,6 +15,9 @@ from holosoma.config_types.algo import (
     CQLAlgoConfig,
     CQLSupportAwareAlgoConfig,
     CQLConfig,
+    CQLSupportAwareConfig,
+    TD3BCAlgoConfig,
+    TD3BCConfig,
 )
 
 ppo = PPOAlgoConfig(
@@ -129,11 +132,6 @@ cql = CQLAlgoConfig(
         cql_num_action_samples=10,
         cql_temperature=1.0,
         cql_weight=5.0,
-        use_support_aware_backup=True,
-        backup_support_penalty=10.0,
-        backup_mode="project_select",
-        support_percentile_low=1.0,
-        support_percentile_high=99.0,
         target_entropy_ratio=0.0,
         risk_mode="neutral",
         cvar_alpha=0.1,
@@ -171,7 +169,14 @@ cql = CQLAlgoConfig(
 cql_support_aware = CQLSupportAwareAlgoConfig(
     _target_="holosoma.agents.cql_support_aware.cql_agent.CQLSupportAwareAgent",
     _recursive_=False,
-    config=dataclasses.replace(cql.config),
+    config=CQLSupportAwareConfig(
+        **dataclasses.asdict(cql.config),
+        use_support_aware_backup=True,
+        backup_support_penalty=1.0,
+        backup_mode="project_select",
+        support_percentile_low=1.0,
+        support_percentile_high=99.0,
+    ),
 )
 
 
@@ -253,6 +258,46 @@ bc = BCAlgoConfig(
     ),
 )
 
+td3_bc = TD3BCAlgoConfig(
+    _target_="holosoma.agents.td3.td3_agent.TD3BCAgent",
+    _recursive_=False,
+    config=TD3BCConfig(
+        num_learning_iterations=50000,
+        critic_learning_rate=3e-4,
+        actor_learning_rate=3e-4,
+        batch_size=8192,
+        num_updates=8,
+        eval_interval=1000,
+        discount=0.97,
+        tau=0.005,
+        policy_delay=2,
+        target_policy_noise=0.2,
+        target_noise_clip=0.5,
+        td3bc_alpha=2.5,
+        use_adaptive_lambda=True,
+        bc_coef=1.0,
+        critic_hidden_dim=768,
+        actor_hidden_dim=512,
+        use_symmetry=True,
+        use_tanh=True,
+        compile=True,
+        obs_normalization=True,
+        use_layer_norm=True,
+        max_grad_norm=0.0,
+        amp=True,
+        amp_dtype="bf16",
+        weight_decay=0.001,
+        save_interval=1000,
+        logging_interval=100,
+        offline_dataset_path="offline_data/fastsac_dataset.h5",
+        encoder_obs_key="perception_obs",
+        encoder_obs_shape=(1, 13, 9),
+        use_cnn_encoder=False,
+        actor_obs_keys=["actor_obs"],
+        critic_obs_keys=["critic_obs"],
+    ),
+)
+
 DEFAULTS = {
     "ppo": ppo,
     "fast_sac": fast_sac,
@@ -261,4 +306,5 @@ DEFAULTS = {
     "cql_rho": cql_rho,
     "iql": iql,
     "bc": bc,
+    "td3_bc": td3_bc,
 }

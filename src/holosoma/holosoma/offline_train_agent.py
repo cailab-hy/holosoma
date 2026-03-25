@@ -291,7 +291,7 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
         if not callable(offline_learn_fn):
             raise RuntimeError(
                 f"Selected algorithm '{tyro_config.algo._target_}' does not implement offline_learn(). "
-                "Use an offline algorithm config (e.g., cql, iql, or bc)."
+                "Use an offline algorithm config (e.g., cql, iql, bc, or td3_bc)."
             )
 
         evaluate_one_episode_fn = getattr(algo, "evaluate_one_episode", None)

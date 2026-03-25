@@ -158,16 +158,6 @@ class CQLAgent(BaseAlgo):
         self._num_repeat_actions = config.cql_num_action_samples
         self._temperature = config.cql_temperature
         self._cql_weight = config.cql_weight
-        self._use_support_aware_backup = config.use_support_aware_backup
-        self._backup_support_penalty = float(config.backup_support_penalty)
-        self._backup_mode = config.backup_mode
-
-        # Offline action-support statistics in normalized u-space.
-        self._action_p1: torch.Tensor | None = None
-        self._action_p50: torch.Tensor | None = None
-        self._action_p99: torch.Tensor | None = None
-        self._action_mean: torch.Tensor | None = None
-        self._action_std: torch.Tensor | None = None
 
         self._offline_dataset_path = Path(config.offline_dataset_path)
         self._offline_dataset_cache: dict[str, torch.Tensor] | None = None
@@ -180,16 +170,6 @@ class CQLAgent(BaseAlgo):
             raise ValueError(f"cql_temperature must be > 0, got {config.cql_temperature}")
         if config.cql_weight < 0.0:
             raise ValueError(f"cql_weight must be >= 0, got {config.cql_weight}")
-        if config.backup_support_penalty < 0.0:
-            raise ValueError(f"backup_support_penalty must be >= 0, got {config.backup_support_penalty}")
-        if config.backup_mode != "project_select":
-            raise ValueError(f"backup_mode must be 'project_select', got {config.backup_mode}")
-        if not (0.0 <= config.support_percentile_low < config.support_percentile_high <= 100.0):
-            raise ValueError(
-                "support percentile bounds must satisfy "
-                f"0 <= low < high <= 100, got low={config.support_percentile_low}, "
-                f"high={config.support_percentile_high}"
-            )
         if config.gamma <= 0.0 or config.gamma > 1.0:
             raise ValueError(f"gamma must be in (0, 1], got {config.gamma}")
         if config.tau <= 0.0 or config.tau > 1.0:
@@ -392,113 +372,6 @@ class CQLAgent(BaseAlgo):
             )
 
     @torch.no_grad()
-    def _compute_and_store_action_support_stats(self, offline_actions: torch.Tensor) -> None:
-        """Compute dataset action support stats in normalized u-space and cache them."""
-        self._assert_u_actions(offline_actions, "offline_actions")
-        actions_u = offline_actions.float().clamp(-1.0, 1.0)  # [N, act_dim]
-        q_low = float(self.config.support_percentile_low) / 100.0
-        q_high = float(self.config.support_percentile_high) / 100.0
-        quantiles = torch.tensor([q_low, 0.50, q_high], device=actions_u.device, dtype=actions_u.dtype)
-        action_q = torch.quantile(actions_u, q=quantiles, dim=0)  # [3, act_dim]
-
-        self._action_p1 = action_q[0].to(self.device)
-        self._action_p50 = action_q[1].to(self.device)
-        self._action_p99 = action_q[2].to(self.device)
-        self._action_mean = actions_u.mean(dim=0).to(self.device)
-        self._action_std = actions_u.std(dim=0, unbiased=False).clamp_min(1e-6).to(self.device)
-
-        support_width = (self._action_p99 - self._action_p1).clamp_min(1e-6)
-        logger.info(
-            "Stored action support stats (u-space): "
-            f"mean(p{self.config.support_percentile_low:g})={self._action_p1.mean().item():.4f}, "
-            f"mean(p50)={self._action_p50.mean().item():.4f}, "
-            f"mean(p{self.config.support_percentile_high:g})={self._action_p99.mean().item():.4f}, "
-            f"mean(width)={support_width.mean().item():.4f}"
-        )
-
-    def _get_action_support_stats(
-        self, ref_tensor: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        if (
-            self._action_p1 is None
-            or self._action_p50 is None
-            or self._action_p99 is None
-            or self._action_mean is None
-            or self._action_std is None
-        ):
-            raise RuntimeError(
-                "Action support statistics are not initialized. "
-                "Run _load_offline_dataset_cache() before CQL updates."
-            )
-
-        return (
-            self._action_p1.to(device=ref_tensor.device, dtype=ref_tensor.dtype),
-            self._action_p50.to(device=ref_tensor.device, dtype=ref_tensor.dtype),
-            self._action_p99.to(device=ref_tensor.device, dtype=ref_tensor.dtype),
-            self._action_mean.to(device=ref_tensor.device, dtype=ref_tensor.dtype),
-            self._action_std.to(device=ref_tensor.device, dtype=ref_tensor.dtype),
-        )
-
-    def _compute_support_overflow(self, actions_u: torch.Tensor) -> torch.Tensor:
-        """Return scalar support overflow per action.
-
-        overflow = mean_i( relu(a_i - p99_i) + relu(p1_i - a_i) )
-        """
-        orig_shape = actions_u.shape[:-1]
-        flat_actions = actions_u.reshape(-1, actions_u.shape[-1])
-        p1, _, p99, _, _ = self._get_action_support_stats(flat_actions)
-
-        overflow_per_dim = torch.relu(flat_actions - p99) + torch.relu(p1 - flat_actions)  # [N, act_dim]
-        overflow = overflow_per_dim.mean(dim=-1)  # [N]
-        return overflow.reshape(orig_shape)
-
-    def _project_to_support_band(self, actions_u: torch.Tensor) -> torch.Tensor:
-        """Project normalized action into dataset support band [p_low, p_high] per dimension."""
-        orig_shape = actions_u.shape
-        flat_actions = actions_u.reshape(-1, actions_u.shape[-1])
-        p1, _, p99, _, _ = self._get_action_support_stats(flat_actions)
-        projected = torch.maximum(torch.minimum(flat_actions, p99), p1)
-        return projected.reshape(orig_shape)
-
-    @torch.no_grad()
-    def _select_backup_action(
-        self,
-        next_observations: torch.Tensor,
-        next_critic_observations: torch.Tensor,
-    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        """Select support-aware deterministic backup action for Bellman target."""
-        det_actions_u = self.actor(next_observations)[0].clamp(-1.0, 1.0)  # [B, act_dim]
-        proj_actions_u = self._project_to_support_band(det_actions_u)  # [B, act_dim]
-
-        q1_det, q2_det = self.qnet_target(next_critic_observations, det_actions_u)
-        q1_proj, q2_proj = self.qnet_target(next_critic_observations, proj_actions_u)
-        q_det = torch.minimum(q1_det, q2_det)  # [B]
-        q_proj = torch.minimum(q1_proj, q2_proj)  # [B]
-
-        overflow_det = self._compute_support_overflow(det_actions_u)  # [B]
-        overflow_proj = self._compute_support_overflow(proj_actions_u)  # [B]
-
-        if self._use_support_aware_backup:
-            if self._backup_mode != "project_select":
-                raise ValueError(f"Unsupported backup_mode: {self._backup_mode}")
-            score_det = q_det - self._backup_support_penalty * overflow_det
-            score_proj = q_proj - self._backup_support_penalty * overflow_proj
-            use_projected = score_proj > score_det
-            backup_actions_u = torch.where(use_projected.unsqueeze(-1), proj_actions_u, det_actions_u)
-        else:
-            use_projected = torch.zeros_like(q_det, dtype=torch.bool)
-            backup_actions_u = det_actions_u
-
-        metrics = {
-            "backup_used_projected_ratio": use_projected.float().mean(),
-            "backup_overflow_det_mean": overflow_det.mean(),
-            "backup_overflow_proj_mean": overflow_proj.mean(),
-            "backup_q_det_mean": q_det.mean(),
-            "backup_q_proj_mean": q_proj.mean(),
-        }
-        return backup_actions_u, metrics
-
-    @torch.no_grad()
     def _compute_action_ood_stats(self, data: TensorDict) -> dict[str, torch.Tensor]:
         """Compute per-dimension dataset-vs-policy action coverage stats in normalized u-space."""
         dataset_actions = data["actions"]  # [B, action_dim] expected in u-space
@@ -511,9 +384,7 @@ class CQLAgent(BaseAlgo):
         dataset_actions_u = dataset_actions.float().clamp(-1.0, 1.0)  # [B, action_dim]
         policy_actions_u = policy_actions_u.float()
 
-        q_low = float(self.config.support_percentile_low) / 100.0
-        q_high = float(self.config.support_percentile_high) / 100.0
-        quantiles = torch.tensor([q_low, 0.50, q_high], device=dataset_actions_u.device, dtype=dataset_actions_u.dtype)
+        quantiles = torch.tensor([0.01, 0.50, 0.99], device=dataset_actions_u.device, dtype=dataset_actions_u.dtype)
         dataset_q = torch.quantile(dataset_actions_u, q=quantiles, dim=0)  # [3, action_dim]
         policy_q = torch.quantile(policy_actions_u, q=quantiles, dim=0)  # [3, action_dim]
 
@@ -549,7 +420,18 @@ class CQLAgent(BaseAlgo):
     def _update_q(
         self,
         data: TensorDict,
-    ) -> tuple[torch.Tensor, ...]:
+    ) -> tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+    ]:
         args = self.config
         scaler = self.scaler
 
@@ -568,27 +450,13 @@ class CQLAgent(BaseAlgo):
             alpha = self.log_alpha.exp().detach()
 
             with torch.no_grad():
+                next_actions_u, next_log_probs_u = self.actor.get_actions_and_log_probs(next_observations)
                 discount = args.gamma ** data["next"]["effective_n_steps"]  # [B]
-                backup_actions_u, backup_metrics = self._select_backup_action(
-                    next_observations=next_observations,
-                    next_critic_observations=next_critic_observations,
-                )
-                backup_log_probs_u = self.actor.log_prob_dataset_actions(next_observations, backup_actions_u)
-                next_q1_target, next_q2_target = self.qnet_target(next_critic_observations, backup_actions_u)
+                next_q1_target, next_q2_target = self.qnet_target(next_critic_observations, next_actions_u)
                 next_target_min_q = torch.minimum(next_q1_target, next_q2_target)  # [B]
-                q_target = rewards + discount * bootstrap * (next_target_min_q - alpha * backup_log_probs_u)
-
-                q_target_quantiles = torch.quantile(
-                    q_target.float(),
-                    q=torch.tensor([0.01, 0.50, 0.99], device=q_target.device),
-                    dim=0,
-                )
-                q_target_p1 = q_target_quantiles[0]
-                q_target_p50 = q_target_quantiles[1]
-                q_target_p99 = q_target_quantiles[2]
-                q_target_mean = q_target.mean()
-                q_target_min = q_target.min()
-                q_target_max = q_target.max()
+                q_target = rewards + discount * bootstrap * (next_target_min_q - alpha * next_log_probs_u)
+                target_value_max = q_target.max()
+                target_value_min = q_target.min()
 
             q1, q2 = self.qnet(critic_observations, dataset_actions_u)  # [B], [B] in u-space
             bellman_loss = F.mse_loss(q1, q_target) + F.mse_loss(q2, q_target)
@@ -636,10 +504,6 @@ class CQLAgent(BaseAlgo):
                 # log mu(u) = D * log(0.5)
                 random_density = math.log(0.5) * dataset_actions_u.shape[-1]
 
-                rand_overflow_mean = self._compute_support_overflow(rand_actions).mean()
-                curr_overflow_mean = self._compute_support_overflow(curr_actions_u).mean()
-                next_overflow_mean = self._compute_support_overflow(next_actions_u).mean()
-
                 cat_q1_terms = [
                     q1_rand - random_density,
                     q1_curr - curr_logp_u,
@@ -662,9 +526,6 @@ class CQLAgent(BaseAlgo):
             else:
                 conservative_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 cql_gap = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-                rand_overflow_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-                curr_overflow_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-                next_overflow_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
 
             q_loss = bellman_loss + conservative_loss
 
@@ -703,25 +564,13 @@ class CQLAgent(BaseAlgo):
             rewards.mean().detach(),
             q_grad_norm.detach(),
             q_loss.detach(),
+            target_value_max.detach(),
+            target_value_min.detach(),
             alpha_loss.detach(),
             conservative_loss.detach(),
             bellman_loss.detach(),
             cql_gap.detach(),
             q_data_mean.detach(),
-            q_target_mean.detach(),
-            q_target_p1.detach(),
-            q_target_p50.detach(),
-            q_target_p99.detach(),
-            q_target_min.detach(),
-            q_target_max.detach(),
-            backup_metrics["backup_used_projected_ratio"].detach(),
-            backup_metrics["backup_overflow_det_mean"].detach(),
-            backup_metrics["backup_overflow_proj_mean"].detach(),
-            backup_metrics["backup_q_det_mean"].detach(),
-            backup_metrics["backup_q_proj_mean"].detach(),
-            rand_overflow_mean.detach(),
-            curr_overflow_mean.detach(),
-            next_overflow_mean.detach(),
         )
 
     def _update_actor(
@@ -769,8 +618,6 @@ class CQLAgent(BaseAlgo):
 
     def _load_offline_dataset_cache(self) -> dict[str, torch.Tensor]:
         if self._offline_dataset_cache is not None:
-            if self._action_p1 is None:
-                self._compute_and_store_action_support_stats(self._offline_dataset_cache["actions"])
             return self._offline_dataset_cache
 
         if not self._offline_dataset_path.exists():
@@ -852,9 +699,6 @@ class CQLAgent(BaseAlgo):
         # Fix learning-space semantics: keep dataset actions as normalized u-space in cache.
         self._offline_dataset_cache["actions"] = self._to_u_actions(self._offline_dataset_cache["actions"]).contiguous()
         self._assert_u_actions(self._offline_dataset_cache["actions"], "offline_dataset_actions_u")
-
-        # Precompute dataset support stats for support-aware backup selection.
-        self._compute_and_store_action_support_stats(self._offline_dataset_cache["actions"])
 
         logger.info(
             f"Cached offline dataset '{self._offline_dataset_path}' in host memory "
@@ -1100,25 +944,13 @@ class CQLAgent(BaseAlgo):
                         reward_mean,
                         q_grad_norm,
                         q_loss,
+                        q_target_max,
+                        q_target_min,
                         alpha_loss,
                         conservative_loss,
                         bellman_loss,
                         cql_gap,
                         q_data_mean,
-                        q_target_mean,
-                        q_target_p1,
-                        q_target_p50,
-                        q_target_p99,
-                        q_target_min,
-                        q_target_max,
-                        backup_used_projected_ratio,
-                        backup_overflow_det_mean,
-                        backup_overflow_proj_mean,
-                        backup_q_det_mean,
-                        backup_q_proj_mean,
-                        rand_overflow_mean,
-                        curr_overflow_mean,
-                        next_overflow_mean,
                     ) = update_q(data)
 
                     self._critic_update_step += 1
@@ -1147,12 +979,8 @@ class CQLAgent(BaseAlgo):
                             "buffer_rewards": reward_mean,
                             "q_grad_norm": q_grad_norm,
                             "q_loss": q_loss,
-                            "q_target_mean": q_target_mean,
-                            "q_target_p1": q_target_p1,
-                            "q_target_p50": q_target_p50,
-                            "q_target_p99": q_target_p99,
-                            "q_target_min": q_target_min,
                             "q_target_max": q_target_max,
+                            "q_target_min": q_target_min,
                             "alpha_loss": alpha_loss,
                             "alpha_value": self.log_alpha.exp().detach().mean(),
                             "actor_grad_norm": actor_grad_norm,
@@ -1163,14 +991,6 @@ class CQLAgent(BaseAlgo):
                             "cql_bellman_loss": bellman_loss,
                             "cql_gap": cql_gap,
                             "q_data_mean": q_data_mean,
-                            "backup_used_projected_ratio": backup_used_projected_ratio,
-                            "backup_overflow_det_mean": backup_overflow_det_mean,
-                            "backup_overflow_proj_mean": backup_overflow_proj_mean,
-                            "backup_q_det_mean": backup_q_det_mean,
-                            "backup_q_proj_mean": backup_q_proj_mean,
-                            "cql_support/rand_overflow_mean": rand_overflow_mean,
-                            "cql_support/curr_overflow_mean": curr_overflow_mean,
-                            "cql_support/next_overflow_mean": next_overflow_mean,
                             "is_actor_warmup": float(is_actor_warmup),
                             "is_actor_update_step": float(is_actor_update_step),
                             **action_ood_stats,

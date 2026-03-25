@@ -356,21 +356,6 @@ class CQLConfig:
     cql_weight: float = 5.0
     """weight of conservative quantile regularization"""
 
-    use_support_aware_backup: bool = True
-    """whether to use support-aware Bellman backup action selection"""
-
-    backup_support_penalty: float = 10.0
-    """lambda_support used in score = Q_target - lambda_support * overflow"""
-
-    backup_mode: str = "project_select"
-    """support-aware backup mode. currently only 'project_select' is supported"""
-
-    support_percentile_low: float = 1.0
-    """low percentile used for action support band in normalized u-space"""
-
-    support_percentile_high: float = 99.0
-    """high percentile used for action support band in normalized u-space"""
-
     target_entropy_ratio: float = 0.0
     """the ratio of the target entropy to the number of actions"""
 
@@ -465,6 +450,26 @@ class CQLConfig:
     critic_obs_keys: List[str] = field(default_factory=lambda: ["critic_obs"])
 
 #============================================================================================
+
+
+@dataclass(frozen=True)
+class CQLSupportAwareConfig(CQLConfig):
+    """CQL config with support-aware Bellman backup selection."""
+
+    use_support_aware_backup: bool = True
+    """whether to use support-aware Bellman backup action selection"""
+
+    backup_support_penalty: float = 1.0
+    """lambda_support used in score = Q_target - lambda_support * overflow"""
+
+    backup_mode: str = "project_select"
+    """support-aware backup mode. currently only 'project_select' is supported"""
+
+    support_percentile_low: float = 1.0
+    """low percentile used for action support band in normalized u-space"""
+
+    support_percentile_high: float = 99.0
+    """high percentile used for action support band in normalized u-space"""
 
 
 @dataclass(frozen=True)
@@ -645,6 +650,105 @@ class BCConfig:
 
 
 @dataclass(frozen=True)
+class TD3BCConfig:
+    num_learning_iterations: int = 25000
+    """total gradient update iterations"""
+
+    critic_learning_rate: float = 3e-4
+    """learning rate for critic network"""
+
+    actor_learning_rate: float = 3e-4
+    """learning rate for actor network"""
+
+    batch_size: int = 8192
+    """global batch size"""
+
+    num_updates: int = 8
+    """number of gradient updates per outer step"""
+
+    eval_interval: int = 1000
+    """steps per offline_learn() call when max_steps is not provided"""
+
+    discount: float = 0.97
+    """discount factor"""
+
+    tau: float = 0.005
+    """soft update coefficient for target networks"""
+
+    policy_delay: int = 2
+    """delayed actor/target update frequency in critic updates"""
+
+    target_policy_noise: float = 0.2
+    """std of target policy smoothing noise in normalized action space"""
+
+    target_noise_clip: float = 0.5
+    """absolute clip for target policy smoothing noise"""
+
+    td3bc_alpha: float = 2.5
+    """alpha used in lambda = alpha / mean(|Q|) for TD3+BC actor objective"""
+
+    use_adaptive_lambda: bool = True
+    """whether to use adaptive lambda scaling based on Q magnitude"""
+
+    bc_coef: float = 1.0
+    """coefficient for behavior cloning MSE loss in actor update"""
+
+    critic_hidden_dim: int = 768
+    """hidden dimension of Q networks"""
+
+    actor_hidden_dim: int = 512
+    """hidden dimension of actor network"""
+
+    use_symmetry: bool = False
+    """whether to apply symmetry augmentation to offline batches"""
+
+    use_tanh: bool = True
+    """whether to use tanh-bounded actor output in normalized u-space"""
+
+    compile: bool = True
+    """whether to use torch.compile for update functions"""
+
+    obs_normalization: bool = True
+    """whether to normalize actor/critic observations"""
+
+    use_layer_norm: bool = True
+    """whether to use layer normalization in networks"""
+
+    max_grad_norm: float = 0.0
+    """max grad norm (0 disables clipping)"""
+
+    amp: bool = True
+    """whether to use AMP"""
+
+    amp_dtype: str = "bf16"
+    """AMP dtype: bf16 or fp16"""
+
+    weight_decay: float = 0.001
+    """weight decay for optimizers"""
+
+    save_interval: int = 1000
+    """checkpoint interval"""
+
+    logging_interval: int = 100
+    """logging interval"""
+
+    offline_dataset_path: str = "offline_data/fastsac_dataset.h5"
+    """path to fixed offline dataset"""
+
+    encoder_obs_key: str = "perception_obs"
+    """encoder observation key, used only when use_cnn_encoder is True"""
+
+    encoder_obs_shape: tuple[int, int, int] = (1, 13, 9)
+    """encoder observation shape, used only when use_cnn_encoder is True"""
+
+    use_cnn_encoder: bool = False
+    """whether to use CNN actor encoder"""
+
+    actor_obs_keys: List[str] = field(default_factory=lambda: ["actor_obs"])
+    critic_obs_keys: List[str] = field(default_factory=lambda: ["critic_obs"])
+
+
+@dataclass(frozen=True)
 class PPOAlgoConfig:
     """Configuration for algorithm wrapper."""
 
@@ -695,7 +799,7 @@ class CQLSupportAwareAlgoConfig:
     _recursive_: bool
     """Whether to recursively instantiate."""
 
-    config: CQLConfig
+    config: CQLSupportAwareConfig
     """Algorithm-specific configuration."""
 
 
@@ -727,7 +831,21 @@ class BCAlgoConfig:
     """Algorithm-specific configuration."""
 
 
-AlgoInitConfig = Union[PPOConfig, FastSACConfig, CQLConfig, IQLConfig, BCConfig]
+@dataclass(frozen=True)
+class TD3BCAlgoConfig:
+    """Configuration for TD3+BC algorithm wrapper."""
+
+    _target_: str
+    """Target algorithm class."""
+
+    _recursive_: bool
+    """Whether to recursively instantiate."""
+
+    config: TD3BCConfig
+    """Algorithm-specific configuration."""
+
+
+AlgoInitConfig = Union[PPOConfig, FastSACConfig, CQLConfig, CQLSupportAwareConfig, IQLConfig, BCConfig, TD3BCConfig]
 
 AlgoConfig = Union[
     PPOAlgoConfig,
@@ -736,4 +854,5 @@ AlgoConfig = Union[
     CQLSupportAwareAlgoConfig,
     IQLAlgoConfig,
     BCAlgoConfig,
+    TD3BCAlgoConfig,
 ]

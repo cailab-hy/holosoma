@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import itertools
-import math
 import os
 from contextlib import contextmanager
 from pathlib import Path
@@ -14,11 +13,11 @@ import tqdm
 from loguru import logger
 
 from holosoma.agents.base_algo.base_algo import BaseAlgo
-from holosoma.agents.cql_support_aware.cql import Actor, CNNActor, DoubleQCritic
-from holosoma.agents.cql_support_aware.cql_utils import EmpiricalNormalization, save_params
 from holosoma.agents.modules.augmentation_utils import SymmetryUtils
 from holosoma.agents.modules.logging_utils import LoggingHelper
-from holosoma.config_types.algo import CQLSupportAwareConfig
+from holosoma.agents.td3.td3 import Actor, CNNActor, DoubleQCritic
+from holosoma.agents.td3.td3_utils import EmpiricalNormalization, save_params
+from holosoma.config_types.algo import TD3BCConfig
 from holosoma.envs.base_task.base_task import BaseTask
 from holosoma.utils.average_meters import TensorAverageMeterDict
 from holosoma.utils.inference_helpers import (
@@ -43,7 +42,7 @@ from holosoma.utils.safe_torch_import import (
 torch.set_float32_matmul_precision("high")
 
 
-class CQLEnv:
+class TD3Env:
     def __init__(
         self,
         env: BaseTask,
@@ -120,27 +119,29 @@ class CQLEnv:
         return action_scaling_factors
 
 
-class CQLSupportAwareAgent(BaseAlgo):
-    config: CQLSupportAwareConfig
-    env: CQLEnv  # type: ignore[assignment]
+class TD3BCAgent(BaseAlgo):
+    config: TD3BCConfig
+    env: TD3Env  # type: ignore[assignment]
     actor: Actor
+    actor_target: Actor
     qnet: DoubleQCritic
     qnet_target: DoubleQCritic
 
     def __init__(
         self,
         env: BaseTask,
-        config: CQLSupportAwareConfig,
+        config: TD3BCConfig,
         device: str,
         log_dir: str,
         multi_gpu_cfg: dict | None = None,
     ):
-        wrapped_env = CQLEnv(env, config.actor_obs_keys, config.critic_obs_keys)
+        wrapped_env = TD3Env(env, config.actor_obs_keys, config.critic_obs_keys)
         super().__init__(wrapped_env, config, device, multi_gpu_cfg)  # type: ignore[arg-type]
 
         self.unwrapped_env = env
         self.log_dir = log_dir
         self.global_step = 0
+        self._critic_update_step = 0
         self.writer = TensorboardSummaryWriter(log_dir=self.log_dir, flush_secs=10)
         self.logging_helper = LoggingHelper(
             self.writer,
@@ -155,52 +156,37 @@ class CQLSupportAwareAgent(BaseAlgo):
         self.training_metrics = TensorAverageMeterDict()
 
         self.eval_step = max(1, config.eval_interval)
-        self._num_repeat_actions = config.cql_num_action_samples
-        self._temperature = config.cql_temperature
-        self._cql_weight = config.cql_weight
-        self._use_support_aware_backup = config.use_support_aware_backup
-        self._backup_support_penalty = float(config.backup_support_penalty)
-        self._backup_mode = config.backup_mode
-
-        # Offline action-support statistics in normalized u-space.
-        self._action_p1: torch.Tensor | None = None
-        self._action_p50: torch.Tensor | None = None
-        self._action_p99: torch.Tensor | None = None
-        self._action_mean: torch.Tensor | None = None
-        self._action_std: torch.Tensor | None = None
-
         self._offline_dataset_path = Path(config.offline_dataset_path)
         self._offline_dataset_cache: dict[str, torch.Tensor] | None = None
         self._offline_num_samples = 0
-        self._critic_update_step = 0
 
-        if config.cql_num_action_samples <= 0:
-            raise ValueError(f"cql_num_action_samples must be > 0, got {config.cql_num_action_samples}")
-        if config.cql_temperature <= 0.0:
-            raise ValueError(f"cql_temperature must be > 0, got {config.cql_temperature}")
-        if config.cql_weight < 0.0:
-            raise ValueError(f"cql_weight must be >= 0, got {config.cql_weight}")
-        if config.backup_support_penalty < 0.0:
-            raise ValueError(f"backup_support_penalty must be >= 0, got {config.backup_support_penalty}")
-        if config.backup_mode != "project_select":
-            raise ValueError(f"backup_mode must be 'project_select', got {config.backup_mode}")
-        if not (0.0 <= config.support_percentile_low < config.support_percentile_high <= 100.0):
-            raise ValueError(
-                "support percentile bounds must satisfy "
-                f"0 <= low < high <= 100, got low={config.support_percentile_low}, "
-                f"high={config.support_percentile_high}"
-            )
-        if config.gamma <= 0.0 or config.gamma > 1.0:
-            raise ValueError(f"gamma must be in (0, 1], got {config.gamma}")
+        if config.actor_learning_rate <= 0.0:
+            raise ValueError(f"actor_learning_rate must be > 0, got {config.actor_learning_rate}")
+        if config.critic_learning_rate <= 0.0:
+            raise ValueError(f"critic_learning_rate must be > 0, got {config.critic_learning_rate}")
+        if config.batch_size <= 0:
+            raise ValueError(f"batch_size must be > 0, got {config.batch_size}")
+        if config.num_updates <= 0:
+            raise ValueError(f"num_updates must be > 0, got {config.num_updates}")
+        if config.eval_interval < 0:
+            raise ValueError(f"eval_interval must be >= 0, got {config.eval_interval}")
+        if config.discount <= 0.0 or config.discount > 1.0:
+            raise ValueError(f"discount must be in (0, 1], got {config.discount}")
         if config.tau <= 0.0 or config.tau > 1.0:
             raise ValueError(f"tau must be in (0, 1], got {config.tau}")
-        if config.alpha_init <= 0.0:
-            raise ValueError(f"alpha_init must be > 0, got {config.alpha_init}")
-        if config.policy_frequency <= 0:
-            raise ValueError(f"policy_frequency must be > 0, got {config.policy_frequency}")
+        if config.policy_delay <= 0:
+            raise ValueError(f"policy_delay must be > 0, got {config.policy_delay}")
+        if config.target_policy_noise < 0.0:
+            raise ValueError(f"target_policy_noise must be >= 0, got {config.target_policy_noise}")
+        if config.target_noise_clip < 0.0:
+            raise ValueError(f"target_noise_clip must be >= 0, got {config.target_noise_clip}")
+        if config.td3bc_alpha <= 0.0:
+            raise ValueError(f"td3bc_alpha must be > 0, got {config.td3bc_alpha}")
+        if config.bc_coef < 0.0:
+            raise ValueError(f"bc_coef must be >= 0, got {config.bc_coef}")
 
     def setup(self) -> None:
-        logger.info("Setting up scalar offline CQL")
+        logger.info("Setting up offline TD3+BC")
 
         if self.is_multi_gpu and self.has_curricula_enabled():
             logger.info(f"Multi-GPU curriculum synchronization enabled across {self.gpu_world_size} GPUs")
@@ -266,8 +252,6 @@ class CQLSupportAwareAgent(BaseAlgo):
             n_act=n_act,
             num_envs=env.num_envs,
             hidden_dim=args.actor_hidden_dim,
-            log_std_max=args.log_std_max,
-            log_std_min=args.log_std_min,
             use_tanh=args.use_tanh,
             use_layer_norm=args.use_layer_norm,
             device=device,
@@ -276,6 +260,7 @@ class CQLSupportAwareAgent(BaseAlgo):
             encoder_obs_key=args.encoder_obs_key,
             encoder_obs_shape=args.encoder_obs_shape,
         )
+        self.actor_target = copy.deepcopy(self.actor)
 
         self.qnet = DoubleQCritic(
             obs_indices=self.critic_obs_indices,
@@ -295,9 +280,6 @@ class CQLSupportAwareAgent(BaseAlgo):
         )
         self.qnet_target.load_state_dict(self.qnet.state_dict())
 
-        self.log_alpha = torch.tensor([math.log(args.alpha_init)], requires_grad=True, device=device)
-        self.target_entropy = -float(n_act) * float(args.target_entropy_ratio)
-
         self.actor_optimizer = optim.AdamW(
             self.actor.parameters(),
             lr=args.actor_learning_rate,
@@ -312,19 +294,13 @@ class CQLSupportAwareAgent(BaseAlgo):
             fused=True,
             betas=(0.9, 0.95),
         )
-        self.alpha_optimizer = optim.AdamW(
-            [self.log_alpha],
-            lr=args.alpha_learning_rate,
-            fused=True,
-            betas=(0.9, 0.95),
-        )
 
         def _env_policy(obs: torch.Tensor, dones: torch.Tensor | None = None, deterministic: bool = False) -> torch.Tensor:
             u_actions = self.actor.explore(obs, dones=dones, deterministic=deterministic)
             return self._to_env_actions(u_actions)
 
         self.policy = _env_policy
-        logger.info(f"CQL dims: actor_obs_dim={actor_obs_dim}, critic_obs_dim={critic_obs_dim}, n_act={n_act}")
+        logger.info(f"TD3+BC dims: actor_obs_dim={actor_obs_dim}, critic_obs_dim={critic_obs_dim}, n_act={n_act}")
 
         if args.use_symmetry:
             self.symmetry_utils = SymmetryUtils(env._env)
@@ -343,9 +319,9 @@ class CQLSupportAwareAgent(BaseAlgo):
             torch.distributed.broadcast(param.data, src=0)
         for param in self.qnet.parameters():
             torch.distributed.broadcast(param.data, src=0)
-        torch.distributed.broadcast(self.log_alpha.data, src=0)
+        self.actor_target.load_state_dict(self.actor.state_dict())
         self.qnet_target.load_state_dict(self.qnet.state_dict())
-        logger.info(f"Synchronized CQL model parameters across {self.gpu_world_size} GPUs")
+        logger.info(f"Synchronized TD3+BC model parameters across {self.gpu_world_size} GPUs")
 
     def _all_reduce_model_grads(self, model: nn.Module) -> None:
         if not self.is_multi_gpu:
@@ -363,310 +339,77 @@ class CQLSupportAwareAgent(BaseAlgo):
                 p.grad.copy_(flat[offset : offset + n].view_as(p.grad))
                 offset += n
 
-    def _soft_update_q_target(self) -> None:
+    def _soft_update_targets(self) -> None:
         with torch.no_grad():
-            src_ps = [p.data for p in self.qnet.parameters()]
-            tgt_ps = [p.data for p in self.qnet_target.parameters()]
-            torch._foreach_mul_(tgt_ps, 1.0 - self.config.tau)
-            torch._foreach_add_(tgt_ps, src_ps, alpha=self.config.tau)
+            src_q = [p.data for p in self.qnet.parameters()]
+            tgt_q = [p.data for p in self.qnet_target.parameters()]
+            torch._foreach_mul_(tgt_q, 1.0 - self.config.tau)
+            torch._foreach_add_(tgt_q, src_q, alpha=self.config.tau)
+
+            src_actor = [p.data for p in self.actor.parameters()]
+            tgt_actor = [p.data for p in self.actor_target.parameters()]
+            torch._foreach_mul_(tgt_actor, 1.0 - self.config.tau)
+            torch._foreach_add_(tgt_actor, src_actor, alpha=self.config.tau)
 
     def _to_u_actions(self, actions: torch.Tensor) -> torch.Tensor:
-        # Map env action-space tensors to normalized u-space in [-1, 1].
         action_scale = self.actor.action_scale.to(device=actions.device, dtype=actions.dtype)
         action_bias = self.actor.action_bias.to(device=actions.device, dtype=actions.dtype)
         return ((actions - action_bias) / (action_scale + 1e-6)).clamp(-1.0, 1.0)
 
     def _to_env_actions(self, u_actions: torch.Tensor) -> torch.Tensor:
-        # Map normalized u-space tensors in [-1, 1] to env action-space.
         action_scale = self.actor.action_scale.to(device=u_actions.device, dtype=u_actions.dtype)
         action_bias = self.actor.action_bias.to(device=u_actions.device, dtype=u_actions.dtype)
         return u_actions * action_scale + action_bias
 
-    def _assert_u_actions(self, actions: torch.Tensor, name: str) -> None:
+    def _maybe_to_u_actions(self, actions: torch.Tensor) -> torch.Tensor:
         if actions.numel() == 0:
-            return
+            return actions
         max_abs = actions.detach().abs().max()
-        if bool((max_abs > 1.05).item()):
-            raise RuntimeError(
-                f"{name} must be normalized u-actions in [-1, 1], got max abs {max_abs.item():.4f}."
-            )
-
-    @torch.no_grad()
-    def _compute_and_store_action_support_stats(self, offline_actions: torch.Tensor) -> None:
-        """Compute dataset action support stats in normalized u-space and cache them."""
-        self._assert_u_actions(offline_actions, "offline_actions")
-        actions_u = offline_actions.float().clamp(-1.0, 1.0)  # [N, act_dim]
-        q_low = float(self.config.support_percentile_low) / 100.0
-        q_high = float(self.config.support_percentile_high) / 100.0
-        quantiles = torch.tensor([q_low, 0.50, q_high], device=actions_u.device, dtype=actions_u.dtype)
-        action_q = torch.quantile(actions_u, q=quantiles, dim=0)  # [3, act_dim]
-
-        self._action_p1 = action_q[0].to(self.device)
-        self._action_p50 = action_q[1].to(self.device)
-        self._action_p99 = action_q[2].to(self.device)
-        self._action_mean = actions_u.mean(dim=0).to(self.device)
-        self._action_std = actions_u.std(dim=0, unbiased=False).clamp_min(1e-6).to(self.device)
-
-        support_width = (self._action_p99 - self._action_p1).clamp_min(1e-6)
-        logger.info(
-            "Stored action support stats (u-space): "
-            f"mean(p{self.config.support_percentile_low:g})={self._action_p1.mean().item():.4f}, "
-            f"mean(p50)={self._action_p50.mean().item():.4f}, "
-            f"mean(p{self.config.support_percentile_high:g})={self._action_p99.mean().item():.4f}, "
-            f"mean(width)={support_width.mean().item():.4f}"
-        )
-
-    def _get_action_support_stats(
-        self, ref_tensor: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        if (
-            self._action_p1 is None
-            or self._action_p50 is None
-            or self._action_p99 is None
-            or self._action_mean is None
-            or self._action_std is None
-        ):
-            raise RuntimeError(
-                "Action support statistics are not initialized. "
-                "Run _load_offline_dataset_cache() before CQL updates."
-            )
-
-        return (
-            self._action_p1.to(device=ref_tensor.device, dtype=ref_tensor.dtype),
-            self._action_p50.to(device=ref_tensor.device, dtype=ref_tensor.dtype),
-            self._action_p99.to(device=ref_tensor.device, dtype=ref_tensor.dtype),
-            self._action_mean.to(device=ref_tensor.device, dtype=ref_tensor.dtype),
-            self._action_std.to(device=ref_tensor.device, dtype=ref_tensor.dtype),
-        )
-
-    def _compute_support_overflow(self, actions_u: torch.Tensor) -> torch.Tensor:
-        """Return scalar support overflow per action.
-
-        overflow = mean_i( relu(a_i - p99_i) + relu(p1_i - a_i) )
-        """
-        orig_shape = actions_u.shape[:-1]
-        flat_actions = actions_u.reshape(-1, actions_u.shape[-1])
-        p1, _, p99, _, _ = self._get_action_support_stats(flat_actions)
-
-        overflow_per_dim = torch.relu(flat_actions - p99) + torch.relu(p1 - flat_actions)  # [N, act_dim]
-        overflow = overflow_per_dim.mean(dim=-1)  # [N]
-        return overflow.reshape(orig_shape)
-
-    def _project_to_support_band(self, actions_u: torch.Tensor) -> torch.Tensor:
-        """Project normalized action into dataset support band [p_low, p_high] per dimension."""
-        orig_shape = actions_u.shape
-        flat_actions = actions_u.reshape(-1, actions_u.shape[-1])
-        p1, _, p99, _, _ = self._get_action_support_stats(flat_actions)
-        projected = torch.maximum(torch.minimum(flat_actions, p99), p1)
-        return projected.reshape(orig_shape)
-
-    @torch.no_grad()
-    def _select_backup_action(
-        self,
-        next_observations: torch.Tensor,
-        next_critic_observations: torch.Tensor,
-    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        """Select support-aware deterministic backup action for Bellman target."""
-        det_actions_u = self.actor(next_observations)[0].clamp(-1.0, 1.0)  # [B, act_dim]
-        proj_actions_u = self._project_to_support_band(det_actions_u)  # [B, act_dim]
-
-        q1_det, q2_det = self.qnet_target(next_critic_observations, det_actions_u)
-        q1_proj, q2_proj = self.qnet_target(next_critic_observations, proj_actions_u)
-        q_det = torch.minimum(q1_det, q2_det)  # [B]
-        q_proj = torch.minimum(q1_proj, q2_proj)  # [B]
-
-        overflow_det = self._compute_support_overflow(det_actions_u)  # [B]
-        overflow_proj = self._compute_support_overflow(proj_actions_u)  # [B]
-
-        if self._use_support_aware_backup:
-            if self._backup_mode != "project_select":
-                raise ValueError(f"Unsupported backup_mode: {self._backup_mode}")
-            score_det = q_det - self._backup_support_penalty * overflow_det
-            score_proj = q_proj - self._backup_support_penalty * overflow_proj
-            use_projected = score_proj > score_det
-            backup_actions_u = torch.where(use_projected.unsqueeze(-1), proj_actions_u, det_actions_u)
-        else:
-            use_projected = torch.zeros_like(q_det, dtype=torch.bool)
-            backup_actions_u = det_actions_u
-
-        metrics = {
-            "backup_used_projected_ratio": use_projected.float().mean(),
-            "backup_overflow_det_mean": overflow_det.mean(),
-            "backup_overflow_proj_mean": overflow_proj.mean(),
-            "backup_q_det_mean": q_det.mean(),
-            "backup_q_proj_mean": q_proj.mean(),
-        }
-        return backup_actions_u, metrics
-
-    @torch.no_grad()
-    def _compute_action_ood_stats(self, data: TensorDict) -> dict[str, torch.Tensor]:
-        """Compute per-dimension dataset-vs-policy action coverage stats in normalized u-space."""
-        dataset_actions = data["actions"]  # [B, action_dim] expected in u-space
-        actor_observations = data["observations"]  # [B, actor_obs_dim]
-
-        # Deterministic policy action from actor.forward (already in u-space).
-        policy_actions_u = self.actor(actor_observations)[0]  # [B, action_dim] in u-space
-
-        self._assert_u_actions(dataset_actions, "batch_dataset_actions")
-        dataset_actions_u = dataset_actions.float().clamp(-1.0, 1.0)  # [B, action_dim]
-        policy_actions_u = policy_actions_u.float()
-
-        q_low = float(self.config.support_percentile_low) / 100.0
-        q_high = float(self.config.support_percentile_high) / 100.0
-        quantiles = torch.tensor([q_low, 0.50, q_high], device=dataset_actions_u.device, dtype=dataset_actions_u.dtype)
-        dataset_q = torch.quantile(dataset_actions_u, q=quantiles, dim=0)  # [3, action_dim]
-        policy_q = torch.quantile(policy_actions_u, q=quantiles, dim=0)  # [3, action_dim]
-
-        dataset_p1, dataset_p50, dataset_p99 = dataset_q[0], dataset_q[1], dataset_q[2]
-        policy_p1, policy_p50, policy_p99 = policy_q[0], policy_q[1], policy_q[2]
-
-        # Positive overflow means policy exceeds dataset support band.
-        upper_overflow = torch.clamp(policy_p99 - dataset_p99, min=0.0)
-        lower_overflow = torch.clamp(dataset_p1 - policy_p1, min=0.0)
-
-        stats: dict[str, torch.Tensor] = {
-            "action_ood/mean_upper_overflow": upper_overflow.abs().mean(),
-            "action_ood/mean_lower_overflow": lower_overflow.abs().mean(),
-            "action_ood/max_upper_overflow": upper_overflow.max(),
-            "action_ood/max_lower_overflow": lower_overflow.max(),
-            "action_ood/policy_abs_u_mean": policy_actions_u.abs().mean(),
-            "action_ood/dataset_abs_u_mean": dataset_actions_u.abs().mean(),
-        }
-
-        num_detail_dims = min(4, int(dataset_actions_u.shape[-1]))
-        for dim_idx in range(num_detail_dims):
-            stats[f"action_ood/dim{dim_idx}_dataset_p1"] = dataset_p1[dim_idx]
-            stats[f"action_ood/dim{dim_idx}_dataset_p50"] = dataset_p50[dim_idx]
-            stats[f"action_ood/dim{dim_idx}_dataset_p99"] = dataset_p99[dim_idx]
-            stats[f"action_ood/dim{dim_idx}_policy_p1"] = policy_p1[dim_idx]
-            stats[f"action_ood/dim{dim_idx}_policy_p50"] = policy_p50[dim_idx]
-            stats[f"action_ood/dim{dim_idx}_policy_p99"] = policy_p99[dim_idx]
-            stats[f"action_ood/dim{dim_idx}_upper_overflow"] = upper_overflow[dim_idx]
-            stats[f"action_ood/dim{dim_idx}_lower_overflow"] = lower_overflow[dim_idx]
-
-        return stats
+        if bool((max_abs <= 1.05).item()):
+            return actions.clamp(-1.0, 1.0)
+        return self._to_u_actions(actions)
 
     def _update_q(
         self,
         data: TensorDict,
-    ) -> tuple[torch.Tensor, ...]:
+    ) -> tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+    ]:
         args = self.config
         scaler = self.scaler
 
         with self._maybe_amp():
-            observations = data["observations"]  # [B, actor_obs_dim]
-            next_observations = data["next"]["observations"]  # [B, actor_obs_dim]
-            critic_observations = data["critic_observations"]  # [B, critic_obs_dim]
-            next_critic_observations = data["next"]["critic_observations"]  # [B, critic_obs_dim]
-            self._assert_u_actions(data["actions"], "batch_dataset_actions")
-            dataset_actions_u = data["actions"].clamp(-1.0, 1.0)  # [B, action_dim] in normalized u-space
-            rewards = data["next"]["rewards"]  # [B]
-            dones = data["next"]["dones"].bool()  # [B]
-            truncations = data["next"]["truncations"].bool()  # [B]
-            bootstrap = (truncations | ~dones).float()  # [B]
-
-            alpha = self.log_alpha.exp().detach()
+            critic_observations = data["critic_observations"]
+            next_observations = data["next"]["observations"]
+            next_critic_observations = data["next"]["critic_observations"]
+            actions_u = data["actions"].clamp(-1.0, 1.0)
+            rewards = data["next"]["rewards"]
+            dones = data["next"]["dones"].bool()
+            truncations = data["next"]["truncations"].bool()
+            bootstrap = (truncations | ~dones).float()
+            discount = args.discount ** data["next"]["effective_n_steps"]
 
             with torch.no_grad():
-                discount = args.gamma ** data["next"]["effective_n_steps"]  # [B]
-                backup_actions_u, backup_metrics = self._select_backup_action(
-                    next_observations=next_observations,
-                    next_critic_observations=next_critic_observations,
-                )
-                backup_log_probs_u = self.actor.log_prob_dataset_actions(next_observations, backup_actions_u)
-                next_q1_target, next_q2_target = self.qnet_target(next_critic_observations, backup_actions_u)
-                next_target_min_q = torch.minimum(next_q1_target, next_q2_target)  # [B]
-                q_target = rewards + discount * bootstrap * (next_target_min_q - alpha * backup_log_probs_u)
+                next_actions_u = self.actor_target(next_observations)[0]
+                if args.target_policy_noise > 0.0:
+                    noise = torch.randn_like(next_actions_u) * args.target_policy_noise
+                    noise = noise.clamp(-args.target_noise_clip, args.target_noise_clip)
+                    next_actions_u = next_actions_u + noise
+                next_actions_u = next_actions_u.clamp(-1.0, 1.0)
 
-                q_target_quantiles = torch.quantile(
-                    q_target.float(),
-                    q=torch.tensor([0.01, 0.50, 0.99], device=q_target.device),
-                    dim=0,
-                )
-                q_target_p1 = q_target_quantiles[0]
-                q_target_p50 = q_target_quantiles[1]
-                q_target_p99 = q_target_quantiles[2]
-                q_target_mean = q_target.mean()
-                q_target_min = q_target.min()
-                q_target_max = q_target.max()
+                next_q1_target, next_q2_target = self.qnet_target(next_critic_observations, next_actions_u)
+                next_target_min_q = torch.minimum(next_q1_target, next_q2_target)
+                q_target = rewards + discount * bootstrap * next_target_min_q
 
-            q1, q2 = self.qnet(critic_observations, dataset_actions_u)  # [B], [B] in u-space
-            bellman_loss = F.mse_loss(q1, q_target) + F.mse_loss(q2, q_target)
-
-            q_data_mean = 0.5 * (q1.mean() + q2.mean())
-            if self._cql_weight > 0.0:
-                bsz = dataset_actions_u.shape[0]
-                num_repeat = self._num_repeat_actions
-
-                # Candidate-action expansion for CQL:
-                # expanded_obs/expanded_critic_obs/expanded_next_obs: [B * N, obs_dim]
-                expanded_obs = observations[:, None, :].expand(bsz, num_repeat, -1).reshape(bsz * num_repeat, -1)
-                expanded_critic_obs = critic_observations[:, None, :].expand(bsz, num_repeat, -1).reshape(
-                    bsz * num_repeat, -1
-                )
-                expanded_next_obs = next_observations[:, None, :].expand(bsz, num_repeat, -1).reshape(
-                    bsz * num_repeat, -1
-                )
-
-                with torch.no_grad():
-                    curr_actions_u, curr_logp_u = self.actor.get_actions_and_log_probs(expanded_obs)
-                    next_actions_u, next_logp_u = self.actor.get_actions_and_log_probs(expanded_next_obs)
-
-                # Random actions are sampled directly in normalized u-space.
-                rand_actions = torch.empty(
-                    bsz * num_repeat, dataset_actions_u.shape[-1], device=self.device
-                ).uniform_(-1.0, 1.0)
-
-                q1_rand, q2_rand = self.qnet(expanded_critic_obs, rand_actions)
-                q1_curr, q2_curr = self.qnet(expanded_critic_obs, curr_actions_u)
-                q1_next, q2_next = self.qnet(expanded_critic_obs, next_actions_u)
-
-                q1_rand = q1_rand.view(bsz, num_repeat)
-                q2_rand = q2_rand.view(bsz, num_repeat)
-                q1_curr = q1_curr.view(bsz, num_repeat)
-                q2_curr = q2_curr.view(bsz, num_repeat)
-                q1_next = q1_next.view(bsz, num_repeat)
-                q2_next = q2_next.view(bsz, num_repeat)
-
-                curr_logp_u = curr_logp_u.view(bsz, num_repeat)
-                next_logp_u = next_logp_u.view(bsz, num_repeat)
-
-                # Uniform random-action proposal in normalized u-space [-1, 1]^D:
-                # mu(u) = 0.5^D
-                # log mu(u) = D * log(0.5)
-                random_density = math.log(0.5) * dataset_actions_u.shape[-1]
-
-                rand_overflow_mean = self._compute_support_overflow(rand_actions).mean()
-                curr_overflow_mean = self._compute_support_overflow(curr_actions_u).mean()
-                next_overflow_mean = self._compute_support_overflow(next_actions_u).mean()
-
-                cat_q1_terms = [
-                    q1_rand - random_density,
-                    q1_curr - curr_logp_u,
-                    q1_next - next_logp_u,
-                ]
-                cat_q2_terms = [
-                    q2_rand - random_density,
-                    q2_curr - curr_logp_u,
-                    q2_next - next_logp_u,
-                ]
-
-                cat_q1 = torch.cat(cat_q1_terms, dim=1)
-                cat_q2 = torch.cat(cat_q2_terms, dim=1)
-
-                cql1_loss = (torch.logsumexp(cat_q1 / self._temperature, dim=1) * self._temperature - q1).mean()
-                cql2_loss = (torch.logsumexp(cat_q2 / self._temperature, dim=1) * self._temperature - q2).mean()
-
-                conservative_loss = self._cql_weight * (cql1_loss + cql2_loss)
-                cql_gap = 0.5 * (cql1_loss + cql2_loss)
-            else:
-                conservative_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-                cql_gap = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-                rand_overflow_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-                curr_overflow_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-                next_overflow_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-
-            q_loss = bellman_loss + conservative_loss
+            q1, q2 = self.qnet(critic_observations, actions_u)
+            q_loss = F.mse_loss(q1, q_target) + F.mse_loss(q2, q_target)
 
         self.q_optimizer.zero_grad(set_to_none=True)
         scaler.scale(q_loss).backward()
@@ -683,70 +426,57 @@ class CQLSupportAwareAgent(BaseAlgo):
         scaler.step(self.q_optimizer)
         scaler.update()
 
-        alpha_loss = torch.tensor(0.0, device=self.device)
-        if self.config.use_autotune:
-            self.alpha_optimizer.zero_grad(set_to_none=True)
-            with self._maybe_amp():
-                _, log_probs_u = self.actor.get_actions_and_log_probs(observations)
-                alpha_loss = (-self.log_alpha.exp() * (log_probs_u.detach() + self.target_entropy)).mean()
-            scaler.scale(alpha_loss).backward()
-
-            if self.is_multi_gpu and self.log_alpha.grad is not None:
-                torch.distributed.all_reduce(self.log_alpha.grad.data, op=torch.distributed.ReduceOp.SUM)
-                self.log_alpha.grad.data.copy_(self.log_alpha.grad.data / self.gpu_world_size)
-
-            scaler.unscale_(self.alpha_optimizer)
-            scaler.step(self.alpha_optimizer)
-            scaler.update()
-
         return (
-            rewards.mean().detach(),
-            q_grad_norm.detach(),
             q_loss.detach(),
-            alpha_loss.detach(),
-            conservative_loss.detach(),
-            bellman_loss.detach(),
-            cql_gap.detach(),
-            q_data_mean.detach(),
-            q_target_mean.detach(),
-            q_target_p1.detach(),
-            q_target_p50.detach(),
-            q_target_p99.detach(),
-            q_target_min.detach(),
-            q_target_max.detach(),
-            backup_metrics["backup_used_projected_ratio"].detach(),
-            backup_metrics["backup_overflow_det_mean"].detach(),
-            backup_metrics["backup_overflow_proj_mean"].detach(),
-            backup_metrics["backup_q_det_mean"].detach(),
-            backup_metrics["backup_q_proj_mean"].detach(),
-            rand_overflow_mean.detach(),
-            curr_overflow_mean.detach(),
-            next_overflow_mean.detach(),
+            q_grad_norm.detach(),
+            q_target.mean().detach(),
+            q1.mean().detach(),
+            q2.mean().detach(),
+            rewards.mean().detach(),
+            next_target_min_q.mean().detach(),
+            next_actions_u.abs().mean().detach(),
         )
 
     def _update_actor(
         self,
         data: TensorDict,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+    ]:
         args = self.config
         scaler = self.scaler
 
         with self._maybe_amp():
-            actor_observations = data["observations"]  # [B, actor_obs_dim]
-            critic_observations = data["critic_observations"]  # [B, critic_obs_dim]
+            actor_observations = data["observations"]
+            critic_observations = data["critic_observations"]
+            dataset_actions_u = data["actions"].clamp(-1.0, 1.0)
 
-            _, _, log_std = self.actor(actor_observations)  # _, _, [B, act_dim]
-            actions_u, log_probs_u = self.actor.get_actions_and_log_probs(actor_observations)  # [B, act_dim], [B]
-            with torch.no_grad():
-                action_std = log_std.exp().mean()
-                policy_entropy = -log_probs_u.mean()
+            policy_actions_u = self.actor(actor_observations)[0]
+            q1_pi, q2_pi = self.qnet(critic_observations, policy_actions_u)
+            q_pi = torch.minimum(q1_pi, q2_pi)
 
-            q1_pi, q2_pi = self.qnet(critic_observations, actions_u)
-            qf_value = torch.minimum(q1_pi, q2_pi)
-            actor_loss = (self.log_alpha.exp().detach() * log_probs_u - qf_value).mean()
+            q_abs_mean = q_pi.detach().abs().mean()
+            if args.use_adaptive_lambda:
+                lambda_coef = args.td3bc_alpha / (q_abs_mean + 1e-6)
+            else:
+                lambda_coef = torch.tensor(args.td3bc_alpha, device=q_abs_mean.device, dtype=q_abs_mean.dtype)
+
+            actor_q_loss = -(lambda_coef * q_pi).mean()
+            bc_loss = F.mse_loss(policy_actions_u, dataset_actions_u)
+            actor_total_loss = actor_q_loss + args.bc_coef * bc_loss
+
+            policy_abs_u_mean = policy_actions_u.abs().mean()
+            dataset_abs_u_mean = dataset_actions_u.abs().mean()
 
         self.actor_optimizer.zero_grad(set_to_none=True)
-        scaler.scale(actor_loss).backward()
+        scaler.scale(actor_total_loss).backward()
 
         if self.is_multi_gpu:
             self._all_reduce_model_grads(self.actor)
@@ -762,21 +492,23 @@ class CQLSupportAwareAgent(BaseAlgo):
 
         return (
             actor_grad_norm.detach(),
-            actor_loss.detach(),
-            policy_entropy.detach(),
-            action_std.detach(),
+            actor_total_loss.detach(),
+            actor_q_loss.detach(),
+            bc_loss.detach(),
+            lambda_coef.detach(),
+            q_pi.mean().detach(),
+            policy_abs_u_mean.detach(),
+            dataset_abs_u_mean.detach(),
         )
 
     def _load_offline_dataset_cache(self) -> dict[str, torch.Tensor]:
         if self._offline_dataset_cache is not None:
-            if self._action_p1 is None:
-                self._compute_and_store_action_support_stats(self._offline_dataset_cache["actions"])
             return self._offline_dataset_cache
 
         if not self._offline_dataset_path.exists():
             raise FileNotFoundError(
                 f"Offline dataset not found at '{self._offline_dataset_path}'. "
-                "Provide a valid offline dataset path in CQL config."
+                "Provide a valid offline dataset path in TD3+BC config."
             )
 
         required_keys = (
@@ -841,24 +573,9 @@ class CQLSupportAwareAgent(BaseAlgo):
                 "dones": _load_scalar_tensor("dones", torch.int64),
             }
 
-        action_abs_max = self._offline_dataset_cache["actions"].abs().max(dim=0).values
-        action_scale = self.actor.action_scale.to(device=action_abs_max.device, dtype=action_abs_max.dtype)
-        over_scale_ratio = (action_abs_max / (action_scale + 1e-6)).max().item()
-        logger.info(
-            f"Offline action range check: max(|a|/action_scale)={over_scale_ratio:.3f} "
-            "(expected near <= 1 for tanh-scaled actions)"
-        )
-
-        # Fix learning-space semantics: keep dataset actions as normalized u-space in cache.
         self._offline_dataset_cache["actions"] = self._to_u_actions(self._offline_dataset_cache["actions"]).contiguous()
-        self._assert_u_actions(self._offline_dataset_cache["actions"], "offline_dataset_actions_u")
-
-        # Precompute dataset support stats for support-aware backup selection.
-        self._compute_and_store_action_support_stats(self._offline_dataset_cache["actions"])
-
         logger.info(
-            f"Cached offline dataset '{self._offline_dataset_path}' in host memory "
-            f"({self._offline_num_samples} samples)."
+            f"Cached offline dataset '{self._offline_dataset_path}' in host memory ({self._offline_num_samples} samples)."
         )
         return self._offline_dataset_cache
 
@@ -944,10 +661,7 @@ class CQLSupportAwareAgent(BaseAlgo):
             )  # type: ignore[index]
             large_data = augmented_large_data
 
-        # Keep sampled dataset actions strictly in normalized u-space for all learning updates.
-        self._assert_u_actions(large_data["actions"], "sampled_dataset_actions_u")
-        large_data["actions"] = large_data["actions"].clamp(-1.0, 1.0)
-
+        large_data["actions"] = self._maybe_to_u_actions(large_data["actions"]).clamp(-1.0, 1.0)
         large_data["observations"] = normalize_obs(large_data["observations"])
         large_data["next"]["observations"] = normalize_obs(large_data["next"]["observations"])
         large_data["critic_observations"] = normalize_critic_obs(large_data["critic_observations"])
@@ -984,13 +698,6 @@ class CQLSupportAwareAgent(BaseAlgo):
             return
 
         torch_checkpoint = torch.load(ckpt_path, map_location=self.device, weights_only=False)
-        checkpoint_action_mode = torch_checkpoint.get("action_space_mode", "legacy_env_scaled_actor")
-        if checkpoint_action_mode != "u_space_normalized_training_v2":
-            logger.warning(
-                "Loading a legacy checkpoint saved before full normalized-action training mode "
-                "(action_space_mode=u_space_normalized_training_v2). "
-                "Weights are compatible, but policy semantics/log-prob measure differ."
-            )
 
         checkpoint_args = torch_checkpoint.get("args", {})
         checkpoint_obs_norm = checkpoint_args.get("obs_normalization")
@@ -1001,23 +708,26 @@ class CQLSupportAwareAgent(BaseAlgo):
                 f"current config obs_normalization={self.obs_normalization}."
             )
 
-        required_keys = ("actor_state_dict", "qnet_state_dict", "log_alpha")
+        required_keys = ("actor_state_dict", "qnet_state_dict")
         missing_required = [k for k in required_keys if k not in torch_checkpoint]
         if missing_required:
             raise RuntimeError(
-                f"Checkpoint missing required CQL keys: {missing_required}. "
-                "Expected a scalar-CQL checkpoint."
+                f"Checkpoint missing required TD3+BC keys: {missing_required}. "
+                "Expected a TD3+BC checkpoint."
             )
 
         self.actor.load_state_dict(torch_checkpoint["actor_state_dict"])
         self.qnet.load_state_dict(torch_checkpoint["qnet_state_dict"])
 
+        if "actor_target_state_dict" in torch_checkpoint:
+            self.actor_target.load_state_dict(torch_checkpoint["actor_target_state_dict"])
+        else:
+            self.actor_target.load_state_dict(self.actor.state_dict())
+
         if "qnet_target_state_dict" in torch_checkpoint:
             self.qnet_target.load_state_dict(torch_checkpoint["qnet_target_state_dict"])
         else:
             self.qnet_target.load_state_dict(self.qnet.state_dict())
-
-        self.log_alpha.data.copy_(torch_checkpoint["log_alpha"].to(self.device))
 
         obs_norm_state = torch_checkpoint.get("obs_normalizer_state")
         critic_obs_norm_state = torch_checkpoint.get("critic_obs_normalizer_state")
@@ -1039,20 +749,23 @@ class CQLSupportAwareAgent(BaseAlgo):
             self.actor_optimizer.load_state_dict(torch_checkpoint["actor_optimizer_state_dict"])
         if "q_optimizer_state_dict" in torch_checkpoint:
             self.q_optimizer.load_state_dict(torch_checkpoint["q_optimizer_state_dict"])
-        if "alpha_optimizer_state_dict" in torch_checkpoint:
-            self.alpha_optimizer.load_state_dict(torch_checkpoint["alpha_optimizer_state_dict"])
         if "grad_scaler_state_dict" in torch_checkpoint and torch_checkpoint["grad_scaler_state_dict"] is not None:
             self.scaler.load_state_dict(torch_checkpoint["grad_scaler_state_dict"])
 
         self.global_step = int(torch_checkpoint.get("global_step", 0))
+        self._critic_update_step = int(
+            torch_checkpoint.get("critic_update_step", self.global_step * self.config.num_updates)
+        )
         self._restore_env_state(torch_checkpoint.get("env_state"))
-
 
     def offline_learn(self, max_steps: int | None = None) -> None:
         args = self.config
 
         if max_steps is None:
-            max_steps = args.eval_interval if args.eval_interval > 0 else args.num_learning_iterations - self.global_step
+            if args.eval_interval > 0:
+                max_steps = args.eval_interval
+            else:
+                max_steps = args.num_learning_iterations - self.global_step
 
         if max_steps <= 0:
             return
@@ -1073,7 +786,7 @@ class CQLSupportAwareAgent(BaseAlgo):
 
         if self.env.num_envs > 1 and self.is_main_process:
             logger.warning(
-                "Offline CQL does not use vectorized environment rollouts. "
+                "Offline TD3+BC does not use vectorized environment rollouts. "
                 f"Current num_envs={self.env.num_envs} only increases simulator memory usage."
             )
 
@@ -1095,85 +808,64 @@ class CQLSupportAwareAgent(BaseAlgo):
                     normalize_obs=normalize_obs,
                     normalize_critic_obs=normalize_critic_obs,
                 )
+
                 for data in offline_batches:
                     (
-                        reward_mean,
-                        q_grad_norm,
                         q_loss,
-                        alpha_loss,
-                        conservative_loss,
-                        bellman_loss,
-                        cql_gap,
-                        q_data_mean,
+                        q_grad_norm,
                         q_target_mean,
-                        q_target_p1,
-                        q_target_p50,
-                        q_target_p99,
-                        q_target_min,
-                        q_target_max,
-                        backup_used_projected_ratio,
-                        backup_overflow_det_mean,
-                        backup_overflow_proj_mean,
-                        backup_q_det_mean,
-                        backup_q_proj_mean,
-                        rand_overflow_mean,
-                        curr_overflow_mean,
-                        next_overflow_mean,
+                        q1_mean,
+                        q2_mean,
+                        reward_mean,
+                        next_target_min_q_mean,
+                        next_action_abs_u_mean,
                     ) = update_q(data)
 
                     self._critic_update_step += 1
-                    is_actor_warmup = self.global_step <= args.actor_warmup_steps
-                    is_actor_update_step = (not is_actor_warmup) and (
-                        self._critic_update_step % args.policy_frequency == 0
-                    )
+                    is_actor_update_step = int(self._critic_update_step % args.policy_delay == 0)
+
                     if is_actor_update_step:
                         (
                             actor_grad_norm,
-                            actor_loss,
-                            policy_entropy,
-                            action_std,
+                            actor_total_loss,
+                            actor_q_loss,
+                            actor_bc_loss,
+                            actor_lambda,
+                            q_pi_mean,
+                            policy_abs_u_mean,
+                            dataset_abs_u_mean,
                         ) = update_actor(data)
+                        self._soft_update_targets()
                     else:
-                        actor_grad_norm = torch.tensor(0.0, device=self.device)
-                        actor_loss = torch.tensor(0.0, device=self.device)
-                        policy_entropy = torch.tensor(0.0, device=self.device)
-                        action_std = torch.tensor(0.0, device=self.device)
+                        zero = torch.tensor(0.0, device=self.device)
+                        actor_grad_norm = zero
+                        actor_total_loss = zero
+                        actor_q_loss = zero
+                        actor_bc_loss = zero
+                        actor_lambda = zero
+                        q_pi_mean = zero
+                        policy_abs_u_mean = zero
+                        dataset_abs_u_mean = zero
 
-                    self._soft_update_q_target()
-
-                    action_ood_stats = self._compute_action_ood_stats(data)
                     self.training_metrics.add(
                         {
-                            "buffer_rewards": reward_mean,
-                            "q_grad_norm": q_grad_norm,
                             "q_loss": q_loss,
+                            "q_grad_norm": q_grad_norm,
                             "q_target_mean": q_target_mean,
-                            "q_target_p1": q_target_p1,
-                            "q_target_p50": q_target_p50,
-                            "q_target_p99": q_target_p99,
-                            "q_target_min": q_target_min,
-                            "q_target_max": q_target_max,
-                            "alpha_loss": alpha_loss,
-                            "alpha_value": self.log_alpha.exp().detach().mean(),
+                            "q1_mean": q1_mean,
+                            "q2_mean": q2_mean,
+                            "next_target_min_q_mean": next_target_min_q_mean,
+                            "next_action_abs_u_mean": next_action_abs_u_mean,
+                            "buffer_rewards": reward_mean,
                             "actor_grad_norm": actor_grad_norm,
-                            "actor_loss": actor_loss,
-                            "policy_entropy": policy_entropy,
-                            "action_std": action_std,
-                            "cql_conservative_loss": conservative_loss,
-                            "cql_bellman_loss": bellman_loss,
-                            "cql_gap": cql_gap,
-                            "q_data_mean": q_data_mean,
-                            "backup_used_projected_ratio": backup_used_projected_ratio,
-                            "backup_overflow_det_mean": backup_overflow_det_mean,
-                            "backup_overflow_proj_mean": backup_overflow_proj_mean,
-                            "backup_q_det_mean": backup_q_det_mean,
-                            "backup_q_proj_mean": backup_q_proj_mean,
-                            "cql_support/rand_overflow_mean": rand_overflow_mean,
-                            "cql_support/curr_overflow_mean": curr_overflow_mean,
-                            "cql_support/next_overflow_mean": next_overflow_mean,
-                            "is_actor_warmup": float(is_actor_warmup),
-                            "is_actor_update_step": float(is_actor_update_step),
-                            **action_ood_stats,
+                            "actor_total_loss": actor_total_loss,
+                            "actor_q_loss": actor_q_loss,
+                            "actor_bc_loss": actor_bc_loss,
+                            "actor_lambda": actor_lambda,
+                            "q_pi_mean": q_pi_mean,
+                            "policy_abs_u_mean": policy_abs_u_mean,
+                            "dataset_abs_u_mean": dataset_abs_u_mean,
+                            "is_actor_update_step": torch.tensor(float(is_actor_update_step), device=self.device),
                         }
                     )
 
@@ -1189,11 +881,12 @@ class CQLSupportAwareAgent(BaseAlgo):
 
             if args.save_interval > 0 and self.global_step % args.save_interval == 0:
                 if self.is_main_process:
-                    logger.info(f"Saving CQL model at global step {self.global_step}")
+                    logger.info(f"Saving TD3+BC model at global step {self.global_step}")
                     self.save(os.path.join(self.log_dir, f"model_{self.global_step:07d}.pt"))
                     self.export(onnx_file_path=os.path.join(self.log_dir, f"model_{self.global_step:07d}.onnx"))
 
             pbar.update(1)
+
         pbar.close()
 
         if self.is_main_process and self.global_step >= args.num_learning_iterations:
@@ -1202,25 +895,23 @@ class CQLSupportAwareAgent(BaseAlgo):
 
     def save(self, path: str) -> None:  # type: ignore[override]
         env_state = self._collect_env_state()
-        metadata = self._checkpoint_metadata(iteration=self.global_step)
-        metadata["action_space_mode"] = "u_space_normalized_training_v2"
         save_params(
             self.global_step,
+            self._critic_update_step,
             self.actor,
+            self.actor_target,
             self.qnet,
             self.qnet_target,
             self.obs_normalizer,
             self.critic_obs_normalizer,
-            self.log_alpha,
             self.actor_optimizer,
             self.q_optimizer,
-            self.alpha_optimizer,
             self.scaler,
             self.config,
             path,
             save_fn=self.logging_helper.save_checkpoint_artifact,
             env_state=env_state or None,
-            metadata=metadata,
+            metadata=self._checkpoint_metadata(iteration=self.global_step),
         )
 
     @torch.no_grad()
@@ -1405,3 +1096,9 @@ class CQLSupportAwareAgent(BaseAlgo):
             "episode_length": int(episode_length),
             "stop_reason": stop_reason,
         }
+
+
+class TD3Agent(TD3BCAgent):
+    """Backward-compatible alias for older TD3 target paths."""
+
+    pass
