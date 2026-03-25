@@ -13,6 +13,7 @@ from holosoma.config_types.algo import (
     PPOConfig,
     PPOModuleDictConfig,
     CQLAlgoConfig,
+    CQLSupportAwareAlgoConfig,
     CQLConfig,
 )
 
@@ -167,6 +168,12 @@ cql = CQLAlgoConfig(
     ),
 )
 
+cql_support_aware = CQLSupportAwareAlgoConfig(
+    _target_="holosoma.agents.cql_support_aware.cql_agent.CQLSupportAwareAgent",
+    _recursive_=False,
+    config=dataclasses.replace(cql.config),
+)
+
 
 cql_rho = dataclasses.replace(
     cql,
@@ -250,6 +257,7 @@ DEFAULTS = {
     "ppo": ppo,
     "fast_sac": fast_sac,
     "cql": cql,
+    "cql_support_aware": cql_support_aware,
     "cql_rho": cql_rho,
     "iql": iql,
     "bc": bc,

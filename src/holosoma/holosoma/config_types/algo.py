@@ -686,6 +686,20 @@ class CQLAlgoConfig:
 
 
 @dataclass(frozen=True)
+class CQLSupportAwareAlgoConfig:
+    """Configuration for support-aware CQL algorithm wrapper."""
+
+    _target_: str
+    """Target algorithm class."""
+
+    _recursive_: bool
+    """Whether to recursively instantiate."""
+
+    config: CQLConfig
+    """Algorithm-specific configuration."""
+
+
+@dataclass(frozen=True)
 class IQLAlgoConfig:
     """Configuration for algorithm wrapper."""
 
@@ -715,4 +729,11 @@ class BCAlgoConfig:
 
 AlgoInitConfig = Union[PPOConfig, FastSACConfig, CQLConfig, IQLConfig, BCConfig]
 
-AlgoConfig = Union[PPOAlgoConfig, FastSACAlgoConfig, CQLAlgoConfig, IQLAlgoConfig, BCAlgoConfig]
+AlgoConfig = Union[
+    PPOAlgoConfig,
+    FastSACAlgoConfig,
+    CQLAlgoConfig,
+    CQLSupportAwareAlgoConfig,
+    IQLAlgoConfig,
+    BCAlgoConfig,
+]
