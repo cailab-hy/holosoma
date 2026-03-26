@@ -5,7 +5,7 @@ from torch import nn
 
 
 class Actor(nn.Module):
-    """Deterministic TD3 actor that outputs normalized actions in [-1, 1]."""
+    """Deterministic TD3 actor that outputs env/scaled actions (IQL-style semantics)."""
 
     def __init__(
         self,
@@ -71,10 +71,11 @@ class Actor(nn.Module):
         x = self.net(x)
         pre_tanh_action = self.fc_mu(x)
         if self.use_tanh:
-            u_action = torch.tanh(pre_tanh_action)
+            tanh_action = torch.tanh(pre_tanh_action)
+            action = tanh_action * self.action_scale + self.action_bias
         else:
-            u_action = pre_tanh_action
-        return u_action, pre_tanh_action
+            action = pre_tanh_action
+        return action, pre_tanh_action
 
     @torch.no_grad()
     def explore(
@@ -86,13 +87,17 @@ class Actor(nn.Module):
         noise_clip: float = 0.5,
     ) -> torch.Tensor:
         del dones
-        u_action, _ = self(obs)
+        action, _ = self(obs)
         if deterministic or noise_std <= 0.0:
-            return u_action
+            return action
 
-        noise = torch.randn_like(u_action) * noise_std
+        noise = torch.randn_like(action) * noise_std
         noise = noise.clamp(-noise_clip, noise_clip)
-        return (u_action + noise).clamp(-1.0, 1.0)
+        if self.use_tanh:
+            min_action = self.action_bias - self.action_scale
+            max_action = self.action_bias + self.action_scale
+            return (action + noise).clamp(min_action, max_action)
+        return action + noise
 
     def process_obs(self, obs: torch.Tensor) -> torch.Tensor:
         return torch.cat(

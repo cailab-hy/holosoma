@@ -304,11 +304,7 @@ class TD3BCAgent(BaseAlgo):
             betas=(0.9, 0.95),
         )
 
-        def _env_policy(obs: torch.Tensor, dones: torch.Tensor | None = None, deterministic: bool = False) -> torch.Tensor:
-            u_actions = self.actor.explore(obs, dones=dones, deterministic=deterministic)
-            return self._to_env_actions(u_actions)
-
-        self.policy = _env_policy
+        self.policy = self.actor.explore
         logger.info(f"TD3+BC dims: actor_obs_dim={actor_obs_dim}, critic_obs_dim={critic_obs_dim}, n_act={n_act}")
 
         if args.use_symmetry:
@@ -360,30 +356,32 @@ class TD3BCAgent(BaseAlgo):
             torch._foreach_mul_(tgt_actor, 1.0 - self.config.tau)
             torch._foreach_add_(tgt_actor, src_actor, alpha=self.config.tau)
 
-    def _to_u_actions(self, actions: torch.Tensor) -> torch.Tensor:
+    def _apply_target_policy_smoothing(self, actions: torch.Tensor) -> torch.Tensor:
+        """Apply TD3 target policy smoothing in env/scaled action space.
+
+        `target_policy_noise` and `target_noise_clip` are interpreted in normalized [-1, 1] units
+        then scaled by per-dimension action_scale to keep behavior consistent across joints.
+        """
+        if self.config.target_policy_noise <= 0.0:
+            return actions
+
         action_scale = self.actor.action_scale.to(device=actions.device, dtype=actions.dtype)
         action_bias = self.actor.action_bias.to(device=actions.device, dtype=actions.dtype)
-        return ((actions - action_bias) / (action_scale + 1e-6)).clamp(-1.0, 1.0)
 
-    def _to_env_actions(self, u_actions: torch.Tensor) -> torch.Tensor:
-        action_scale = self.actor.action_scale.to(device=u_actions.device, dtype=u_actions.dtype)
-        action_bias = self.actor.action_bias.to(device=u_actions.device, dtype=u_actions.dtype)
-        return u_actions * action_scale + action_bias
+        noise_u = torch.randn_like(actions) * self.config.target_policy_noise
+        noise_u = noise_u.clamp(-self.config.target_noise_clip, self.config.target_noise_clip)
+        noise = noise_u * action_scale
 
-    def _maybe_to_u_actions(self, actions: torch.Tensor) -> torch.Tensor:
-        if actions.numel() == 0:
-            return actions
-        max_abs = actions.detach().abs().max()
-        if bool((max_abs <= 1.05).item()):
-            return actions.clamp(-1.0, 1.0)
-        return self._to_u_actions(actions)
+        if self.config.use_tanh:
+            min_action = action_bias - action_scale
+            max_action = action_bias + action_scale
+            return (actions + noise).clamp(min_action, max_action)
+        return actions + noise
 
     def _update_q(
         self,
         data: TensorDict,
     ) -> tuple[
-        torch.Tensor,
-        torch.Tensor,
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
@@ -400,7 +398,8 @@ class TD3BCAgent(BaseAlgo):
             critic_observations = data["critic_observations"]
             next_observations = data["next"]["observations"]
             next_critic_observations = data["next"]["critic_observations"]
-            actions_u = data["actions"].clamp(-1.0, 1.0)
+            # Action semantics (aligned with IQL): env/scaled action space throughout training.
+            actions = data["actions"]
             rewards = data["next"]["rewards"]
             dones = data["next"]["dones"].bool()
             truncations = data["next"]["truncations"].bool()
@@ -408,18 +407,14 @@ class TD3BCAgent(BaseAlgo):
             discount = args.discount ** data["next"]["effective_n_steps"]
 
             with torch.no_grad():
-                next_actions_u = self.actor_target(next_observations)[0]
-                if args.target_policy_noise > 0.0:
-                    noise = torch.randn_like(next_actions_u) * args.target_policy_noise
-                    noise = noise.clamp(-args.target_noise_clip, args.target_noise_clip)
-                    next_actions_u = next_actions_u + noise
-                next_actions_u = next_actions_u.clamp(-1.0, 1.0)
+                next_actions = self.actor_target(next_observations)[0]
+                next_actions = self._apply_target_policy_smoothing(next_actions)
 
-                next_q1_target, next_q2_target = self.qnet_target(next_critic_observations, next_actions_u)
+                next_q1_target, next_q2_target = self.qnet_target(next_critic_observations, next_actions)
                 next_target_min_q = torch.minimum(next_q1_target, next_q2_target)
                 q_target = rewards + discount * bootstrap * next_target_min_q
 
-            q1, q2 = self.qnet(critic_observations, actions_u)
+            q1, q2 = self.qnet(critic_observations, actions)
             q_loss = F.mse_loss(q1, q_target) + F.mse_loss(q2, q_target)
 
         self.q_optimizer.zero_grad(set_to_none=True)
@@ -445,13 +440,15 @@ class TD3BCAgent(BaseAlgo):
             q2.mean().detach(),
             rewards.mean().detach(),
             next_target_min_q.mean().detach(),
-            next_actions_u.abs().mean().detach(),
+            next_actions.abs().mean().detach(),
         )
 
     def _update_actor(
         self,
         data: TensorDict,
     ) -> tuple[
+        torch.Tensor,
+        torch.Tensor,
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
@@ -467,10 +464,11 @@ class TD3BCAgent(BaseAlgo):
         with self._maybe_amp():
             actor_observations = data["observations"]
             critic_observations = data["critic_observations"]
-            dataset_actions_u = data["actions"].clamp(-1.0, 1.0)
+            # Dataset actions remain in env/scaled space (no explicit u-space conversion path).
+            dataset_actions = data["actions"]
 
-            policy_actions_u = self.actor(actor_observations)[0]
-            q1_pi, q2_pi = self.qnet(critic_observations, policy_actions_u)
+            policy_actions = self.actor(actor_observations)[0]
+            q1_pi, q2_pi = self.qnet(critic_observations, policy_actions)
             q_pi = torch.minimum(q1_pi, q2_pi)
 
             q_abs_mean = q_pi.detach().abs().mean()
@@ -482,17 +480,17 @@ class TD3BCAgent(BaseAlgo):
             lambda_coef = lambda_raw.clamp(min=args.td3bc_lambda_min, max=args.td3bc_lambda_max)
             bc_warmup_active = torch.tensor(
                 float(self._critic_update_step < args.actor_bc_warmup_steps),
-                device=policy_actions_u.device,
+                device=policy_actions.device,
             )
             if bool(bc_warmup_active.item()):
                 lambda_coef = torch.zeros_like(lambda_coef)
 
             actor_q_loss = -(lambda_coef * q_pi).mean()
-            bc_loss = F.mse_loss(policy_actions_u, dataset_actions_u)
+            bc_loss = F.mse_loss(policy_actions, dataset_actions)
             actor_total_loss = actor_q_loss + args.bc_coef * bc_loss
 
-            policy_abs_u_mean = policy_actions_u.abs().mean()
-            dataset_abs_u_mean = dataset_actions_u.abs().mean()
+            policy_abs_action_mean = policy_actions.abs().mean()
+            dataset_abs_action_mean = dataset_actions.abs().mean()
 
         self.actor_optimizer.zero_grad(set_to_none=True)
         scaler.scale(actor_total_loss).backward()
@@ -516,8 +514,8 @@ class TD3BCAgent(BaseAlgo):
             bc_loss.detach(),
             lambda_coef.detach(),
             q_pi.mean().detach(),
-            policy_abs_u_mean.detach(),
-            dataset_abs_u_mean.detach(),
+            policy_abs_action_mean.detach(),
+            dataset_abs_action_mean.detach(),
             lambda_raw.detach(),
             bc_warmup_active.detach(),
         )
@@ -564,44 +562,17 @@ class TD3BCAgent(BaseAlgo):
                         pass
                 return tensor
 
-            def _load_feature_tensor(key: str, expected_dim: int) -> torch.Tensor:
-                tensor = _load_tensor(key, torch.float32)
-                if tensor.ndim != 2 or tensor.shape[1] != expected_dim:
-                    raise ValueError(
-                        f"Offline dataset key '{key}' has shape {tuple(tensor.shape)}, "
-                        f"expected [N, {expected_dim}]"
-                    )
-                return tensor
-
-            def _load_scalar_tensor(key: str, dtype: torch.dtype) -> torch.Tensor:
-                tensor = _load_tensor(key, dtype)
-                if tensor.ndim == 2 and tensor.shape[1] == 1:
-                    tensor = tensor.squeeze(1)
-                if tensor.ndim != 1:
-                    raise ValueError(
-                        f"Offline dataset key '{key}' has shape {tuple(tensor.shape)}, expected [N] or [N, 1]"
-                    )
-                return tensor
-
             self._offline_dataset_cache = {
-                "observations": _load_feature_tensor("observations", self.actor_obs_dim),
-                "actions": _load_feature_tensor("actions", self.env.robot_config.actions_dim),
-                "critic_observations": _load_feature_tensor("critic_observations", self.critic_obs_dim),
-                "next_observations": _load_feature_tensor("next_observations", self.actor_obs_dim),
-                "next_critic_observations": _load_feature_tensor("next_critic_observations", self.critic_obs_dim),
-                "rewards": _load_scalar_tensor("rewards", torch.float32),
-                "truncations": _load_scalar_tensor("truncations", torch.int64),
-                "dones": _load_scalar_tensor("dones", torch.int64),
+                "observations": _load_tensor("observations", torch.float32),
+                "actions": _load_tensor("actions", torch.float32),
+                "critic_observations": _load_tensor("critic_observations", torch.float32),
+                "next_observations": _load_tensor("next_observations", torch.float32),
+                "next_critic_observations": _load_tensor("next_critic_observations", torch.float32),
+                "rewards": _load_tensor("rewards", torch.float32),
+                "truncations": _load_tensor("truncations", torch.int64),
+                "dones": _load_tensor("dones", torch.int64),
             }
 
-        # Keep raw dataset actions in cache and convert lazily per sampled batch.
-        # This mirrors BC behavior and prevents accidental double-normalization when
-        # the h5 already stores normalized actions.
-        raw_action_abs_max = self._offline_dataset_cache["actions"].abs().max().item()
-        logger.info(
-            "Loaded TD3+BC offline actions from cache with raw max abs value "
-            f"{raw_action_abs_max:.4f}. Conversion to u-space is handled in sampling."
-        )
         logger.info(
             f"Cached offline dataset '{self._offline_dataset_path}' in host memory ({self._offline_num_samples} samples)."
         )
@@ -618,12 +589,6 @@ class TD3BCAgent(BaseAlgo):
         samples_per_update = batch_size
         large_batch_size = samples_per_update * num_updates
         replace = large_batch_size > self._offline_num_samples
-
-        if replace:
-            logger.warning(
-                f"Requested {large_batch_size} samples but dataset has {self._offline_num_samples}. "
-                "Sampling with replacement."
-            )
 
         if replace:
             indices = torch.randint(self._offline_num_samples, (large_batch_size,), device="cpu")
@@ -689,7 +654,6 @@ class TD3BCAgent(BaseAlgo):
             )  # type: ignore[index]
             large_data = augmented_large_data
 
-        large_data["actions"] = self._maybe_to_u_actions(large_data["actions"]).clamp(-1.0, 1.0)
         large_data["observations"] = normalize_obs(large_data["observations"])
         large_data["next"]["observations"] = normalize_obs(large_data["next"]["observations"])
         large_data["critic_observations"] = normalize_critic_obs(large_data["critic_observations"])
@@ -726,6 +690,12 @@ class TD3BCAgent(BaseAlgo):
             return
 
         torch_checkpoint = torch.load(ckpt_path, map_location=self.device, weights_only=False)
+        checkpoint_action_mode = torch_checkpoint.get("action_space_mode", "legacy")
+        if checkpoint_action_mode != "env_scaled_action_training_v1":
+            logger.warning(
+                "Loading a legacy TD3+BC checkpoint with different action semantics "
+                f"(action_space_mode={checkpoint_action_mode})."
+            )
 
         checkpoint_args = torch_checkpoint.get("args", {})
         checkpoint_obs_norm = checkpoint_args.get("obs_normalization")
@@ -846,7 +816,7 @@ class TD3BCAgent(BaseAlgo):
                         q2_mean,
                         reward_mean,
                         next_target_min_q_mean,
-                        next_action_abs_u_mean,
+                        next_action_abs_mean,
                     ) = update_q(data)
 
                     self._critic_update_step += 1
@@ -860,8 +830,8 @@ class TD3BCAgent(BaseAlgo):
                             actor_bc_loss,
                             actor_lambda,
                             q_pi_mean,
-                            policy_abs_u_mean,
-                            dataset_abs_u_mean,
+                            policy_abs_action_mean,
+                            dataset_abs_action_mean,
                             actor_lambda_raw,
                             actor_bc_warmup_active,
                         ) = update_actor(data)
@@ -874,8 +844,8 @@ class TD3BCAgent(BaseAlgo):
                         actor_bc_loss = zero
                         actor_lambda = zero
                         q_pi_mean = zero
-                        policy_abs_u_mean = zero
-                        dataset_abs_u_mean = zero
+                        policy_abs_action_mean = zero
+                        dataset_abs_action_mean = zero
                         actor_lambda_raw = zero
                         actor_bc_warmup_active = zero
 
@@ -887,7 +857,7 @@ class TD3BCAgent(BaseAlgo):
                             "q1_mean": q1_mean,
                             "q2_mean": q2_mean,
                             "next_target_min_q_mean": next_target_min_q_mean,
-                            "next_action_abs_u_mean": next_action_abs_u_mean,
+                            "next_action_abs_mean": next_action_abs_mean,
                             "buffer_rewards": reward_mean,
                             "actor_grad_norm": actor_grad_norm,
                             "actor_total_loss": actor_total_loss,
@@ -897,8 +867,8 @@ class TD3BCAgent(BaseAlgo):
                             "actor_lambda_raw": actor_lambda_raw,
                             "actor_bc_warmup_active": actor_bc_warmup_active,
                             "q_pi_mean": q_pi_mean,
-                            "policy_abs_u_mean": policy_abs_u_mean,
-                            "dataset_abs_u_mean": dataset_abs_u_mean,
+                            "policy_abs_action_mean": policy_abs_action_mean,
+                            "dataset_abs_action_mean": dataset_abs_action_mean,
                             "is_actor_update_step": torch.tensor(float(is_actor_update_step), device=self.device),
                         }
                     )
@@ -970,8 +940,7 @@ class TD3BCAgent(BaseAlgo):
                 normalized_obs = obs_normalizer(obs["actor_obs"], update=False)
             else:
                 normalized_obs = obs["actor_obs"]
-            u_actions = policy(normalized_obs)[0]
-            return self._to_env_actions(u_actions)
+            return policy(normalized_obs)[0]
 
         return policy_fn
 
@@ -979,30 +948,23 @@ class TD3BCAgent(BaseAlgo):
     def actor_onnx_wrapper(self):
         actor = copy.deepcopy(self.actor).to("cpu")
         obs_normalizer = copy.deepcopy(self.obs_normalizer).to("cpu")
-        action_scale = copy.deepcopy(self.actor.action_scale).to("cpu")
-        action_bias = copy.deepcopy(self.actor.action_bias).to("cpu")
 
         class ActorWrapper(nn.Module):
-            def __init__(self, actor, obs_normalizer, action_scale, action_bias):
+            def __init__(self, actor, obs_normalizer):
                 super().__init__()
                 self.actor = actor
                 self.obs_normalizer = obs_normalizer
-                self.register_buffer("action_scale", action_scale)
-                self.register_buffer("action_bias", action_bias)
 
             def forward(self, actor_obs):
                 if self.obs_normalizer is not None:
                     normalized_obs = self.obs_normalizer(actor_obs, update=False)
                 else:
                     normalized_obs = actor_obs
-                u_actions = self.actor(normalized_obs)[0]
-                return u_actions * self.action_scale + self.action_bias
+                return self.actor(normalized_obs)[0]
 
         return ActorWrapper(
             actor,
             obs_normalizer if self.obs_normalization else None,
-            action_scale,
-            action_bias,
         )
 
     def export(self, onnx_file_path: str) -> None:
@@ -1064,9 +1026,8 @@ class TD3BCAgent(BaseAlgo):
                 normalized_obs = self.obs_normalizer(obs, update=False)
             else:
                 normalized_obs = obs
-            u_actions = self.actor(normalized_obs)[0]
-            env_actions = self._to_env_actions(u_actions)
-            obs, _, _, _ = self.env.step(env_actions)
+            actions = self.actor(normalized_obs)[0]
+            obs, _, _, _ = self.env.step(actions)
 
     @torch.no_grad()
     def evaluate_one_episode(
@@ -1097,9 +1058,8 @@ class TD3BCAgent(BaseAlgo):
             else:
                 normalized_obs = obs
 
-            u_actions = self.actor(normalized_obs)[0]
-            env_actions = self._to_env_actions(u_actions)
-            obs, rewards, dones, infos = self.env.step(env_actions)
+            actions = self.actor(normalized_obs)[0]
+            obs, rewards, dones, infos = self.env.step(actions)
 
             episode_return += float(rewards[eval_env_idx].item())
             episode_length += 1

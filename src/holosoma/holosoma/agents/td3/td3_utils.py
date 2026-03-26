@@ -127,7 +127,7 @@ def save_params(
         "args": vars(args),
         "global_step": global_step,
         "critic_update_step": critic_update_step,
-        "action_space_mode": "u_space_normalized_training_v1",
+        "action_space_mode": "env_scaled_action_training_v1",
     }
     if env_state:
         save_dict["env_state"] = env_state
