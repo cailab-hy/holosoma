@@ -325,7 +325,7 @@ g1_29dof_wbt_td3_bc = ExperimentConfig(
     algo=replace(
         algo.td3_bc,
         config=replace(
-            algo.bc.config,
+            algo.td3_bc.config,
             num_learning_iterations=100000,
             num_updates=4,
             use_symmetry=False,
