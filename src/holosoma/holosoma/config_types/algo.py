@@ -693,6 +693,15 @@ class TD3BCConfig:
     bc_coef: float = 1.0
     """coefficient for behavior cloning MSE loss in actor update"""
 
+    actor_bc_warmup_steps: int = 1000
+    """critic update steps to run actor as pure BC (Q-term disabled)"""
+
+    td3bc_lambda_min: float = 0.0
+    """minimum clamp for adaptive lambda"""
+
+    td3bc_lambda_max: float = 10.0
+    """maximum clamp for adaptive lambda to prevent early actor explosion"""
+
     critic_hidden_dim: int = 768
     """hidden dimension of Q networks"""
 

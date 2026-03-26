@@ -184,6 +184,15 @@ class TD3BCAgent(BaseAlgo):
             raise ValueError(f"td3bc_alpha must be > 0, got {config.td3bc_alpha}")
         if config.bc_coef < 0.0:
             raise ValueError(f"bc_coef must be >= 0, got {config.bc_coef}")
+        if config.actor_bc_warmup_steps < 0:
+            raise ValueError(f"actor_bc_warmup_steps must be >= 0, got {config.actor_bc_warmup_steps}")
+        if config.td3bc_lambda_min < 0.0:
+            raise ValueError(f"td3bc_lambda_min must be >= 0, got {config.td3bc_lambda_min}")
+        if config.td3bc_lambda_max < config.td3bc_lambda_min:
+            raise ValueError(
+                "td3bc_lambda_max must be >= td3bc_lambda_min, "
+                f"got min={config.td3bc_lambda_min}, max={config.td3bc_lambda_max}"
+            )
 
     def setup(self) -> None:
         logger.info("Setting up offline TD3+BC")
@@ -381,6 +390,8 @@ class TD3BCAgent(BaseAlgo):
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
     ]:
         args = self.config
         scaler = self.scaler
@@ -464,9 +475,17 @@ class TD3BCAgent(BaseAlgo):
 
             q_abs_mean = q_pi.detach().abs().mean()
             if args.use_adaptive_lambda:
-                lambda_coef = args.td3bc_alpha / (q_abs_mean + 1e-6)
+                lambda_raw = args.td3bc_alpha / (q_abs_mean + 1e-6)
             else:
-                lambda_coef = torch.tensor(args.td3bc_alpha, device=q_abs_mean.device, dtype=q_abs_mean.dtype)
+                lambda_raw = torch.tensor(args.td3bc_alpha, device=q_abs_mean.device, dtype=q_abs_mean.dtype)
+
+            lambda_coef = lambda_raw.clamp(min=args.td3bc_lambda_min, max=args.td3bc_lambda_max)
+            bc_warmup_active = torch.tensor(
+                float(self._critic_update_step < args.actor_bc_warmup_steps),
+                device=policy_actions_u.device,
+            )
+            if bool(bc_warmup_active.item()):
+                lambda_coef = torch.zeros_like(lambda_coef)
 
             actor_q_loss = -(lambda_coef * q_pi).mean()
             bc_loss = F.mse_loss(policy_actions_u, dataset_actions_u)
@@ -499,6 +518,8 @@ class TD3BCAgent(BaseAlgo):
             q_pi.mean().detach(),
             policy_abs_u_mean.detach(),
             dataset_abs_u_mean.detach(),
+            lambda_raw.detach(),
+            bc_warmup_active.detach(),
         )
 
     def _load_offline_dataset_cache(self) -> dict[str, torch.Tensor]:
@@ -573,7 +594,14 @@ class TD3BCAgent(BaseAlgo):
                 "dones": _load_scalar_tensor("dones", torch.int64),
             }
 
-        self._offline_dataset_cache["actions"] = self._to_u_actions(self._offline_dataset_cache["actions"]).contiguous()
+        # Keep raw dataset actions in cache and convert lazily per sampled batch.
+        # This mirrors BC behavior and prevents accidental double-normalization when
+        # the h5 already stores normalized actions.
+        raw_action_abs_max = self._offline_dataset_cache["actions"].abs().max().item()
+        logger.info(
+            "Loaded TD3+BC offline actions from cache with raw max abs value "
+            f"{raw_action_abs_max:.4f}. Conversion to u-space is handled in sampling."
+        )
         logger.info(
             f"Cached offline dataset '{self._offline_dataset_path}' in host memory ({self._offline_num_samples} samples)."
         )
@@ -834,6 +862,8 @@ class TD3BCAgent(BaseAlgo):
                             q_pi_mean,
                             policy_abs_u_mean,
                             dataset_abs_u_mean,
+                            actor_lambda_raw,
+                            actor_bc_warmup_active,
                         ) = update_actor(data)
                         self._soft_update_targets()
                     else:
@@ -846,6 +876,8 @@ class TD3BCAgent(BaseAlgo):
                         q_pi_mean = zero
                         policy_abs_u_mean = zero
                         dataset_abs_u_mean = zero
+                        actor_lambda_raw = zero
+                        actor_bc_warmup_active = zero
 
                     self.training_metrics.add(
                         {
@@ -862,6 +894,8 @@ class TD3BCAgent(BaseAlgo):
                             "actor_q_loss": actor_q_loss,
                             "actor_bc_loss": actor_bc_loss,
                             "actor_lambda": actor_lambda,
+                            "actor_lambda_raw": actor_lambda_raw,
+                            "actor_bc_warmup_active": actor_bc_warmup_active,
                             "q_pi_mean": q_pi_mean,
                             "policy_abs_u_mean": policy_abs_u_mean,
                             "dataset_abs_u_mean": dataset_abs_u_mean,
