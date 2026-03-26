@@ -438,8 +438,6 @@ class CQLAgent(BaseAlgo):
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
     ]:
         args = self.config
         scaler = self.scaler
@@ -471,8 +469,6 @@ class CQLAgent(BaseAlgo):
             bellman_loss = F.mse_loss(q1, q_target) + F.mse_loss(q2, q_target)
 
             q_data_mean = 0.5 * (q1.mean() + q2.mean())
-            cql_alpha_value = torch.tensor(0.0, device=self.device, dtype=bellman_loss.dtype)
-            cql_lagrange_loss = torch.tensor(0.0, device=self.device, dtype=bellman_loss.dtype)
             if self._cql_weight > 0.0:
                 bsz = dataset_actions.shape[0]
                 num_repeat = self._num_repeat_actions
@@ -543,23 +539,17 @@ class CQLAgent(BaseAlgo):
                 cql_gap = 0.5 * (cql1_loss + cql2_loss)
 
                 if args.use_lagrange and self.log_cql_alpha is not None:
-                    cql_alpha = self.log_cql_alpha.exp().clamp(max=args.cql_lagrange_max)
+                    cql_alpha = self.log_cql_alpha.exp().detach().clamp(max=args.cql_lagrange_max)
                     target_gap = torch.tensor(args.cql_target_action_gap, device=self.device, dtype=bellman_loss.dtype)
-                    conservative_loss = self._cql_weight * cql_alpha.detach() * (
-                        (cql1_loss - target_gap) + (cql2_loss - target_gap)
-                    )
-                    cql_lagrange_loss = -self._cql_weight * cql_alpha * (
-                        (cql1_loss.detach() - target_gap) + (cql2_loss.detach() - target_gap)
-                    )
-                    cql_alpha_value = cql_alpha
+                    conservative1_loss = cql_alpha * self._cql_weight * (cql1_loss - target_gap)
+                    conservative2_loss = cql_alpha * self._cql_weight * (cql2_loss - target_gap)
+                    conservative_loss = conservative1_loss + conservative2_loss
                 else:
                     conservative_loss = self._cql_weight * (cql1_loss + cql2_loss)
 
             else:
                 conservative_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 cql_gap = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-                cql_alpha_value = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-                cql_lagrange_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
 
             q_loss = bellman_loss + conservative_loss
 
@@ -577,29 +567,6 @@ class CQLAgent(BaseAlgo):
 
         scaler.step(self.q_optimizer)
         scaler.update()
-
-        cql_lagrange_loss_value = torch.tensor(0.0, device=self.device)
-        if (
-            self.config.use_lagrange
-            and self._cql_weight > 0.0
-            and self.cql_alpha_optimizer is not None
-            and self.log_cql_alpha is not None
-        ):
-            self.cql_alpha_optimizer.zero_grad(set_to_none=True)
-            scaler.scale(cql_lagrange_loss).backward()
-
-            if self.is_multi_gpu and self.log_cql_alpha.grad is not None:
-                torch.distributed.all_reduce(self.log_cql_alpha.grad.data, op=torch.distributed.ReduceOp.SUM)
-                self.log_cql_alpha.grad.data.copy_(self.log_cql_alpha.grad.data / self.gpu_world_size)
-
-            scaler.unscale_(self.cql_alpha_optimizer)
-            scaler.step(self.cql_alpha_optimizer)
-            scaler.update()
-
-            with torch.no_grad():
-                self.log_cql_alpha.data.clamp_(max=math.log(args.cql_lagrange_max))
-                cql_alpha_value = self.log_cql_alpha.exp().clamp(max=args.cql_lagrange_max)
-            cql_lagrange_loss_value = cql_lagrange_loss.detach()
 
         alpha_loss = torch.tensor(0.0, device=self.device)
         if self.config.use_autotune:
@@ -628,9 +595,42 @@ class CQLAgent(BaseAlgo):
             bellman_loss.detach(),
             cql_gap.detach(),
             q_data_mean.detach(),
-            cql_alpha_value.detach(),
-            cql_lagrange_loss_value.detach(),
         )
+
+    def _update_cql_lagrange(self, cql_gap: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Update CQL Lagrange multiplier outside compiled critic step to avoid double-backward in torch.compile."""
+        if (
+            not self.config.use_lagrange
+            or self._cql_weight <= 0.0
+            or self.log_cql_alpha is None
+            or self.cql_alpha_optimizer is None
+        ):
+            zero = torch.tensor(0.0, device=self.device)
+            return zero, zero
+
+        target_gap = torch.tensor(
+            self.config.cql_target_action_gap,
+            device=self.device,
+            dtype=cql_gap.dtype,
+        )
+        cql_alpha = self.log_cql_alpha.exp().clamp(max=self.config.cql_lagrange_max)
+        # Equivalent to:
+        # -0.5 * alpha * w * ((diff1 - tau) + (diff2 - tau))
+        # because cql_gap = 0.5 * (diff1 + diff2)
+        cql_alpha_loss = -self._cql_weight * cql_alpha * (cql_gap.detach() - target_gap)
+
+        self.cql_alpha_optimizer.zero_grad(set_to_none=True)
+        cql_alpha_loss.backward()
+
+        if self.is_multi_gpu and self.log_cql_alpha.grad is not None:
+            torch.distributed.all_reduce(self.log_cql_alpha.grad.data, op=torch.distributed.ReduceOp.SUM)
+            self.log_cql_alpha.grad.data.copy_(self.log_cql_alpha.grad.data / self.gpu_world_size)
+
+        self.cql_alpha_optimizer.step()
+        with torch.no_grad():
+            self.log_cql_alpha.data.clamp_(max=math.log(self.config.cql_lagrange_max))
+            cql_alpha_value = self.log_cql_alpha.exp().clamp(max=self.config.cql_lagrange_max)
+        return cql_alpha_value.detach(), cql_alpha_loss.detach()
 
     def _update_actor(
         self,
@@ -1013,9 +1013,8 @@ class CQLAgent(BaseAlgo):
                         bellman_loss,
                         cql_gap,
                         q_data_mean,
-                        cql_alpha_value,
-                        cql_lagrange_loss,
                     ) = update_q(data)
+                    cql_alpha_value, cql_lagrange_loss = self._update_cql_lagrange(cql_gap)
 
                     self._critic_update_step += 1
                     is_actor_warmup = self.global_step <= args.actor_warmup_steps
