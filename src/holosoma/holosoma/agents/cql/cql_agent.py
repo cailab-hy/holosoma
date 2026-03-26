@@ -300,8 +300,7 @@ class CQLAgent(BaseAlgo):
         )
 
         def _env_policy(obs: torch.Tensor, dones: torch.Tensor | None = None, deterministic: bool = False) -> torch.Tensor:
-            u_actions = self.actor.explore(obs, dones=dones, deterministic=deterministic)
-            return self._to_env_actions(u_actions)
+            return self.actor.explore(obs, dones=dones, deterministic=deterministic)
 
         self.policy = _env_policy
         logger.info(f"CQL dims: actor_obs_dim={actor_obs_dim}, critic_obs_dim={critic_obs_dim}, n_act={n_act}")
@@ -350,43 +349,19 @@ class CQLAgent(BaseAlgo):
             torch._foreach_mul_(tgt_ps, 1.0 - self.config.tau)
             torch._foreach_add_(tgt_ps, src_ps, alpha=self.config.tau)
 
-    def _to_u_actions(self, actions: torch.Tensor) -> torch.Tensor:
-        # Map env action-space tensors to normalized u-space in [-1, 1].
-        action_scale = self.actor.action_scale.to(device=actions.device, dtype=actions.dtype)
-        action_bias = self.actor.action_bias.to(device=actions.device, dtype=actions.dtype)
-        return ((actions - action_bias) / (action_scale + 1e-6)).clamp(-1.0, 1.0)
-
-    def _to_env_actions(self, u_actions: torch.Tensor) -> torch.Tensor:
-        # Map normalized u-space tensors in [-1, 1] to env action-space.
-        action_scale = self.actor.action_scale.to(device=u_actions.device, dtype=u_actions.dtype)
-        action_bias = self.actor.action_bias.to(device=u_actions.device, dtype=u_actions.dtype)
-        return u_actions * action_scale + action_bias
-
-    def _assert_u_actions(self, actions: torch.Tensor, name: str) -> None:
-        if actions.numel() == 0:
-            return
-        max_abs = actions.detach().abs().max()
-        if bool((max_abs > 1.05).item()):
-            raise RuntimeError(
-                f"{name} must be normalized u-actions in [-1, 1], got max abs {max_abs.item():.4f}."
-            )
-
     @torch.no_grad()
     def _compute_action_ood_stats(self, data: TensorDict) -> dict[str, torch.Tensor]:
-        """Compute per-dimension dataset-vs-policy action coverage stats in normalized u-space."""
-        dataset_actions = data["actions"]  # [B, action_dim] expected in u-space
+        """Compute per-dimension dataset-vs-policy action coverage stats in env/scaled action space."""
+        dataset_actions = data["actions"]  # [B, action_dim] in env/scaled action space
         actor_observations = data["observations"]  # [B, actor_obs_dim]
 
-        # Deterministic policy action from actor.forward (already in u-space).
-        policy_actions_u = self.actor(actor_observations)[0]  # [B, action_dim] in u-space
+        policy_actions = self.actor(actor_observations)[0]  # [B, action_dim] in env/scaled action space
+        dataset_actions = dataset_actions.float()
+        policy_actions = policy_actions.float()
 
-        self._assert_u_actions(dataset_actions, "batch_dataset_actions")
-        dataset_actions_u = dataset_actions.float().clamp(-1.0, 1.0)  # [B, action_dim]
-        policy_actions_u = policy_actions_u.float()
-
-        quantiles = torch.tensor([0.01, 0.50, 0.99], device=dataset_actions_u.device, dtype=dataset_actions_u.dtype)
-        dataset_q = torch.quantile(dataset_actions_u, q=quantiles, dim=0)  # [3, action_dim]
-        policy_q = torch.quantile(policy_actions_u, q=quantiles, dim=0)  # [3, action_dim]
+        quantiles = torch.tensor([0.01, 0.50, 0.99], device=dataset_actions.device, dtype=dataset_actions.dtype)
+        dataset_q = torch.quantile(dataset_actions, q=quantiles, dim=0)  # [3, action_dim]
+        policy_q = torch.quantile(policy_actions, q=quantiles, dim=0)  # [3, action_dim]
 
         dataset_p1, dataset_p50, dataset_p99 = dataset_q[0], dataset_q[1], dataset_q[2]
         policy_p1, policy_p50, policy_p99 = policy_q[0], policy_q[1], policy_q[2]
@@ -400,11 +375,11 @@ class CQLAgent(BaseAlgo):
             "action_ood/mean_lower_overflow": lower_overflow.abs().mean(),
             "action_ood/max_upper_overflow": upper_overflow.max(),
             "action_ood/max_lower_overflow": lower_overflow.max(),
-            "action_ood/policy_abs_u_mean": policy_actions_u.abs().mean(),
-            "action_ood/dataset_abs_u_mean": dataset_actions_u.abs().mean(),
+            "action_ood/policy_abs_action_mean": policy_actions.abs().mean(),
+            "action_ood/dataset_abs_action_mean": dataset_actions.abs().mean(),
         }
 
-        num_detail_dims = min(4, int(dataset_actions_u.shape[-1]))
+        num_detail_dims = min(4, int(dataset_actions.shape[-1]))
         for dim_idx in range(num_detail_dims):
             stats[f"action_ood/dim{dim_idx}_dataset_p1"] = dataset_p1[dim_idx]
             stats[f"action_ood/dim{dim_idx}_dataset_p50"] = dataset_p50[dim_idx]
@@ -440,8 +415,8 @@ class CQLAgent(BaseAlgo):
             next_observations = data["next"]["observations"]  # [B, actor_obs_dim]
             critic_observations = data["critic_observations"]  # [B, critic_obs_dim]
             next_critic_observations = data["next"]["critic_observations"]  # [B, critic_obs_dim]
-            self._assert_u_actions(data["actions"], "batch_dataset_actions")
-            dataset_actions_u = data["actions"].clamp(-1.0, 1.0)  # [B, action_dim] in normalized u-space
+            # Action semantics aligned with IQL/TD3+BC: env/scaled action space end-to-end.
+            dataset_actions = data["actions"]  # [B, action_dim]
             rewards = data["next"]["rewards"]  # [B]
             dones = data["next"]["dones"].bool()  # [B]
             truncations = data["next"]["truncations"].bool()  # [B]
@@ -450,20 +425,20 @@ class CQLAgent(BaseAlgo):
             alpha = self.log_alpha.exp().detach()
 
             with torch.no_grad():
-                next_actions_u, next_log_probs_u = self.actor.get_actions_and_log_probs(next_observations)
+                next_actions, next_log_probs = self.actor.get_actions_and_log_probs(next_observations)
                 discount = args.gamma ** data["next"]["effective_n_steps"]  # [B]
-                next_q1_target, next_q2_target = self.qnet_target(next_critic_observations, next_actions_u)
+                next_q1_target, next_q2_target = self.qnet_target(next_critic_observations, next_actions)
                 next_target_min_q = torch.minimum(next_q1_target, next_q2_target)  # [B]
-                q_target = rewards + discount * bootstrap * (next_target_min_q - alpha * next_log_probs_u)
+                q_target = rewards + discount * bootstrap * (next_target_min_q - alpha * next_log_probs)
                 target_value_max = q_target.max()
                 target_value_min = q_target.min()
 
-            q1, q2 = self.qnet(critic_observations, dataset_actions_u)  # [B], [B] in u-space
+            q1, q2 = self.qnet(critic_observations, dataset_actions)  # [B], [B]
             bellman_loss = F.mse_loss(q1, q_target) + F.mse_loss(q2, q_target)
 
             q_data_mean = 0.5 * (q1.mean() + q2.mean())
             if self._cql_weight > 0.0:
-                bsz = dataset_actions_u.shape[0]
+                bsz = dataset_actions.shape[0]
                 num_repeat = self._num_repeat_actions
 
                 # Candidate-action expansion for CQL:
@@ -477,17 +452,21 @@ class CQLAgent(BaseAlgo):
                 )
 
                 with torch.no_grad():
-                    curr_actions_u, curr_logp_u = self.actor.get_actions_and_log_probs(expanded_obs)
-                    next_actions_u, next_logp_u = self.actor.get_actions_and_log_probs(expanded_next_obs)
+                    curr_actions, curr_logp = self.actor.get_actions_and_log_probs(expanded_obs)
+                    next_actions_rep, next_logp = self.actor.get_actions_and_log_probs(expanded_next_obs)
 
-                # Random actions are sampled directly in normalized u-space.
+                # Random actions are sampled in the same env/scaled action space seen by the critic.
+                action_scale = self.actor.action_scale.to(device=self.device, dtype=dataset_actions.dtype)
+                action_bias = self.actor.action_bias.to(device=self.device, dtype=dataset_actions.dtype)
                 rand_actions = torch.empty(
-                    bsz * num_repeat, dataset_actions_u.shape[-1], device=self.device
+                    bsz * num_repeat, dataset_actions.shape[-1], device=self.device, dtype=dataset_actions.dtype
                 ).uniform_(-1.0, 1.0)
+                if self.config.use_tanh:
+                    rand_actions = rand_actions * action_scale + action_bias
 
                 q1_rand, q2_rand = self.qnet(expanded_critic_obs, rand_actions)
-                q1_curr, q2_curr = self.qnet(expanded_critic_obs, curr_actions_u)
-                q1_next, q2_next = self.qnet(expanded_critic_obs, next_actions_u)
+                q1_curr, q2_curr = self.qnet(expanded_critic_obs, curr_actions)
+                q1_next, q2_next = self.qnet(expanded_critic_obs, next_actions_rep)
 
                 q1_rand = q1_rand.view(bsz, num_repeat)
                 q2_rand = q2_rand.view(bsz, num_repeat)
@@ -496,23 +475,28 @@ class CQLAgent(BaseAlgo):
                 q1_next = q1_next.view(bsz, num_repeat)
                 q2_next = q2_next.view(bsz, num_repeat)
 
-                curr_logp_u = curr_logp_u.view(bsz, num_repeat)
-                next_logp_u = next_logp_u.view(bsz, num_repeat)
+                curr_logp = curr_logp.view(bsz, num_repeat)
+                next_logp = next_logp.view(bsz, num_repeat)
 
-                # Uniform random-action proposal in normalized u-space [-1, 1]^D:
-                # mu(u) = 0.5^D
-                # log mu(u) = D * log(0.5)
-                random_density = math.log(0.5) * dataset_actions_u.shape[-1]
+                # Uniform random-action proposal density in env/scaled action space.
+                # For tanh-scaled actions, each dim range is [bias_i-scale_i, bias_i+scale_i], length 2*scale_i.
+                if self.config.use_tanh:
+                    random_density = (
+                        math.log(0.5) * dataset_actions.shape[-1]
+                        - torch.log(action_scale + 1e-6).sum()
+                    )
+                else:
+                    random_density = math.log(0.5) * dataset_actions.shape[-1]
 
                 cat_q1_terms = [
                     q1_rand - random_density,
-                    q1_curr - curr_logp_u,
-                    q1_next - next_logp_u,
+                    q1_curr - curr_logp,
+                    q1_next - next_logp,
                 ]
                 cat_q2_terms = [
                     q2_rand - random_density,
-                    q2_curr - curr_logp_u,
-                    q2_next - next_logp_u,
+                    q2_curr - curr_logp,
+                    q2_next - next_logp,
                 ]
 
                 cat_q1 = torch.cat(cat_q1_terms, dim=1)
@@ -548,8 +532,8 @@ class CQLAgent(BaseAlgo):
         if self.config.use_autotune:
             self.alpha_optimizer.zero_grad(set_to_none=True)
             with self._maybe_amp():
-                _, log_probs_u = self.actor.get_actions_and_log_probs(observations)
-                alpha_loss = (-self.log_alpha.exp() * (log_probs_u.detach() + self.target_entropy)).mean()
+                _, log_probs = self.actor.get_actions_and_log_probs(observations)
+                alpha_loss = (-self.log_alpha.exp() * (log_probs.detach() + self.target_entropy)).mean()
             scaler.scale(alpha_loss).backward()
 
             if self.is_multi_gpu and self.log_alpha.grad is not None:
@@ -585,14 +569,14 @@ class CQLAgent(BaseAlgo):
             critic_observations = data["critic_observations"]  # [B, critic_obs_dim]
 
             _, _, log_std = self.actor(actor_observations)  # _, _, [B, act_dim]
-            actions_u, log_probs_u = self.actor.get_actions_and_log_probs(actor_observations)  # [B, act_dim], [B]
+            actions, log_probs = self.actor.get_actions_and_log_probs(actor_observations)  # [B, act_dim], [B]
             with torch.no_grad():
                 action_std = log_std.exp().mean()
-                policy_entropy = -log_probs_u.mean()
+                policy_entropy = -log_probs.mean()
 
-            q1_pi, q2_pi = self.qnet(critic_observations, actions_u)
+            q1_pi, q2_pi = self.qnet(critic_observations, actions)
             qf_value = torch.minimum(q1_pi, q2_pi)
-            actor_loss = (self.log_alpha.exp().detach() * log_probs_u - qf_value).mean()
+            actor_loss = (self.log_alpha.exp().detach() * log_probs - qf_value).mean()
 
         self.actor_optimizer.zero_grad(set_to_none=True)
         scaler.scale(actor_loss).backward()
@@ -696,10 +680,6 @@ class CQLAgent(BaseAlgo):
             "(expected near <= 1 for tanh-scaled actions)"
         )
 
-        # Fix learning-space semantics: keep dataset actions as normalized u-space in cache.
-        self._offline_dataset_cache["actions"] = self._to_u_actions(self._offline_dataset_cache["actions"]).contiguous()
-        self._assert_u_actions(self._offline_dataset_cache["actions"], "offline_dataset_actions_u")
-
         logger.info(
             f"Cached offline dataset '{self._offline_dataset_path}' in host memory "
             f"({self._offline_num_samples} samples)."
@@ -788,10 +768,6 @@ class CQLAgent(BaseAlgo):
             )  # type: ignore[index]
             large_data = augmented_large_data
 
-        # Keep sampled dataset actions strictly in normalized u-space for all learning updates.
-        self._assert_u_actions(large_data["actions"], "sampled_dataset_actions_u")
-        large_data["actions"] = large_data["actions"].clamp(-1.0, 1.0)
-
         large_data["observations"] = normalize_obs(large_data["observations"])
         large_data["next"]["observations"] = normalize_obs(large_data["next"]["observations"])
         large_data["critic_observations"] = normalize_critic_obs(large_data["critic_observations"])
@@ -828,12 +804,11 @@ class CQLAgent(BaseAlgo):
             return
 
         torch_checkpoint = torch.load(ckpt_path, map_location=self.device, weights_only=False)
-        checkpoint_action_mode = torch_checkpoint.get("action_space_mode", "legacy_env_scaled_actor")
-        if checkpoint_action_mode != "u_space_normalized_training_v2":
+        checkpoint_action_mode = torch_checkpoint.get("action_space_mode", "legacy")
+        if checkpoint_action_mode != "env_scaled_action_training_v1":
             logger.warning(
-                "Loading a legacy checkpoint saved before full normalized-action training mode "
-                "(action_space_mode=u_space_normalized_training_v2). "
-                "Weights are compatible, but policy semantics/log-prob measure differ."
+                "Loading a legacy checkpoint with different CQL action semantics "
+                f"(action_space_mode={checkpoint_action_mode})."
             )
 
         checkpoint_args = torch_checkpoint.get("args", {})
@@ -1023,7 +998,7 @@ class CQLAgent(BaseAlgo):
     def save(self, path: str) -> None:  # type: ignore[override]
         env_state = self._collect_env_state()
         metadata = self._checkpoint_metadata(iteration=self.global_step)
-        metadata["action_space_mode"] = "u_space_normalized_training_v2"
+        metadata["action_space_mode"] = "env_scaled_action_training_v1"
         save_params(
             self.global_step,
             self.actor,
@@ -1065,8 +1040,7 @@ class CQLAgent(BaseAlgo):
                 normalized_obs = obs_normalizer(obs["actor_obs"], update=False)
             else:
                 normalized_obs = obs["actor_obs"]
-            u_actions = policy(normalized_obs)[0]
-            return self._to_env_actions(u_actions)
+            return policy(normalized_obs)[0]
 
         return policy_fn
 
@@ -1074,30 +1048,23 @@ class CQLAgent(BaseAlgo):
     def actor_onnx_wrapper(self):
         actor = copy.deepcopy(self.actor).to("cpu")
         obs_normalizer = copy.deepcopy(self.obs_normalizer).to("cpu")
-        action_scale = copy.deepcopy(self.actor.action_scale).to("cpu")
-        action_bias = copy.deepcopy(self.actor.action_bias).to("cpu")
 
         class ActorWrapper(nn.Module):
-            def __init__(self, actor, obs_normalizer, action_scale, action_bias):
+            def __init__(self, actor, obs_normalizer):
                 super().__init__()
                 self.actor = actor
                 self.obs_normalizer = obs_normalizer
-                self.register_buffer("action_scale", action_scale)
-                self.register_buffer("action_bias", action_bias)
 
             def forward(self, actor_obs):
                 if self.obs_normalizer is not None:
                     normalized_obs = self.obs_normalizer(actor_obs, update=False)
                 else:
                     normalized_obs = actor_obs
-                u_actions = self.actor(normalized_obs)[0]
-                return u_actions * self.action_scale + self.action_bias
+                return self.actor(normalized_obs)[0]
 
         return ActorWrapper(
             actor,
             obs_normalizer if self.obs_normalization else None,
-            action_scale,
-            action_bias,
         )
 
     def export(self, onnx_file_path: str) -> None:
@@ -1159,9 +1126,8 @@ class CQLAgent(BaseAlgo):
                 normalized_obs = self.obs_normalizer(obs, update=False)
             else:
                 normalized_obs = obs
-            u_actions = self.actor(normalized_obs)[0]
-            env_actions = self._to_env_actions(u_actions)
-            obs, _, _, _ = self.env.step(env_actions)
+            actions = self.actor(normalized_obs)[0]
+            obs, _, _, _ = self.env.step(actions)
 
     @torch.no_grad()
     def evaluate_one_episode(
@@ -1192,9 +1158,8 @@ class CQLAgent(BaseAlgo):
             else:
                 normalized_obs = obs
 
-            u_actions = self.actor(normalized_obs)[0]
-            env_actions = self._to_env_actions(u_actions)
-            obs, rewards, dones, infos = self.env.step(env_actions)
+            actions = self.actor(normalized_obs)[0]
+            obs, rewards, dones, infos = self.env.step(actions)
 
             episode_return += float(rewards[eval_env_idx].item())
             episode_length += 1
