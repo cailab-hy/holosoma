@@ -356,6 +356,21 @@ class CQLConfig:
     cql_weight: float = 5.0
     """weight of conservative quantile regularization"""
 
+    use_lagrange: bool = False
+    """whether to use Lagrange multiplier auto-tuning for CQL conservative loss"""
+
+    cql_target_action_gap: float = 10.0
+    """target CQL gap threshold used by Lagrange mode (higher -> less conservative)"""
+
+    cql_lagrange_learning_rate: float = 3e-4
+    """learning rate for CQL Lagrange multiplier optimizer"""
+
+    cql_lagrange_init: float = 1.0
+    """initial value of CQL Lagrange multiplier"""
+
+    cql_lagrange_max: float = 1e6
+    """maximum clamp value for CQL Lagrange multiplier"""
+
     target_entropy_ratio: float = 0.0
     """the ratio of the target entropy to the number of actions"""
 

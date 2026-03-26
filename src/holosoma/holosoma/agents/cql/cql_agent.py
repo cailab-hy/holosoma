@@ -170,6 +170,20 @@ class CQLAgent(BaseAlgo):
             raise ValueError(f"cql_temperature must be > 0, got {config.cql_temperature}")
         if config.cql_weight < 0.0:
             raise ValueError(f"cql_weight must be >= 0, got {config.cql_weight}")
+        if config.use_lagrange:
+            if config.cql_target_action_gap < 0.0:
+                raise ValueError(
+                    f"cql_target_action_gap must be >= 0 in Lagrange mode, got {config.cql_target_action_gap}"
+                )
+            if config.cql_lagrange_learning_rate <= 0.0:
+                raise ValueError(
+                    "cql_lagrange_learning_rate must be > 0 when use_lagrange=True, "
+                    f"got {config.cql_lagrange_learning_rate}"
+                )
+            if config.cql_lagrange_init <= 0.0:
+                raise ValueError(f"cql_lagrange_init must be > 0, got {config.cql_lagrange_init}")
+            if config.cql_lagrange_max <= 0.0:
+                raise ValueError(f"cql_lagrange_max must be > 0, got {config.cql_lagrange_max}")
         if config.gamma <= 0.0 or config.gamma > 1.0:
             raise ValueError(f"gamma must be in (0, 1], got {config.gamma}")
         if config.tau <= 0.0 or config.tau > 1.0:
@@ -277,6 +291,14 @@ class CQLAgent(BaseAlgo):
 
         self.log_alpha = torch.tensor([math.log(args.alpha_init)], requires_grad=True, device=device)
         self.target_entropy = -float(n_act) * float(args.target_entropy_ratio)
+        self.log_cql_alpha: torch.Tensor | None = None
+        self.cql_alpha_optimizer: optim.Optimizer | None = None
+        if args.use_lagrange:
+            self.log_cql_alpha = torch.tensor(
+                [math.log(args.cql_lagrange_init)],
+                requires_grad=True,
+                device=device,
+            )
 
         self.actor_optimizer = optim.AdamW(
             self.actor.parameters(),
@@ -298,6 +320,14 @@ class CQLAgent(BaseAlgo):
             fused=True,
             betas=(0.9, 0.95),
         )
+        if args.use_lagrange:
+            assert self.log_cql_alpha is not None
+            self.cql_alpha_optimizer = optim.AdamW(
+                [self.log_cql_alpha],
+                lr=args.cql_lagrange_learning_rate,
+                fused=True,
+                betas=(0.9, 0.95),
+            )
 
         def _env_policy(obs: torch.Tensor, dones: torch.Tensor | None = None, deterministic: bool = False) -> torch.Tensor:
             return self.actor.explore(obs, dones=dones, deterministic=deterministic)
@@ -323,6 +353,8 @@ class CQLAgent(BaseAlgo):
         for param in self.qnet.parameters():
             torch.distributed.broadcast(param.data, src=0)
         torch.distributed.broadcast(self.log_alpha.data, src=0)
+        if self.config.use_lagrange and self.log_cql_alpha is not None:
+            torch.distributed.broadcast(self.log_cql_alpha.data, src=0)
         self.qnet_target.load_state_dict(self.qnet.state_dict())
         logger.info(f"Synchronized CQL model parameters across {self.gpu_world_size} GPUs")
 
@@ -406,6 +438,8 @@ class CQLAgent(BaseAlgo):
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
     ]:
         args = self.config
         scaler = self.scaler
@@ -437,6 +471,8 @@ class CQLAgent(BaseAlgo):
             bellman_loss = F.mse_loss(q1, q_target) + F.mse_loss(q2, q_target)
 
             q_data_mean = 0.5 * (q1.mean() + q2.mean())
+            cql_alpha_value = torch.tensor(0.0, device=self.device, dtype=bellman_loss.dtype)
+            cql_lagrange_loss = torch.tensor(0.0, device=self.device, dtype=bellman_loss.dtype)
             if self._cql_weight > 0.0:
                 bsz = dataset_actions.shape[0]
                 num_repeat = self._num_repeat_actions
@@ -504,12 +540,26 @@ class CQLAgent(BaseAlgo):
 
                 cql1_loss = (torch.logsumexp(cat_q1 / self._temperature, dim=1) * self._temperature - q1).mean()
                 cql2_loss = (torch.logsumexp(cat_q2 / self._temperature, dim=1) * self._temperature - q2).mean()
-
-                conservative_loss = self._cql_weight * (cql1_loss + cql2_loss)
                 cql_gap = 0.5 * (cql1_loss + cql2_loss)
+
+                if args.use_lagrange and self.log_cql_alpha is not None:
+                    cql_alpha = self.log_cql_alpha.exp().clamp(max=args.cql_lagrange_max)
+                    target_gap = torch.tensor(args.cql_target_action_gap, device=self.device, dtype=bellman_loss.dtype)
+                    conservative_loss = self._cql_weight * cql_alpha.detach() * (
+                        (cql1_loss - target_gap) + (cql2_loss - target_gap)
+                    )
+                    cql_lagrange_loss = -self._cql_weight * cql_alpha * (
+                        (cql1_loss.detach() - target_gap) + (cql2_loss.detach() - target_gap)
+                    )
+                    cql_alpha_value = cql_alpha
+                else:
+                    conservative_loss = self._cql_weight * (cql1_loss + cql2_loss)
+
             else:
                 conservative_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 cql_gap = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                cql_alpha_value = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                cql_lagrange_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
 
             q_loss = bellman_loss + conservative_loss
 
@@ -527,6 +577,29 @@ class CQLAgent(BaseAlgo):
 
         scaler.step(self.q_optimizer)
         scaler.update()
+
+        cql_lagrange_loss_value = torch.tensor(0.0, device=self.device)
+        if (
+            self.config.use_lagrange
+            and self._cql_weight > 0.0
+            and self.cql_alpha_optimizer is not None
+            and self.log_cql_alpha is not None
+        ):
+            self.cql_alpha_optimizer.zero_grad(set_to_none=True)
+            scaler.scale(cql_lagrange_loss).backward()
+
+            if self.is_multi_gpu and self.log_cql_alpha.grad is not None:
+                torch.distributed.all_reduce(self.log_cql_alpha.grad.data, op=torch.distributed.ReduceOp.SUM)
+                self.log_cql_alpha.grad.data.copy_(self.log_cql_alpha.grad.data / self.gpu_world_size)
+
+            scaler.unscale_(self.cql_alpha_optimizer)
+            scaler.step(self.cql_alpha_optimizer)
+            scaler.update()
+
+            with torch.no_grad():
+                self.log_cql_alpha.data.clamp_(max=math.log(args.cql_lagrange_max))
+                cql_alpha_value = self.log_cql_alpha.exp().clamp(max=args.cql_lagrange_max)
+            cql_lagrange_loss_value = cql_lagrange_loss.detach()
 
         alpha_loss = torch.tensor(0.0, device=self.device)
         if self.config.use_autotune:
@@ -555,6 +628,8 @@ class CQLAgent(BaseAlgo):
             bellman_loss.detach(),
             cql_gap.detach(),
             q_data_mean.detach(),
+            cql_alpha_value.detach(),
+            cql_lagrange_loss_value.detach(),
         )
 
     def _update_actor(
@@ -860,6 +935,18 @@ class CQLAgent(BaseAlgo):
             self.q_optimizer.load_state_dict(torch_checkpoint["q_optimizer_state_dict"])
         if "alpha_optimizer_state_dict" in torch_checkpoint:
             self.alpha_optimizer.load_state_dict(torch_checkpoint["alpha_optimizer_state_dict"])
+        if (
+            self.config.use_lagrange
+            and self.log_cql_alpha is not None
+            and "cql_log_alpha" in torch_checkpoint
+        ):
+            self.log_cql_alpha.data.copy_(torch_checkpoint["cql_log_alpha"].to(self.device))
+        if (
+            self.config.use_lagrange
+            and self.cql_alpha_optimizer is not None
+            and "cql_alpha_optimizer_state_dict" in torch_checkpoint
+        ):
+            self.cql_alpha_optimizer.load_state_dict(torch_checkpoint["cql_alpha_optimizer_state_dict"])
         if "grad_scaler_state_dict" in torch_checkpoint and torch_checkpoint["grad_scaler_state_dict"] is not None:
             self.scaler.load_state_dict(torch_checkpoint["grad_scaler_state_dict"])
 
@@ -926,6 +1013,8 @@ class CQLAgent(BaseAlgo):
                         bellman_loss,
                         cql_gap,
                         q_data_mean,
+                        cql_alpha_value,
+                        cql_lagrange_loss,
                     ) = update_q(data)
 
                     self._critic_update_step += 1
@@ -966,6 +1055,12 @@ class CQLAgent(BaseAlgo):
                             "cql_bellman_loss": bellman_loss,
                             "cql_gap": cql_gap,
                             "q_data_mean": q_data_mean,
+                            "cql_alpha_value": cql_alpha_value,
+                            "cql_lagrange_loss": cql_lagrange_loss,
+                            "cql_target_action_gap": torch.tensor(
+                                args.cql_target_action_gap if args.use_lagrange else 0.0,
+                                device=self.device,
+                            ),
                             "is_actor_warmup": float(is_actor_warmup),
                             "is_actor_update_step": float(is_actor_update_step),
                             **action_ood_stats,
@@ -1016,6 +1111,8 @@ class CQLAgent(BaseAlgo):
             save_fn=self.logging_helper.save_checkpoint_artifact,
             env_state=env_state or None,
             metadata=metadata,
+            cql_log_alpha=self.log_cql_alpha if self.config.use_lagrange else None,
+            cql_alpha_optimizer=self.cql_alpha_optimizer if self.config.use_lagrange else None,
         )
 
     @torch.no_grad()
