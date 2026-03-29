@@ -150,11 +150,11 @@ g1_29dof_wbt_cql = ExperimentConfig(
             num_learning_iterations=100000,
             gamma=0.99,  # For motion tracking, high gamma + high num_steps is better
             num_updates=4,
-            target_entropy_ratio=1.0,
+            target_entropy_ratio=0.5,
             tau=0.05,
             cql_num_action_samples=10,
             cql_temperature=1.0,
-            cql_weight=0.0,
+            cql_weight=0.1,
             use_tanh=True,
             use_symmetry=False,
         ),
