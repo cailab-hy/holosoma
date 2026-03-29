@@ -180,6 +180,9 @@ class PPOConfig:
     init_at_random_ep_len: bool = True
     """Whether to initialize at random episode length."""
 
+    empirical_normalization: bool = False
+    """Whether to apply empirical normalization to actor and critic observations."""
+
     eval_callbacks: Any = None
     """Evaluation callbacks configuration."""
 
@@ -305,36 +308,8 @@ class FastSACConfig:
     actor_obs_keys: List[str] = field(default_factory=lambda: ["actor_obs"])
     critic_obs_keys: List[str] = field(default_factory=lambda: ["critic_obs"])
 
-    # --- Offline mode fields ---
-    offline_mode: bool = False
-    """Whether to use offline training mode."""
-
-    offline_dataset_path: str = ""
-    """Path to the offline HDF5 dataset."""
-
-    actor_obs_dim: int = 0
-    """Actor observation dimension (required for offline mode)."""
-
-    critic_obs_dim: int = 0
-    """Critic observation dimension (required for offline mode)."""
-
-    action_dim: int = 0
-    """Action dimension (required for offline mode)."""
-
-    offline_action_scale: List[float] = field(default_factory=list)
-    """Per-joint action scaling. Empty means ones(action_dim)."""
-
-    offline_normalizer_init_mode: str = "dataset"
-    """How to initialize observation normalizer: 'dataset', 'checkpoint', or 'none'."""
-
-    offline_num_updates_per_epoch: int = 1000
-    """Number of gradient steps per epoch in offline mode."""
-
-    eval_interval: int = 0
-    """Evaluation interval in epochs. 0 disables evaluation."""
-
-    conservative_weight: float = 0.0
-    """Weight for conservative (CQL-style) critic loss. 0 disables it."""
+    eval_callbacks: Any = None
+    """Evaluation callbacks configuration."""
 
 
 @dataclass(frozen=True)
@@ -365,6 +340,179 @@ class FastSACAlgoConfig:
     """Algorithm-specific configuration."""
 
 
-AlgoInitConfig = Union[PPOConfig, FastSACConfig]
+@dataclass(frozen=True)
+class OfflineCQLConfig:
+    """Configuration for the Offline CQL algorithm.
 
-AlgoConfig = Union[PPOAlgoConfig, FastSACAlgoConfig]
+    Shares many hyperparameters with :class:`FastSACConfig` (same actor,
+    same SAC entropy-temperature) but replaces the online replay buffer
+    with an offline HDF5 dataset and adds the CQL conservative penalty.
+
+    Tier A — hard-required (no sensible global default):
+        actor_obs_keys, critic_obs_keys, dataset_path, obs_normalization,
+        actor_hidden_dim, critic_hidden_dim, actor_learning_rate,
+        critic_learning_rate, alpha_learning_rate, alpha_init,
+        use_autotune, target_entropy_ratio, gamma, tau, batch_size,
+        num_learning_iterations, policy_frequency, logging_interval,
+        save_interval, cql_num_random_actions, cql_num_policy_actions,
+        cql_alpha_autotune, amp, amp_dtype, max_grad_norm.
+
+    Tier B — optional with safe defaults (see field defaults below).
+
+    Tier C — feature-dependent:
+        cql_target_penalty — required only when cql_alpha_autotune=True.
+    """
+
+    # ── Dataset ─────────────────────────────────────────────────────
+    dataset_path: str = ""
+    """Path to the offline HDF5 dataset file."""
+
+    # ── Observation keys ───────────────────────────────────────────
+    actor_obs_keys: List[str] = field(default_factory=lambda: ["actor_obs"])
+    """Observation group keys fed to the actor."""
+
+    critic_obs_keys: List[str] = field(default_factory=lambda: ["critic_obs"])
+    """Observation group keys fed to the critic."""
+
+    # ── Training schedule ──────────────────────────────────────────
+    num_learning_iterations: int = 100_000
+    """Total number of offline gradient steps."""
+
+    batch_size: int = 256
+    """Mini-batch size per gradient step."""
+
+    policy_frequency: int = 2
+    """Actor is updated every `policy_frequency` critic steps."""
+
+    logging_interval: int = 100
+    """Log training metrics every N steps."""
+
+    save_interval: int = 5000
+    """Save a checkpoint every N steps (0 = disabled)."""
+
+    # ── Network architecture ───────────────────────────────────────
+    actor_hidden_dim: int = 256
+    """Hidden dimension of the actor MLP."""
+
+    critic_hidden_dim: int = 256
+    """Hidden dimension of each Q-network MLP."""
+
+    # ── SAC entropy temperature ────────────────────────────────────
+    alpha_init: float = 0.2
+    """Initial value of the SAC entropy temperature."""
+
+    use_autotune: bool = True
+    """Whether to auto-tune the SAC entropy temperature α."""
+
+    target_entropy_ratio: float = 0.9
+    """Target entropy as a fraction of −action_dim."""
+
+    alpha_learning_rate: float = 3e-4
+    """Learning rate for the SAC α optimiser."""
+
+    # ── Optimisation ───────────────────────────────────────────────
+    actor_learning_rate: float = 3e-4
+    """Learning rate for the actor optimiser."""
+
+    critic_learning_rate: float = 3e-4
+    """Learning rate for the twin-Q critic optimiser."""
+
+    gamma: float = 0.99
+    """Discount factor."""
+
+    tau: float = 0.005
+    """Polyak averaging coefficient for the target Q-network."""
+
+    # ── CQL-specific ───────────────────────────────────────────────
+    cql_num_random_actions: int = 10
+    """Number of uniform-random actions for CQL importance sampling."""
+
+    cql_num_policy_actions: int = 10
+    """Number of current-policy actions for CQL importance sampling."""
+
+    cql_alpha_autotune: bool = False
+    """Whether to auto-tune the CQL Lagrange multiplier α_cql."""
+
+    cql_target_penalty: float = 5.0
+    """Target CQL penalty (used only when cql_alpha_autotune=True)."""
+
+    cql_alpha_init: float = 1.0
+    """Initial value of the CQL conservative weight α_cql."""
+
+    cql_alpha_learning_rate: float = 3e-4
+    """Learning rate for the CQL α_cql optimiser."""
+
+    bc_weight: float = 0.0
+    """Weight of the BC (behaviour-cloning) MSE regulariser on the actor.
+
+    When > 0 the actor loss becomes:
+        actor_loss = (α·log π − min Q).mean() + bc_weight · MSE(π(s), a_data)
+    Set to 0.0 to disable (default for backward compatibility)."""
+
+    # ── Normalisation ──────────────────────────────────────────────
+    obs_normalization: bool = True
+    """Whether to normalise observations using dataset statistics."""
+
+    # ── Mixed precision ────────────────────────────────────────────
+    amp: bool = True
+    """Enable automatic mixed-precision training."""
+
+    amp_dtype: str = "bf16"
+    """AMP dtype: 'bf16' or 'fp16'."""
+
+    # ── Gradient clipping ──────────────────────────────────────────
+    max_grad_norm: float = 1.0
+    """Maximum gradient norm (0 = disabled)."""
+
+    # ── Tier B optional fields ─────────────────────────────────────
+    use_tanh: bool = True
+    """Whether to squash actions through tanh."""
+
+    use_layer_norm: bool = True
+    """Whether to use layer normalisation in actor/critic MLPs."""
+
+    log_std_max: float = 2.0
+    """Upper clamp for the actor's log-std."""
+
+    log_std_min: float = -5.0
+    """Lower clamp for the actor's log-std."""
+
+    num_q_networks: int = 2
+    """Number of Q-networks in the TwinQCritic ensemble."""
+
+    weight_decay: float = 0.0
+    """Weight decay for AdamW optimisers."""
+
+    q_clip: float = 1e4
+    """Absolute clamp for TD-target Q-values."""
+
+    compile: bool = False
+    """Whether to torch.compile the normaliser forward passes."""
+
+    eval_interval: int = 0
+    """Run eval rollouts every N training steps (0 = disabled)."""
+
+    eval_steps: int = 200
+    """Number of env steps per eval rollout."""
+
+    eval_callbacks: Any = None
+    """Optional evaluation callbacks configuration."""
+
+
+@dataclass(frozen=True)
+class OfflineCQLAlgoConfig:
+    """Algo wrapper for Offline CQL (mirrors PPOAlgoConfig / FastSACAlgoConfig)."""
+
+    _target_: str
+    """Target algorithm class."""
+
+    _recursive_: bool
+    """Whether to recursively instantiate."""
+
+    config: OfflineCQLConfig
+    """Algorithm-specific configuration."""
+
+
+AlgoInitConfig = Union[PPOConfig, FastSACConfig, OfflineCQLConfig]
+
+AlgoConfig = Union[PPOAlgoConfig, FastSACAlgoConfig, OfflineCQLAlgoConfig]

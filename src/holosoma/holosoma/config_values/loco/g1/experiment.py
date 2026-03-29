@@ -55,4 +55,28 @@ g1_29dof_fast_sac = ExperimentConfig(
     ),
 )
 
-__all__ = ["g1_29dof", "g1_29dof_fast_sac"]
+g1_29dof_offline_cql = ExperimentConfig(
+    env_class="holosoma.envs.locomotion.locomotion_manager.LeggedRobotLocomotionManager",
+    training=TrainingConfig(project="hv-g1-manager", name="g1_29dof_offline_cql", num_envs=128),
+    algo=replace(
+        algo.offline_cql,
+        config=replace(
+            algo.offline_cql.config,
+            num_learning_iterations=100_000,
+            actor_hidden_dim=256,
+            critic_hidden_dim=256,
+        ),
+    ),
+    simulator=simulator.isaacgym,
+    robot=robot.g1_29dof,
+    terrain=terrain.terrain_locomotion_mix,
+    observation=observation.g1_29dof_loco_single_wolinvel,
+    action=action.g1_29dof_joint_pos,
+    termination=termination.g1_29dof_termination,
+    randomization=randomization.g1_29dof_randomization,
+    command=command.g1_29dof_command,
+    curriculum=curriculum.g1_29dof_curriculum_fast_sac,
+    reward=reward.g1_29dof_loco_fast_sac,
+)
+
+__all__ = ["g1_29dof", "g1_29dof_fast_sac", "g1_29dof_offline_cql"]

@@ -41,6 +41,20 @@ class TerminationManager:
         self._term_names: list[str] = []
         self._term_cfgs: list[TerminationTermCfg] = []
 
+        # Expose non-timeout / timeout termination masks so that downstream
+        # consumers (e.g. adaptive motion sampling in MotionCommand) can
+        # distinguish failure-triggered resets from timeouts.  This mirrors
+        # IsaacLab's TerminationManager API which provides the same fields.
+        # Keeping this here avoids duplicating termination logic in individual
+        # command or reward terms and prevents synchronisation issues that
+        # would arise from maintaining a parallel copy.
+        self.terminated = torch.zeros(self.env.num_envs, dtype=torch.bool, device=self.device)
+        self.time_outs = torch.zeros_like(self.terminated)
+
+        # Per-term boolean masks from the last check() call.
+        # Keys are term names, values are [num_envs] bool tensors.
+        self.active_terms: dict[str, torch.Tensor] = {}
+
         self._initialize_terms()
 
     def _initialize_terms(self) -> None:
@@ -79,6 +93,7 @@ class TerminationManager:
         """
         reset_flags = torch.zeros(self.env.num_envs, dtype=torch.bool, device=self.device)
         timeout_flags = torch.zeros_like(reset_flags)
+        active_terms: dict[str, torch.Tensor] = {}
 
         for term_name, term_cfg in zip(self._term_names, self._term_cfgs):
             if term_name in self._term_instances:
@@ -91,11 +106,16 @@ class TerminationManager:
                     f"Termination term '{term_name}' returned dtype {result.dtype}, expected torch.bool tensor."
                 )
 
+            active_terms[term_name] = result
+
             if term_cfg.is_timeout:
                 timeout_flags |= result
             else:
                 reset_flags |= result
 
+        self.active_terms = active_terms
+        self.terminated = reset_flags.clone()
+        self.time_outs = timeout_flags.clone()
         return reset_flags, timeout_flags
 
     def reset(self, env_ids: torch.Tensor | None = None) -> None:
@@ -108,3 +128,10 @@ class TerminationManager:
         """
         for instance in self._term_instances.values():
             instance.reset(env_ids=env_ids)
+
+        if env_ids is None:
+            self.terminated.zero_()
+            self.time_outs.zero_()
+        else:
+            self.terminated[env_ids] = False
+            self.time_outs[env_ids] = False

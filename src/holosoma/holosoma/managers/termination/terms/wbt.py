@@ -15,6 +15,10 @@ from holosoma.utils.rotations import (
 )
 from holosoma.utils.safe_torch_import import torch
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 #########################################################################################################
 ## Termination terms
@@ -75,9 +79,37 @@ class BadTracking(TerminationTermBase):
             bad_object_ori = self.bad_object_ori(motion_command)
             bad_tracking |= bad_object_pos | bad_object_ori
 
-        if motion_command.motion_cfg.use_adaptive_timesteps_sampler and torch.any(bad_tracking):
-            failed_at_time_step = motion_command.time_steps[bad_tracking]
-            motion_command.adaptive_timesteps_sampler.update_current_bin_failed_count(failed_at_time_step)
+        # ── Diagnostic: log which sub-condition triggered ─────────
+        if bad_tracking.any():
+            _triggered = bad_tracking.nonzero(as_tuple=False).squeeze(-1)
+            _n = min(4, _triggered.numel())  # log up to 4 envs
+            for _i in range(_n):
+                _eid = _triggered[_i].item()
+                _reasons = []
+                if bad_ref_pos[_eid]:
+                    # Compute actual error for the log
+                    _z_err = torch.abs(
+                        motion_command.ref_pos_w[_eid, -1] - motion_command.robot_ref_pos_w[_eid, -1]
+                    ).item()
+                    _reasons.append(f"ref_pos(z_err={_z_err:.3f}>{self.bad_ref_pos_threshold})")
+                if bad_ref_ori[_eid]:
+                    _reasons.append("ref_ori")
+                if bad_motion_body_pos[_eid]:
+                    # Per-body z errors for the monitored extremities
+                    _body_idx = self.bad_motion_body_pos_body_indexes
+                    _body_z_err = torch.abs(
+                        motion_command.body_pos_relative_w[_eid, _body_idx, -1]
+                        - motion_command.robot_body_pos_w[_eid, _body_idx, -1]
+                    )
+                    _body_strs = []
+                    for _bi, _bname in enumerate(self.bad_motion_body_pos_body_names):
+                        _e = _body_z_err[_bi].item()
+                        _flag = "⚠" if _e > self.bad_motion_body_pos_threshold else " "
+                        _body_strs.append(f"{_bname}={_e:.3f}{_flag}")
+                    _reasons.append(f"body_pos[{', '.join(_body_strs)}]")
+                logger.info(
+                    f"[bad_tracking] env={_eid} triggered by: {' | '.join(_reasons)}"
+                )
 
         return bad_tracking
 
@@ -131,3 +163,20 @@ class BadTracking(TerminationTermBase):
             assert name in b_names, f"The specified name ({name}) doesn't exist: {b_names}"
             indexes.append(b_names.index(name))
         return torch.tensor(indexes, dtype=torch.long, device=device)
+
+
+class BadTrackingZOnly(BadTracking):
+    """BadTracking variant using z-axis-only position checks for parity with BM Wo-State-Estimation."""
+
+    def bad_ref_pos(self, motion_command: MotionCommand) -> torch.Tensor:
+        """Terminate if the reference z position is too far from the robot's z position."""
+        z_err = torch.abs(motion_command.ref_pos_w[:, -1] - motion_command.robot_ref_pos_w[:, -1])
+        return z_err > self.bad_ref_pos_threshold
+
+    def bad_motion_body_pos(self, motion_command: MotionCommand) -> torch.Tensor:
+        """Terminate if tracked bodies have too much z-axis position error."""
+        body_idx = self.bad_motion_body_pos_body_indexes
+        error = torch.abs(
+            motion_command.body_pos_relative_w[:, body_idx, -1] - motion_command.robot_body_pos_w[:, body_idx, -1]
+        )
+        return torch.any(error > self.bad_motion_body_pos_threshold, dim=-1)
