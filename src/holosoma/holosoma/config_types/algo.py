@@ -371,6 +371,9 @@ class CQLConfig:
     cql_lagrange_max: float = 1e6
     """maximum clamp value for CQL Lagrange multiplier"""
 
+    bc_weight: float = 0.0
+    """optional actor BC regularization weight (actor_loss += bc_weight * MSE(pi(s), a_data))"""
+
     target_entropy_ratio: float = 0.0
     """the ratio of the target entropy to the number of actions"""
 

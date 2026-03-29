@@ -137,6 +137,7 @@ cql = CQLAlgoConfig(
         cql_lagrange_learning_rate=3e-4,
         cql_lagrange_init=1.0,
         cql_lagrange_max=1e6,
+        bc_weight=0.0,
         target_entropy_ratio=0.0,
         risk_mode="neutral",
         cvar_alpha=0.1,

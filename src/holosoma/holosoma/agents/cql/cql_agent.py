@@ -170,6 +170,8 @@ class CQLAgent(BaseAlgo):
             raise ValueError(f"cql_temperature must be > 0, got {config.cql_temperature}")
         if config.cql_weight < 0.0:
             raise ValueError(f"cql_weight must be >= 0, got {config.cql_weight}")
+        if config.bc_weight < 0.0:
+            raise ValueError(f"bc_weight must be >= 0, got {config.bc_weight}")
         if config.use_lagrange:
             if config.cql_target_action_gap < 0.0:
                 raise ValueError(
@@ -635,13 +637,14 @@ class CQLAgent(BaseAlgo):
     def _update_actor(
         self,
         data: TensorDict,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         args = self.config
         scaler = self.scaler
 
         with self._maybe_amp():
             actor_observations = data["observations"]  # [B, actor_obs_dim]
             critic_observations = data["critic_observations"]  # [B, critic_obs_dim]
+            dataset_actions = data["actions"]  # [B, action_dim]
 
             _, _, log_std = self.actor(actor_observations)  # _, _, [B, act_dim]
             actions, log_probs = self.actor.get_actions_and_log_probs(actor_observations)  # [B, act_dim], [B]
@@ -651,10 +654,15 @@ class CQLAgent(BaseAlgo):
 
             q1_pi, q2_pi = self.qnet(critic_observations, actions)
             qf_value = torch.minimum(q1_pi, q2_pi)
-            actor_loss = (self.log_alpha.exp().detach() * log_probs - qf_value).mean()
+            actor_rl_loss = (self.log_alpha.exp().detach() * log_probs - qf_value).mean()
+            if args.bc_weight > 0.0:
+                actor_bc_loss = F.mse_loss(actions, dataset_actions)
+            else:
+                actor_bc_loss = torch.zeros((), device=self.device, dtype=actor_rl_loss.dtype)
+            actor_total_loss = actor_rl_loss + float(args.bc_weight) * actor_bc_loss
 
         self.actor_optimizer.zero_grad(set_to_none=True)
-        scaler.scale(actor_loss).backward()
+        scaler.scale(actor_total_loss).backward()
 
         if self.is_multi_gpu:
             self._all_reduce_model_grads(self.actor)
@@ -670,9 +678,12 @@ class CQLAgent(BaseAlgo):
 
         return (
             actor_grad_norm.detach(),
-            actor_loss.detach(),
+            actor_total_loss.detach(),
+            actor_rl_loss.detach(),
+            actor_bc_loss.detach(),
             policy_entropy.detach(),
             action_std.detach(),
+            torch.tensor(float(args.bc_weight), device=self.device).detach(),
         )
 
     def _load_offline_dataset_cache(self) -> dict[str, torch.Tensor]:
@@ -1024,15 +1035,21 @@ class CQLAgent(BaseAlgo):
                     if is_actor_update_step:
                         (
                             actor_grad_norm,
-                            actor_loss,
+                            actor_total_loss,
+                            actor_rl_loss,
+                            actor_bc_loss,
                             policy_entropy,
                             action_std,
+                            actor_bc_weight,
                         ) = update_actor(data)
                     else:
                         actor_grad_norm = torch.tensor(0.0, device=self.device)
-                        actor_loss = torch.tensor(0.0, device=self.device)
+                        actor_total_loss = torch.tensor(0.0, device=self.device)
+                        actor_rl_loss = torch.tensor(0.0, device=self.device)
+                        actor_bc_loss = torch.tensor(0.0, device=self.device)
                         policy_entropy = torch.tensor(0.0, device=self.device)
                         action_std = torch.tensor(0.0, device=self.device)
+                        actor_bc_weight = torch.tensor(float(args.bc_weight), device=self.device)
 
                     self._soft_update_q_target()
 
@@ -1047,7 +1064,11 @@ class CQLAgent(BaseAlgo):
                             "alpha_loss": alpha_loss,
                             "alpha_value": self.log_alpha.exp().detach().mean(),
                             "actor_grad_norm": actor_grad_norm,
-                            "actor_loss": actor_loss,
+                            "actor_loss": actor_total_loss,
+                            "actor_total_loss": actor_total_loss,
+                            "actor_rl_loss": actor_rl_loss,
+                            "actor_bc_loss": actor_bc_loss,
+                            "actor_bc_weight": actor_bc_weight,
                             "policy_entropy": policy_entropy,
                             "action_std": action_std,
                             "cql_conservative_loss": conservative_loss,
