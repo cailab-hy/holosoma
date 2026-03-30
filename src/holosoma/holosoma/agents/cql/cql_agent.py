@@ -543,12 +543,25 @@ class CQLAgent(BaseAlgo):
                 curr_minus_logp_max = curr_minus_logp.max()
 
                 if self._use_curr_tail_penalty and self._curr_tail_weight > 0.0:
-                    z1 = q1_curr - curr_logp
-                    z2 = q2_curr - curr_logp
+                    # z1 = q1_curr - curr_logp
+                    # z2 = q2_curr - curr_logp
+                    # topk = max(1, int(num_repeat * self._curr_tail_top_frac))
+                    # topk = min(topk, num_repeat)
+                    # tail1 = torch.topk(z1, k=topk, dim=1).values.mean()
+                    # tail2 = torch.topk(z2, k=topk, dim=1).values.mean()
+                    # curr_tail_loss = 0.5 * (tail1 + tail2)
+
                     topk = max(1, int(num_repeat * self._curr_tail_top_frac))
                     topk = min(topk, num_repeat)
-                    tail1 = torch.topk(z1, k=topk, dim=1).values.mean()
-                    tail2 = torch.topk(z2, k=topk, dim=1).values.mean()
+
+                    margin = 0.5 #self._curr_tail_margin
+
+                    curr_over1 = F.relu(q1_curr - q1[:, None].detach() - margin)
+                    curr_over2 = F.relu(q2_curr - q2[:, None].detach() - margin)
+
+                    tail1 = torch.topk(curr_over1, k=topk, dim=1).values.mean()
+                    tail2 = torch.topk(curr_over2, k=topk, dim=1).values.mean()
+
                     curr_tail_loss = 0.5 * (tail1 + tail2)
 
                 # Uniform random-action proposal density in env/scaled action space.
