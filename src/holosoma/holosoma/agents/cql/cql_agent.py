@@ -542,6 +542,11 @@ class CQLAgent(BaseAlgo):
                 curr_minus_logp_p95 = torch.quantile(curr_minus_logp.reshape(-1), 0.95)
                 curr_minus_logp_max = curr_minus_logp.max()
 
+                curr_tail_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                curr_over_min = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                curr_over_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                curr_over_p95 = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                curr_violation_rate = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 if self._use_curr_tail_penalty and self._curr_tail_weight > 0.0:
                     # z1 = q1_curr - curr_logp
                     # z2 = q2_curr - curr_logp
@@ -662,10 +667,10 @@ class CQLAgent(BaseAlgo):
             (q1_rand - random_density).mean().detach(),
             (q1_curr - curr_logp).mean().detach(),
             (q1_next - next_logp).mean().detach(),
-            curr_over_min,
-            curr_over_mean,
-            curr_over_p95,
-            curr_violation_rate,
+            curr_over_min.detach(),
+            curr_over_mean.detach(),
+            curr_over_p95.detach(),
+            curr_violation_rate.detach(),
 
         )
 
