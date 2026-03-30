@@ -575,8 +575,8 @@ class CQLAgent(BaseAlgo):
                 cat_q1 = torch.cat(cat_q1_terms, dim=1)
                 cat_q2 = torch.cat(cat_q2_terms, dim=1)
 
-                cql1_loss = (torch.logsumexp(cat_q1 / self._temperature, dim=1) * self._temperature - q1).mean()
-                cql2_loss = (torch.logsumexp(cat_q2 / self._temperature, dim=1) * self._temperature - q2).mean()
+                cql1_loss = F.relu(torch.logsumexp(cat_q1 / self._temperature, dim=1) * self._temperature - q1).mean()
+                cql2_loss = F.relu(torch.logsumexp(cat_q2 / self._temperature, dim=1) * self._temperature - q2).mean()
                 cql_gap = 0.5 * (cql1_loss + cql2_loss)
 
                 if args.use_lagrange and self.log_cql_alpha is not None:
@@ -641,6 +641,10 @@ class CQLAgent(BaseAlgo):
             curr_minus_logp_max.detach(),
             q_pi_minus_q_data.detach(),
             curr_tail_loss.detach(),
+            (q1_rand - random_density).mean().detach(),
+            (q1_curr - curr_logp).mean().detach(),
+            (q1_next - next_logp).mean().detach(),
+
         )
 
     def _update_cql_lagrange(self, cql_gap: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
