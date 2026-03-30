@@ -371,6 +371,15 @@ class CQLConfig:
     cql_lagrange_max: float = 1e6
     """maximum clamp value for CQL Lagrange multiplier"""
 
+    use_curr_tail_penalty: bool = False
+    """whether to add an extra top-k tail penalty on (q_curr - curr_logp)"""
+
+    curr_tail_weight: float = 0.0
+    """weight for the additional current-proposal top-k tail penalty"""
+
+    curr_tail_top_frac: float = 0.2
+    """top fraction used for top-k tail extraction from current proposal samples"""
+
     bc_weight: float = 0.0
     """optional actor BC regularization weight (actor_loss += bc_weight * MSE(pi(s), a_data))"""
 

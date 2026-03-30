@@ -157,7 +157,7 @@ g1_29dof_wbt_cql = ExperimentConfig(
             cql_weight=0.1,
             use_tanh=True,
             use_symmetry=False,
-            bc_weight =2.5,
+            bc_weight=0.0,
             use_lagrange =True
         ),
     ),

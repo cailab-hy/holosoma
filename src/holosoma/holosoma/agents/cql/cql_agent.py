@@ -158,6 +158,9 @@ class CQLAgent(BaseAlgo):
         self._num_repeat_actions = config.cql_num_action_samples
         self._temperature = config.cql_temperature
         self._cql_weight = config.cql_weight
+        self._use_curr_tail_penalty = config.use_curr_tail_penalty
+        self._curr_tail_weight = config.curr_tail_weight
+        self._curr_tail_top_frac = config.curr_tail_top_frac
 
         self._offline_dataset_path = Path(config.offline_dataset_path)
         self._offline_dataset_cache: dict[str, torch.Tensor] | None = None
@@ -170,6 +173,12 @@ class CQLAgent(BaseAlgo):
             raise ValueError(f"cql_temperature must be > 0, got {config.cql_temperature}")
         if config.cql_weight < 0.0:
             raise ValueError(f"cql_weight must be >= 0, got {config.cql_weight}")
+        if config.curr_tail_weight < 0.0:
+            raise ValueError(f"curr_tail_weight must be >= 0, got {config.curr_tail_weight}")
+        if config.curr_tail_top_frac <= 0.0 or config.curr_tail_top_frac > 1.0:
+            raise ValueError(
+                f"curr_tail_top_frac must be in (0, 1], got {config.curr_tail_top_frac}"
+            )
         if config.bc_weight < 0.0:
             raise ValueError(f"bc_weight must be >= 0, got {config.bc_weight}")
         if config.use_lagrange:
@@ -443,6 +452,8 @@ class CQLAgent(BaseAlgo):
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
     ]:
         args = self.config
         scaler = self.scaler
@@ -483,6 +494,8 @@ class CQLAgent(BaseAlgo):
 
             curr_minus_logp_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             curr_minus_logp_p95 = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            curr_minus_logp_max = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            curr_tail_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             if self._cql_weight > 0.0:
                 bsz = dataset_actions.shape[0]
                 num_repeat = self._num_repeat_actions
@@ -527,6 +540,16 @@ class CQLAgent(BaseAlgo):
                 curr_minus_logp = q_curr_min - curr_logp
                 curr_minus_logp_mean = curr_minus_logp.mean()
                 curr_minus_logp_p95 = torch.quantile(curr_minus_logp.reshape(-1), 0.95)
+                curr_minus_logp_max = curr_minus_logp.max()
+
+                if self._use_curr_tail_penalty and self._curr_tail_weight > 0.0:
+                    z1 = q1_curr - curr_logp
+                    z2 = q2_curr - curr_logp
+                    topk = max(1, int(num_repeat * self._curr_tail_top_frac))
+                    topk = min(topk, num_repeat)
+                    tail1 = torch.topk(z1, k=topk, dim=1).values.mean()
+                    tail2 = torch.topk(z2, k=topk, dim=1).values.mean()
+                    curr_tail_loss = 0.5 * (tail1 + tail2)
 
                 # Uniform random-action proposal density in env/scaled action space.
                 # For tanh-scaled actions, each dim range is [bias_i-scale_i, bias_i+scale_i], length 2*scale_i.
@@ -569,7 +592,7 @@ class CQLAgent(BaseAlgo):
                 conservative_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 cql_gap = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
 
-            q_loss = bellman_loss + conservative_loss
+            q_loss = bellman_loss + conservative_loss + self._curr_tail_weight * curr_tail_loss
 
         self.q_optimizer.zero_grad(set_to_none=True)
         scaler.scale(q_loss).backward()
@@ -615,7 +638,9 @@ class CQLAgent(BaseAlgo):
             q_data_mean.detach(),
             curr_minus_logp_mean.detach(),
             curr_minus_logp_p95.detach(),
+            curr_minus_logp_max.detach(),
             q_pi_minus_q_data.detach(),
+            curr_tail_loss.detach(),
         )
 
     def _update_cql_lagrange(self, cql_gap: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -1045,7 +1070,9 @@ class CQLAgent(BaseAlgo):
                         q_data_mean,
                         cql_curr_minus_logp_mean,
                         cql_curr_minus_logp_p95,
+                        cql_curr_minus_logp_max,
                         q_pi_minus_q_data,
+                        cql_curr_tail_loss,
                     ) = update_q(data)
                     cql_alpha_value, cql_lagrange_loss = self._update_cql_lagrange(cql_gap)
 
@@ -1099,7 +1126,9 @@ class CQLAgent(BaseAlgo):
                             "q_data_mean": q_data_mean,
                             "cql_curr_minus_logp_mean": cql_curr_minus_logp_mean,
                             "cql_curr_minus_logp_p95": cql_curr_minus_logp_p95,
+                            "cql_curr_minus_logp_max": cql_curr_minus_logp_max,
                             "q_pi_minus_q_data": q_pi_minus_q_data,
+                            "cql_curr_tail_loss": cql_curr_tail_loss,
                             "cql_alpha_value": cql_alpha_value,
                             "cql_lagrange_loss": cql_lagrange_loss,
                             "cql_target_action_gap": torch.tensor(
