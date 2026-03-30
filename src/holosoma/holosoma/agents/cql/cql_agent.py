@@ -1077,6 +1077,9 @@ class CQLAgent(BaseAlgo):
                         cql_curr_minus_logp_max,
                         q_pi_minus_q_data,
                         cql_curr_tail_loss,
+                        rand_q,
+                        curr_q,
+                        next_q,
                     ) = update_q(data)
                     cql_alpha_value, cql_lagrange_loss = self._update_cql_lagrange(cql_gap)
 
@@ -1108,7 +1111,10 @@ class CQLAgent(BaseAlgo):
 
                     action_ood_stats = self._compute_action_ood_stats(data)
                     self.training_metrics.add(
-                        {
+                        {   
+                            "random_q": rand_q,
+                            "current_q" : curr_q,
+                            "next_q" : next_q,
                             "buffer_rewards": reward_mean,
                             "q_grad_norm": q_grad_norm,
                             "q_loss": q_loss,
