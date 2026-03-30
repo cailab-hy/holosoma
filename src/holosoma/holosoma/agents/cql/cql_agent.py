@@ -556,13 +556,18 @@ class CQLAgent(BaseAlgo):
 
                     margin = 0.5 #self._curr_tail_margin
 
-                    curr_over1 = F.relu(q1_curr - q1[:, None].detach() - margin)
-                    curr_over2 = F.relu(q2_curr - q2[:, None].detach() - margin)
+                    q_data_min = torch.minimum(q1, q2)[:, None].detach()
+                    q_curr_min = torch.minimum(q1_curr, q2_curr)
 
-                    tail1 = torch.topk(curr_over1, k=topk, dim=1).values.mean()
-                    tail2 = torch.topk(curr_over2, k=topk, dim=1).values.mean()
+                    curr_over = F.relu(q_curr_min - q_data_min - margin)
 
-                    curr_tail_loss = 0.5 * (tail1 + tail2)
+                    tail = torch.topk(curr_over, k=topk, dim=1).values.mean()
+                    curr_over_min = F.relu(torch.minimum(q1_curr, q2_curr) - torch.minimum(q1, q2)[:, None].detach() - margin)
+                    curr_over_mean = curr_over_min.mean()
+                    curr_over_p95 = torch.quantile(curr_over_min.reshape(-1), 0.95)
+                    curr_violation_rate = (curr_over_min > 0).float().mean()
+
+                    curr_tail_loss = tail
 
                 # Uniform random-action proposal density in env/scaled action space.
                 # For tanh-scaled actions, each dim range is [bias_i-scale_i, bias_i+scale_i], length 2*scale_i.
@@ -588,8 +593,8 @@ class CQLAgent(BaseAlgo):
                 cat_q1 = torch.cat(cat_q1_terms, dim=1)
                 cat_q2 = torch.cat(cat_q2_terms, dim=1)
 
-                cql1_loss = F.relu(torch.logsumexp(cat_q1 / self._temperature, dim=1) * self._temperature - q1).mean()
-                cql2_loss = F.relu(torch.logsumexp(cat_q2 / self._temperature, dim=1) * self._temperature - q2).mean()
+                cql1_loss = (torch.logsumexp(cat_q1 / self._temperature, dim=1) * self._temperature - q1).mean()
+                cql2_loss = (torch.logsumexp(cat_q2 / self._temperature, dim=1) * self._temperature - q2).mean()
                 cql_gap = 0.5 * (cql1_loss + cql2_loss)
 
                 if args.use_lagrange and self.log_cql_alpha is not None:
@@ -657,6 +662,10 @@ class CQLAgent(BaseAlgo):
             (q1_rand - random_density).mean().detach(),
             (q1_curr - curr_logp).mean().detach(),
             (q1_next - next_logp).mean().detach(),
+            curr_over_min,
+            curr_over_mean,
+            curr_over_p95,
+            curr_violation_rate,
 
         )
 
@@ -1093,6 +1102,10 @@ class CQLAgent(BaseAlgo):
                         rand_q,
                         curr_q,
                         next_q,
+                        curr_over_min,
+                        curr_over_mean,
+                        curr_over_p95,
+                        curr_violation_rate,
                     ) = update_q(data)
                     cql_alpha_value, cql_lagrange_loss = self._update_cql_lagrange(cql_gap)
 
@@ -1128,6 +1141,10 @@ class CQLAgent(BaseAlgo):
                             "random_q": rand_q,
                             "current_q" : curr_q,
                             "next_q" : next_q,
+                            "curr_over_min" : curr_over_min,
+                            "curr_over_mean" : curr_over_mean,
+                            "curr_over_p95" : curr_over_p95,
+                            "curr_violation_rate" : curr_violation_rate,
                             "buffer_rewards": reward_mean,
                             "q_grad_norm": q_grad_norm,
                             "q_loss": q_loss,
