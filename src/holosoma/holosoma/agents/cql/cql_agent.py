@@ -567,10 +567,9 @@ class CQLAgent(BaseAlgo):
                     curr_over = F.relu(q_curr_min - q_data_min - margin)
 
                     tail = torch.topk(curr_over, k=topk, dim=1).values.mean()
-                    curr_over_min = F.relu(torch.minimum(q1_curr, q2_curr) - torch.minimum(q1, q2)[:, None].detach() - margin)
-                    curr_over_mean = curr_over_min.mean()
-                    curr_over_p95 = torch.quantile(curr_over_min.reshape(-1), 0.95)
-                    curr_violation_rate = (curr_over_min > 0).float().mean()
+                    curr_over_mean = curr_over.mean()
+                    curr_over_p95 = torch.quantile(curr_over.reshape(-1).float(), 0.95)
+                    curr_violation_rate = (curr_over > 0).float().mean()
 
                     curr_tail_loss = tail
 

@@ -314,7 +314,7 @@ class CQLConfig:
     critic_learning_rate: float = 3e-4
     """the learning rate of the critic"""
 
-    actor_learning_rate: float = 3e-5
+    actor_learning_rate: float = 1e-4
     """the learning rate for the actor"""
 
     alpha_learning_rate: float = 3e-4
