@@ -69,34 +69,35 @@ class TerminationManager:
                 raise ValueError(f"Failed to import termination function '{func}': {exc}") from exc
         return func
 
-    def check(self) -> tuple[torch.Tensor, torch.Tensor]:
+    def check(self) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         """Evaluate termination terms.
 
         Returns
         -------
-        tuple[torch.Tensor, torch.Tensor]
-            reset_flags, timeout_flags
+        tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]
+            reset_flags, timeout_flags, per-term boolean masks
         """
         reset_flags = torch.zeros(self.env.num_envs, dtype=torch.bool, device=self.device)
         timeout_flags = torch.zeros_like(reset_flags)
+        term_results: dict[str, torch.Tensor] = {}
 
         for term_name, term_cfg in zip(self._term_names, self._term_cfgs):
             if term_name in self._term_instances:
                 result = self._term_instances[term_name](self.env, **term_cfg.params)
             else:
                 result = self._term_funcs[term_name](self.env, **term_cfg.params)
-
             if result.dtype != torch.bool:
                 raise TypeError(
                     f"Termination term '{term_name}' returned dtype {result.dtype}, expected torch.bool tensor."
                 )
+            term_results[term_name] = result
 
             if term_cfg.is_timeout:
                 timeout_flags |= result
             else:
                 reset_flags |= result
 
-        return reset_flags, timeout_flags
+        return reset_flags, timeout_flags, term_results
 
     def reset(self, env_ids: torch.Tensor | None = None) -> None:
         """Reset stateful terms.

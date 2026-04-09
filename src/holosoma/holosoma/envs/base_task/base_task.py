@@ -191,6 +191,11 @@ class BaseTask:
         self.reset_buf = torch.ones(self.num_envs, device=self.device, dtype=torch.long)
         self.episode_length_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
         self.time_out_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        # wonwoo: keep per-reason termination flags so offline dataset export can store them separately.
+        self.motion_ends_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        self.bad_tracking_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        self.timeout_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+
         self.extras = {}
         self.log_dict = {}
         self._pending_episode_lengths = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
@@ -396,6 +401,11 @@ class BaseTask:
         self.extras["raw_episode_all"] = reward_extras.get("raw_episode_all", {})
 
         self.extras["time_outs"] = self.time_out_buf
+        self.extras["termination_reasons"] = {
+            "bad_tracking": self.bad_tracking_buf.clone(),
+            "motion_ends": self.motion_ends_buf.clone(),
+            "timeout": self.timeout_buf.clone(),
+        }
 
     ###########################################################################
     # Simulation loop helpers
@@ -430,6 +440,9 @@ class BaseTask:
         self._pre_compute_observations_callback()
         self._update_tasks_callback()  # needs to be called before reset_envs_idx
         self._check_termination()
+        # wonwoo: preserve current per-env step count before resets happen so exported transitions
+        # can store the step where the terminal event occurred.
+        self.extras["episode_step"] = self.episode_length_buf.clone()
         self._compute_reward()
         self._update_log_dict()
 
@@ -454,6 +467,7 @@ class BaseTask:
         self._clip_observations()
 
         self.extras["to_log"] = self.log_dict
+        self.extras["tracking_metrics"] = self._collect_tracking_metrics()
         if self.viewer:
             self._setup_simulator_control()
             self._setup_simulator_next_task()
@@ -509,13 +523,41 @@ class BaseTask:
     def _check_termination(self):
         self.reset_buf[:] = 0
         self.time_out_buf[:] = 0
+        self.motion_ends_buf[:] = 0
+        self.bad_tracking_buf[:] = 0
+        self.timeout_buf[:] = 0
+
         if self.termination_manager is None:
             return
 
-        reset_flags, timeout_flags = self.termination_manager.check()
+        reset_flags, timeout_flags, term_results = self.termination_manager.check()
+        self.motion_ends_buf |= term_results.get("motion_ends", torch.zeros_like(self.motion_ends_buf))
+        self.bad_tracking_buf |= term_results.get("bad_tracking", torch.zeros_like(self.bad_tracking_buf))
+        self.timeout_buf |= term_results.get("timeout", torch.zeros_like(self.timeout_buf))
+
         self.reset_buf |= reset_flags.to(dtype=self.reset_buf.dtype)
         self.time_out_buf |= timeout_flags
         self.reset_buf |= self.time_out_buf
+        self.extras["termination_reasons"] = {
+            "bad_tracking": self.bad_tracking_buf.clone(),
+            "motion_ends": self.motion_ends_buf.clone(),
+            "timeout": self.timeout_buf.clone(),
+        }
+
+    def _collect_tracking_metrics(self) -> dict[str, torch.Tensor]:
+        """Return per-env tracking/risk metrics for offline dataset export.
+
+        Default implementation returns zeros so non-WBT environments do not need to provide these keys.
+        """
+        zeros = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
+        return {
+            "err_root_pos": zeros.clone(),
+            "err_root_ori": zeros.clone(),
+            "err_body_pos_max": zeros.clone(),
+            "err_body_pos_mean": zeros.clone(),
+            "err_object_pos": zeros.clone(),
+            "err_object_ori": zeros.clone(),
+        }
 
     def _pre_compute_observations_callback(self):
         """Hook invoked after physics but before observation terms compute (no-op by default)."""

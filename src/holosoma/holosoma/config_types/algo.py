@@ -461,6 +461,21 @@ class CQLConfig:
     offline_dataset_path: str = "offline_data/fastsac_dataset.h5"
     """path to fixed offline dataset"""
 
+    offline_block_size: int = 65536
+    """number of contiguous transitions to read per HDF5 block refill"""
+
+    offline_buffer_capacity: int = 262144
+    """maximum number of transitions held in CPU RAM shuffle buffer"""
+
+    offline_refill_threshold: int = 65536
+    """refill shuffle buffer when remaining unsampled transitions fall below this threshold"""
+
+    offline_pin_memory: bool = True
+    """pin sampled CPU batches before CPU->GPU transfer"""
+
+    offline_shuffle_block_order: bool = True
+    """shuffle the order of contiguous HDF5 blocks each pass while keeping each block read contiguous"""
+
     encoder_obs_key: str = "perception_obs"
     """the key of the encoder observation. only valid if use_cnn_encoder is True"""
 

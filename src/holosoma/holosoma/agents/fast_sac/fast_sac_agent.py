@@ -84,6 +84,23 @@ class FastSACEnv:
         else:
             final_actor_obs = actor_obs
             final_critic_obs = critic_obs
+
+        termination_reasons = info_dict.get("termination_reasons", {})
+        tracking_metrics = info_dict.get("tracking_metrics", {})
+
+        def _bool_info(name: str) -> torch.Tensor:
+            value = termination_reasons.get(name)
+            if isinstance(value, torch.Tensor):
+                return value.to(device=rew_buf.device, dtype=torch.bool)
+            return torch.zeros_like(rew_buf, dtype=torch.bool)
+
+        def _float_info(name: str) -> torch.Tensor:
+            value = tracking_metrics.get(name)
+            if isinstance(value, torch.Tensor):
+                return value.to(device=rew_buf.device, dtype=torch.float32)
+            # wonwoo: keep offline export robust even if the environment does not expose this metric yet.
+            return torch.zeros_like(rew_buf, dtype=torch.float32)
+
         extras = {
             "time_outs": info_dict["time_outs"],
             "observations": {
@@ -97,6 +114,20 @@ class FastSACEnv:
             "episode_all": info_dict["episode_all"],
             "raw_episode": info_dict.get("raw_episode", {}),
             "raw_episode_all": info_dict.get("raw_episode_all", {}),
+            "termination_reasons": {
+                "bad_tracking": _bool_info("bad_tracking"),
+                "motion_ends": _bool_info("motion_ends"),
+                "timeout": _bool_info("timeout"),
+            },
+            "tracking_metrics": {
+                "err_root_pos": _float_info("err_root_pos"),
+                "err_root_ori": _float_info("err_root_ori"),
+                "err_body_pos_max": _float_info("err_body_pos_max"),
+                "err_body_pos_mean": _float_info("err_body_pos_mean"),
+                "err_object_pos": _float_info("err_object_pos"),
+                "err_object_ori": _float_info("err_object_ori"),
+            },
+            "episode_step": info_dict.get("episode_step", torch.zeros_like(rew_buf, dtype=torch.long)),
             "to_log": info_dict["to_log"],
         }
         return actor_obs, rew_buf, reset_buf, extras
@@ -166,6 +197,29 @@ def _as_uint8(x):
     return _to_numpy(x).astype(np.uint8, copy=False)
 
 
+def _as_int64(x):
+    return _to_numpy(x).astype(np.int64, copy=False)
+
+
+def _flatten_transition(prefix: str, value, out: dict[str, Any]) -> None:
+    if isinstance(value, TensorDict):
+        value = value.to_dict()
+    if isinstance(value, dict):
+        for key, nested_value in value.items():
+            next_prefix = f"{prefix}_{key}" if prefix else key
+            _flatten_transition(next_prefix, nested_value, out)
+        return
+    out[prefix] = value
+
+
+def _convert_h5_field(name: str, value) -> np.ndarray:
+    if name.endswith(("truncations", "dones", "done_bad_tracking", "done_motion_ends", "done_timeout")):
+        return _as_uint8(value)
+    if name.endswith(("episode_step", "global_step")):
+        return _as_int64(value)
+    return _as_float32(value)
+
+
 # ------------------------------------------------------------------
 # HDF5 writer
 # ------------------------------------------------------------------
@@ -208,18 +262,20 @@ class H5TransitionWriter:
         return ds
 
     def append(self, transition):
-        batch = {
-            "observations": _as_float32(transition["observations"]),
-            "actions": _as_float32(transition["actions"]),
-            "critic_observations": _as_float32(transition["critic_observations"]),
-            "next_observations": _as_float32(transition["next"]["observations"]),
-            "next_critic_observations": _as_float32(
-                transition["next"]["critic_observations"]
-            ),
-            "rewards": _as_float32(transition["next"]["rewards"]),
-            "truncations": _as_uint8(transition["next"]["truncations"]),
-            "dones": _as_uint8(transition["next"]["dones"]),
-        }
+        flat_transition: dict[str, Any] = {}
+        _flatten_transition("", transition, flat_transition)
+
+        batch: dict[str, np.ndarray] = {}
+        for name, value in flat_transition.items():
+            h5_name = name
+            if h5_name.startswith("next_"):
+                if h5_name == "next_rewards":
+                    h5_name = "rewards"
+                elif h5_name == "next_truncations":
+                    h5_name = "truncations"
+                elif h5_name == "next_dones":
+                    h5_name = "dones"
+            batch[h5_name] = _convert_h5_field(h5_name, value)
 
         batch_size = batch["observations"].shape[0]
 
@@ -241,6 +297,7 @@ class H5TransitionWriter:
 
         self.n = end
         self.f.attrs["num_samples"] = self.n
+        # TODO(wonwoo): persist bad-tracking thresholds in HDF5 attrs once the saver receives config metadata.
 
         self.num_appends += 1
         if self.num_appends % self.flush_every == 0:
@@ -850,21 +907,21 @@ class FastSACAgent(BaseAlgo):
 
                     next_critic_obs = infos["observations"]["critic"]
 
-                    # Compute 'true' next_obs and next_critic_obs for saving
-                    true_next_obs = torch.where(
+                    # Keep online replay semantics unchanged: only timeout transitions use final observations.
+                    transition_online_next_obs = torch.where(
                         truncations[:, None] > 0, infos["observations"]["final"]["actor_obs"], next_obs
                     )
-                    true_next_critic_obs = torch.where(
+                    transition_online_next_critic_obs = torch.where(
                         truncations[:, None] > 0,
                         infos["observations"]["final"]["critic_obs"],
                         next_critic_obs,
                     )
-                    transition = TensorDict(
+                    transition_online = TensorDict(
                         {
                             "observations": obs,
                             "actions": torch.as_tensor(actions, device=device, dtype=torch.float),
                             "next": {
-                                "observations": true_next_obs,
+                                "observations": transition_online_next_obs,
                                 "rewards": torch.as_tensor(rewards, device=device, dtype=torch.float),
                                 "truncations": truncations.long(),
                                 "dones": dones.long(),
@@ -873,15 +930,87 @@ class FastSACAgent(BaseAlgo):
                         batch_size=(env.num_envs,),
                         device=device,
                     )
-                    transition["critic_observations"] = critic_obs
-                    transition["next"]["critic_observations"] = true_next_critic_obs
+                    transition_online["critic_observations"] = critic_obs
+                    transition_online["next"]["critic_observations"] = transition_online_next_critic_obs
+
+                    # wonwoo: offline export should always preserve the final pre-reset observation for any done env.
+                    done_mask = dones.bool()
+                    transition_to_save_next_obs = torch.where(
+                        done_mask[:, None],
+                        infos["observations"]["final"]["actor_obs"],
+                        next_obs,
+                    )
+                    transition_to_save_next_critic_obs = torch.where(
+                        done_mask[:, None],
+                        infos["observations"]["final"]["critic_obs"],
+                        next_critic_obs,
+                    )
+
+                    termination_reasons = infos.get("termination_reasons", {})
+                    tracking_metrics = infos.get("tracking_metrics", {})
+
+                    def _reason_tensor(name: str) -> torch.Tensor:
+                        value = termination_reasons.get(name)
+                        if isinstance(value, torch.Tensor):
+                            return value.to(device=device, dtype=torch.uint8)
+                        return torch.zeros(env.num_envs, device=device, dtype=torch.uint8)
+
+                    def _metric_tensor(name: str) -> torch.Tensor:
+                        value = tracking_metrics.get(name)
+                        if isinstance(value, torch.Tensor):
+                            return value.to(device=device, dtype=torch.float32)
+                        # TODO(wonwoo): wire the exact environment-side metric here if a task does not expose it yet.
+                        return torch.zeros(env.num_envs, device=device, dtype=torch.float32)
+
+                    episode_step = infos.get("episode_step")
+                    if isinstance(episode_step, torch.Tensor):
+                        episode_step_tensor = episode_step.to(device=device, dtype=torch.long)
+                    else:
+                        episode_step_tensor = torch.zeros(env.num_envs, device=device, dtype=torch.long)
+
+                    global_step_tensor = torch.full(
+                        (env.num_envs,),
+                        int(self.global_step),
+                        device=device,
+                        dtype=torch.long,
+                    )
+
+                    transition_to_save = TensorDict(
+                        {
+                            "observations": obs,
+                            "actions": torch.as_tensor(actions, device=device, dtype=torch.float),
+                            "critic_observations": critic_obs,
+                            "next": {
+                                "observations": transition_to_save_next_obs,
+                                "critic_observations": transition_to_save_next_critic_obs,
+                                "rewards": torch.as_tensor(rewards, device=device, dtype=torch.float),
+                                "truncations": truncations.to(torch.uint8),
+                                "dones": dones.to(torch.uint8),
+                                "done_bad_tracking": _reason_tensor("bad_tracking"),
+                                "done_motion_ends": _reason_tensor("motion_ends"),
+                                "done_timeout": _reason_tensor("timeout"),
+                                "episode_step": episode_step_tensor,
+                                "global_step": global_step_tensor,
+                                "err_root_pos": _metric_tensor("err_root_pos"),
+                                "err_root_ori": _metric_tensor("err_root_ori"),
+                                "err_body_pos_max": _metric_tensor("err_body_pos_max"),
+                                "err_body_pos_mean": _metric_tensor("err_body_pos_mean"),
+                                "err_object_pos": _metric_tensor("err_object_pos"),
+                                "err_object_ori": _metric_tensor("err_object_ori"),
+                            },
+                        },
+                        batch_size=(env.num_envs,),
+                        device=device,
+                    )
                     if save_h5:
-                        # data save 1 step 4 envs
-                        save_transition(transition[:4].clone())
+                        # wonwoo: keep the online replay untouched and only sample a random subset for offline export.
+                        num_to_save = min(12, env.num_envs)
+                        rand_idx = torch.randperm(env.num_envs, device=device)[:num_to_save]
+                        save_transition(transition_to_save[rand_idx].clone().cpu())
                     obs = next_obs
                     critic_obs = next_critic_obs
 
-                    rb.extend(transition)
+                    rb.extend(transition_online)
 
                 # NOTE: args.batch_size is the global batch size
                 batch_size = max(args.batch_size // env.num_envs // self.gpu_world_size, 1)

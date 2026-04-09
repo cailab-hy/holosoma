@@ -77,7 +77,7 @@ g1_29dof_wbt_fast_sac = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
         name="g1_29dof_wbt_fast_sac_manager",
-        num_envs=512 #8192,
+        num_envs=12 #8192,
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
     algo=replace(
@@ -147,12 +147,12 @@ g1_29dof_wbt_cql = ExperimentConfig(
         algo.cql,
         config=replace(
             algo.cql.config,
-            num_learning_iterations=100000,
+            num_learning_iterations=400000,
             gamma=0.99,  # For motion tracking, high gamma + high num_steps is better
             num_updates=2,
             target_entropy_ratio=0.5,
             tau=0.05,
-            cql_num_action_samples=20,
+            cql_num_action_samples=10,
             cql_temperature=1.0,
             cql_weight=0.05,
             use_tanh=True,
@@ -164,7 +164,8 @@ g1_29dof_wbt_cql = ExperimentConfig(
             curr_tail_top_frac=0.2,
             batch_size =1024,
             cql_target_action_gap =10,
-            policy_frequency = 2
+            policy_frequency = 2,
+            offline_dataset_path ="offline_data/fastsac_dataset_rand3.h5"
 
         ),
     ),

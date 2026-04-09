@@ -8,8 +8,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, Sequence
 
-import h5py
-import numpy as np
 import tqdm
 from loguru import logger
 
@@ -19,6 +17,12 @@ from holosoma.agents.cql.cql_utils import EmpiricalNormalization, save_params
 from holosoma.agents.modules.augmentation_utils import SymmetryUtils
 from holosoma.agents.modules.logging_utils import LoggingHelper
 from holosoma.config_types.algo import CQLConfig
+from holosoma.data.hdf5_offline_dataset import (
+    HDF5BlockReader,
+    RAMShuffleBuffer,
+    apply_observation_normalization,
+    batch_to_device,
+)
 from holosoma.envs.base_task.base_task import BaseTask
 from holosoma.utils.average_meters import TensorAverageMeterDict
 from holosoma.utils.inference_helpers import (
@@ -163,7 +167,8 @@ class CQLAgent(BaseAlgo):
         self._curr_tail_top_frac = config.curr_tail_top_frac
 
         self._offline_dataset_path = Path(config.offline_dataset_path)
-        self._offline_dataset_cache: dict[str, torch.Tensor] | None = None
+        self._offline_dataset_reader: HDF5BlockReader | None = None
+        self._offline_shuffle_buffer: RAMShuffleBuffer | None = None
         self._offline_num_samples = 0
         self._critic_update_step = 0
 
@@ -203,6 +208,20 @@ class CQLAgent(BaseAlgo):
             raise ValueError(f"alpha_init must be > 0, got {config.alpha_init}")
         if config.policy_frequency <= 0:
             raise ValueError(f"policy_frequency must be > 0, got {config.policy_frequency}")
+        if config.offline_block_size <= 0:
+            raise ValueError(f"offline_block_size must be > 0, got {config.offline_block_size}")
+        if config.offline_buffer_capacity <= 0:
+            raise ValueError(f"offline_buffer_capacity must be > 0, got {config.offline_buffer_capacity}")
+        if config.offline_block_size > config.offline_buffer_capacity:
+            raise ValueError(
+                "offline_block_size must be <= offline_buffer_capacity, "
+                f"got block_size={config.offline_block_size}, capacity={config.offline_buffer_capacity}"
+            )
+        if config.offline_refill_threshold < 0 or config.offline_refill_threshold >= config.offline_buffer_capacity:
+            raise ValueError(
+                "offline_refill_threshold must be in [0, offline_buffer_capacity), "
+                f"got threshold={config.offline_refill_threshold}, capacity={config.offline_buffer_capacity}"
+            )
 
     def setup(self) -> None:
         logger.info("Setting up scalar offline CQL")
@@ -246,6 +265,30 @@ class CQLAgent(BaseAlgo):
             }
             critic_obs_dim += obs_size
         self.critic_obs_dim = critic_obs_dim
+        self._offline_dataset_reader = HDF5BlockReader(
+            self._offline_dataset_path,
+            expected_observation_dim=self.actor_obs_dim,
+            expected_action_dim=self.env.robot_config.actions_dim,
+            expected_critic_observation_dim=self.critic_obs_dim,
+            pin_memory=False,
+        )
+        self._offline_num_samples = self._offline_dataset_reader.num_samples
+        self._offline_shuffle_buffer = RAMShuffleBuffer(
+            self._offline_dataset_reader,
+            block_size=args.offline_block_size,
+            capacity=args.offline_buffer_capacity,
+            refill_threshold=args.offline_refill_threshold,
+            pin_memory=args.offline_pin_memory and torch.cuda.is_available(),
+            shuffle_block_order=args.offline_shuffle_block_order,
+        )
+        estimated_buffer_gib = self._offline_shuffle_buffer.capacity_bytes / float(1024**3)
+        logger.info(
+            "Configured offline RAM shuffle buffer: "
+            f"block_size={args.offline_block_size}, "
+            f"capacity={args.offline_buffer_capacity}, "
+            f"refill_threshold={args.offline_refill_threshold}, "
+            f"estimated_ram={estimated_buffer_gib:.2f} GiB"
+        )
 
         self.scaler = GradScaler(enabled=args.amp)
 
@@ -760,204 +803,71 @@ class CQLAgent(BaseAlgo):
             torch.tensor(float(args.bc_weight), device=self.device).detach(),
         )
 
-    def _load_offline_dataset_cache(self) -> dict[str, torch.Tensor]:
-        if self._offline_dataset_cache is not None:
-            return self._offline_dataset_cache
-
-        if not self._offline_dataset_path.exists():
-            raise FileNotFoundError(
-                f"Offline dataset not found at '{self._offline_dataset_path}'. "
-                "Provide a valid offline dataset path in CQL config."
-            )
-
-        required_keys = (
-            "observations",
-            "actions",
-            "critic_observations",
-            "next_observations",
-            "next_critic_observations",
-            "rewards",
-            "truncations",
-            "dones",
-        )
-
-        with h5py.File(self._offline_dataset_path, "r") as offline_dataset_file:
-            missing_keys = [key for key in required_keys if key not in offline_dataset_file]
-            if missing_keys:
-                raise KeyError(f"Offline dataset is missing required keys: {missing_keys}")
-
-            self._offline_num_samples = int(
-                offline_dataset_file.attrs.get("num_samples", offline_dataset_file["observations"].shape[0])
-            )
-            if self._offline_num_samples <= 0:
-                raise ValueError("Offline dataset has no samples.")
-
-            def _load_tensor(key: str, dtype: torch.dtype) -> torch.Tensor:
-                array = np.asarray(offline_dataset_file[key][: self._offline_num_samples])
-                tensor = torch.from_numpy(array).to(dtype=dtype).contiguous()
-                if torch.cuda.is_available():
-                    try:
-                        tensor = tensor.pin_memory()
-                    except RuntimeError:
-                        pass
-                return tensor
-
-            def _load_feature_tensor(key: str, expected_dim: int) -> torch.Tensor:
-                tensor = _load_tensor(key, torch.float32)
-                if tensor.ndim != 2 or tensor.shape[1] != expected_dim:
-                    raise ValueError(
-                        f"Offline dataset key '{key}' has shape {tuple(tensor.shape)}, "
-                        f"expected [N, {expected_dim}]"
-                    )
-                return tensor
-
-            def _load_scalar_tensor(key: str, dtype: torch.dtype) -> torch.Tensor:
-                tensor = _load_tensor(key, dtype)
-                if tensor.ndim == 2 and tensor.shape[1] == 1:
-                    tensor = tensor.squeeze(1)
-                if tensor.ndim != 1:
-                    raise ValueError(
-                        f"Offline dataset key '{key}' has shape {tuple(tensor.shape)}, expected [N] or [N, 1]"
-                    )
-                return tensor
-
-            self._offline_dataset_cache = {
-                "observations": _load_feature_tensor("observations", self.actor_obs_dim),
-                "actions": _load_feature_tensor("actions", self.env.robot_config.actions_dim),
-                "critic_observations": _load_feature_tensor("critic_observations", self.critic_obs_dim),
-                "next_observations": _load_feature_tensor("next_observations", self.actor_obs_dim),
-                "next_critic_observations": _load_feature_tensor("next_critic_observations", self.critic_obs_dim),
-                "rewards": _load_scalar_tensor("rewards", torch.float32),
-                "truncations": _load_scalar_tensor("truncations", torch.int64),
-                "dones": _load_scalar_tensor("dones", torch.int64),
-            }
-
-        action_abs_max = self._offline_dataset_cache["actions"].abs().max(dim=0).values
-        action_scale = self.actor.action_scale.to(device=action_abs_max.device, dtype=action_abs_max.dtype)
-        over_scale_ratio = (action_abs_max / (action_scale + 1e-6)).max().item()
-        logger.info(
-            f"Offline action range check: max(|a|/action_scale)={over_scale_ratio:.3f} "
-            "(expected near <= 1 for tanh-scaled actions)"
-        )
-
-        logger.info(
-            f"Cached offline dataset '{self._offline_dataset_path}' in host memory "
-            f"({self._offline_num_samples} samples)."
-        )
-        return self._offline_dataset_cache
-
-    def offline_dataset_random_sampling(
+    def _sample_offline_batch(
         self,
         batch_size: int,
-        num_updates: int,
         normalize_obs,
         normalize_critic_obs,
-    ) -> list[TensorDict]:
-        offline_cache = self._load_offline_dataset_cache()
-        samples_per_update = batch_size
-        large_batch_size = samples_per_update * num_updates
-        replace = large_batch_size > self._offline_num_samples
-
-        if replace:
-            logger.warning(
-                f"Requested {large_batch_size} samples but dataset has {self._offline_num_samples}. "
-                "Sampling with replacement."
-            )
-
-        if replace:
-            indices = torch.randint(self._offline_num_samples, (large_batch_size,), device="cpu")
-        else:
-            indices = torch.randperm(self._offline_num_samples, device="cpu")[:large_batch_size]
-
-        def _sample_cached(name: str, dtype: torch.dtype) -> torch.Tensor:
-            return offline_cache[name].index_select(0, indices).to(device=self.device, dtype=dtype, non_blocking=True)
-
-        large_data = TensorDict(
-            {
-                "observations": _sample_cached("observations", torch.float32),
-                "actions": _sample_cached("actions", torch.float32),
-                "next": {
-                    "rewards": _sample_cached("rewards", torch.float32),
-                    "dones": _sample_cached("dones", torch.long),
-                    "truncations": _sample_cached("truncations", torch.long),
-                    "observations": _sample_cached("next_observations", torch.float32),
-                    "effective_n_steps": torch.ones(large_batch_size, device=self.device, dtype=torch.long),
-                },
-                "critic_observations": _sample_cached("critic_observations", torch.float32),
-            },
-            batch_size=large_batch_size,
-            device=self.device,
-        )
-        large_data["next"]["critic_observations"] = _sample_cached("next_critic_observations", torch.float32)
+    ) -> TensorDict:
+        if self._offline_shuffle_buffer is None:
+            raise RuntimeError("Offline shuffle buffer is not initialized. Call setup() before offline_learn().")
+        batch = self._offline_shuffle_buffer.sample(batch_size=batch_size)
+        batch = batch_to_device(batch, device=self.device, non_blocking=True)
 
         if self.config.use_symmetry:
-            samples_per_update *= 2
-
-            augmented_large_data: Dict[str, torch.Tensor | Dict[str, torch.Tensor]] = {"next": {}}
-            augmented_large_data["observations"] = self.symmetry_utils.augment_observations(
-                obs=large_data["observations"],
+            augmented_batch: Dict[str, torch.Tensor | Dict[str, torch.Tensor]] = {"next": {}}
+            augmented_batch["observations"] = self.symmetry_utils.augment_observations(
+                obs=batch["observations"],
                 env=self.env,
                 obs_list=self.config.actor_obs_keys,
             )
-            augmented_large_data["actions"] = self.symmetry_utils.augment_actions(actions=large_data["actions"])
-            assert isinstance(augmented_large_data["next"], dict)
-            augmented_large_data["next"]["observations"] = self.symmetry_utils.augment_observations(
-                obs=large_data["next"]["observations"],
+            augmented_batch["actions"] = self.symmetry_utils.augment_actions(actions=batch["actions"])
+            assert isinstance(augmented_batch["next"], dict)
+            augmented_batch["next"]["observations"] = self.symmetry_utils.augment_observations(
+                obs=batch["next"]["observations"],
                 env=self.env,
                 obs_list=self.config.actor_obs_keys,
             )
-            augmented_large_data["critic_observations"] = self.symmetry_utils.augment_observations(
-                obs=large_data["critic_observations"],
+            augmented_batch["critic_observations"] = self.symmetry_utils.augment_observations(
+                obs=batch["critic_observations"],
                 env=self.env,
                 obs_list=self.config.critic_obs_keys,
             )
-            augmented_large_data["next"]["critic_observations"] = self.symmetry_utils.augment_observations(
-                obs=large_data["next"]["critic_observations"],
+            augmented_batch["next"]["critic_observations"] = self.symmetry_utils.augment_observations(
+                obs=batch["next"]["critic_observations"],
                 env=self.env,
                 obs_list=self.config.critic_obs_keys,
             )
-
-            observations_tensor = augmented_large_data["observations"]
+            observations_tensor = augmented_batch["observations"]
             assert isinstance(observations_tensor, torch.Tensor)
-            num_aug = int(observations_tensor.shape[0] / large_data["next"]["rewards"].shape[0])
-            augmented_large_data["next"]["rewards"] = large_data["next"]["rewards"].repeat(num_aug)  # type: ignore[index]
-            augmented_large_data["next"]["dones"] = large_data["next"]["dones"].repeat(num_aug)  # type: ignore[index]
-            augmented_large_data["next"]["truncations"] = large_data["next"]["truncations"].repeat(num_aug)  # type: ignore[index]
-            augmented_large_data["next"]["effective_n_steps"] = large_data["next"]["effective_n_steps"].repeat(
+            num_aug = int(observations_tensor.shape[0] / batch["next"]["rewards"].shape[0])
+            augmented_batch["next"]["rewards"] = batch["next"]["rewards"].repeat(num_aug)  # type: ignore[index]
+            augmented_batch["next"]["dones"] = batch["next"]["dones"].repeat(num_aug)  # type: ignore[index]
+            augmented_batch["next"]["truncations"] = batch["next"]["truncations"].repeat(num_aug)  # type: ignore[index]
+            augmented_batch["next"]["effective_n_steps"] = batch["next"]["effective_n_steps"].repeat(
                 num_aug
             )  # type: ignore[index]
-            large_data = augmented_large_data
+            batch = augmented_batch
 
-        large_data["observations"] = normalize_obs(large_data["observations"])
-        large_data["next"]["observations"] = normalize_obs(large_data["next"]["observations"])
-        large_data["critic_observations"] = normalize_critic_obs(large_data["critic_observations"])
-        large_data["next"]["critic_observations"] = normalize_critic_obs(large_data["next"]["critic_observations"])
-
-        prepared_batches: list[TensorDict] = []
-        for i in range(num_updates):
-            start_idx = i * samples_per_update
-            end_idx = (i + 1) * samples_per_update
-
-            batch_data = TensorDict(
-                {
-                    "observations": large_data["observations"][start_idx:end_idx],
-                    "actions": large_data["actions"][start_idx:end_idx],
-                    "next": {
-                        "rewards": large_data["next"]["rewards"][start_idx:end_idx],
-                        "dones": large_data["next"]["dones"][start_idx:end_idx],
-                        "truncations": large_data["next"]["truncations"][start_idx:end_idx],
-                        "observations": large_data["next"]["observations"][start_idx:end_idx],
-                        "effective_n_steps": large_data["next"]["effective_n_steps"][start_idx:end_idx],
-                    },
-                    "critic_observations": large_data["critic_observations"][start_idx:end_idx],
+        batch = apply_observation_normalization(batch, normalize_obs, normalize_critic_obs)
+        effective_batch_size = int(batch["observations"].shape[0])
+        return TensorDict(
+            {
+                "observations": batch["observations"],
+                "actions": batch["actions"],
+                "critic_observations": batch["critic_observations"],
+                "next": {
+                    "observations": batch["next"]["observations"],
+                    "critic_observations": batch["next"]["critic_observations"],
+                    "rewards": batch["next"]["rewards"],
+                    "truncations": batch["next"]["truncations"].to(torch.long),
+                    "dones": batch["next"]["dones"].to(torch.long),
+                    "effective_n_steps": batch["next"]["effective_n_steps"],
                 },
-                batch_size=samples_per_update,
-                device=self.device,
-            )
-            batch_data["next"]["critic_observations"] = large_data["next"]["critic_observations"][start_idx:end_idx]
-            prepared_batches.append(batch_data)
-
-        return prepared_batches
+            },
+            batch_size=effective_batch_size,
+            device=self.device,
+        )
 
     def load(self, ckpt_path: str | None) -> None:
         if not ckpt_path:
@@ -1038,6 +948,11 @@ class CQLAgent(BaseAlgo):
         self.global_step = int(torch_checkpoint.get("global_step", 0))
         self._restore_env_state(torch_checkpoint.get("env_state"))
 
+    def __del__(self) -> None:
+        shuffle_buffer = getattr(self, "_offline_shuffle_buffer", None)
+        if shuffle_buffer is not None:
+            shuffle_buffer.close()
+
 
     def offline_learn(self, max_steps: int | None = None) -> None:
         args = self.config
@@ -1072,6 +987,10 @@ class CQLAgent(BaseAlgo):
         normalize_critic_obs = self.critic_obs_normalizer.forward
 
         pbar = tqdm.tqdm(total=max(target_step - self.global_step, 0), initial=0, leave=False)
+        logger.info(
+            f"Streaming offline dataset from '{self._offline_dataset_path}' "
+            f"with {self._offline_num_samples} samples."
+        )
         while self.global_step < target_step:
             self.global_step += 1
 
@@ -1080,13 +999,12 @@ class CQLAgent(BaseAlgo):
 
             batch_size = max(args.batch_size // self.gpu_world_size, 1)
             with self.logging_helper.record_learn_time():
-                offline_batches = self.offline_dataset_random_sampling(
-                    batch_size=batch_size,
-                    num_updates=args.num_updates,
-                    normalize_obs=normalize_obs,
-                    normalize_critic_obs=normalize_critic_obs,
-                )
-                for data in offline_batches:
+                for _ in range(args.num_updates):
+                    data = self._sample_offline_batch(
+                        batch_size=batch_size,
+                        normalize_obs=normalize_obs,
+                        normalize_critic_obs=normalize_critic_obs,
+                    )
                     (
                         reward_mean,
                         q_grad_norm,

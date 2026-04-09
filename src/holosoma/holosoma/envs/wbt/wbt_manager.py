@@ -8,6 +8,7 @@ from holosoma.envs.base_task.base_task import BaseTask
 
 # from holosoma.envs.legged_base_task.legged_robot_base import LeggedRobotBase
 from holosoma.utils.simulator_config import SimulatorType
+from holosoma.utils.rotations import quat_error_magnitude
 
 
 class WholeBodyTrackingManager(BaseTask):
@@ -77,6 +78,40 @@ class WholeBodyTrackingManager(BaseTask):
         motion_command = self.command_manager.get_state("motion_command")
         motion_command.update_metrics()
         self.log_dict.update(motion_command.metrics)
+
+    def _collect_tracking_metrics(self) -> dict[str, torch.Tensor]:
+        motion_command = self.command_manager.get_state("motion_command")
+        body_pos_error = torch.norm(
+            motion_command.body_pos_relative_w - motion_command.robot_body_pos_w,
+            dim=-1,
+        )
+
+        err_object_pos = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
+        err_object_ori = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
+        if motion_command.motion.has_object:
+            err_object_pos = torch.norm(
+                motion_command.object_pos_w - motion_command.simulator_object_pos_w,
+                dim=-1,
+            ).to(torch.float32)
+            err_object_ori = quat_error_magnitude(
+                motion_command.object_quat_w,
+                motion_command.simulator_object_quat_w,
+            ).to(torch.float32)
+
+        return {
+            "err_root_pos": torch.norm(
+                motion_command.ref_pos_w - motion_command.robot_ref_pos_w,
+                dim=-1,
+            ).to(torch.float32),
+            "err_root_ori": quat_error_magnitude(
+                motion_command.ref_quat_w,
+                motion_command.robot_ref_quat_w,
+            ).to(torch.float32),
+            "err_body_pos_max": body_pos_error.max(dim=-1).values.to(torch.float32),
+            "err_body_pos_mean": body_pos_error.mean(dim=-1).to(torch.float32),
+            "err_object_pos": err_object_pos,
+            "err_object_ori": err_object_ori,
+        }
 
     def reset_all(self):
         # If reset_all is called several times, clear buffer in motion_command
