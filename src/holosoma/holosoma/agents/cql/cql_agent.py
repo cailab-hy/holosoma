@@ -47,6 +47,21 @@ from holosoma.utils.safe_torch_import import (
 torch.set_float32_matmul_precision("high")
 
 
+RISK_NEXT_BATCH_KEYS: tuple[str, ...] = (
+    "done_bad_tracking",
+    "done_motion_ends",
+    "done_timeout",
+    "episode_step",
+    "global_step",
+    "err_root_pos",
+    "err_root_ori",
+    "err_body_pos_max",
+    "err_body_pos_mean",
+    "err_object_pos",
+    "err_object_ori",
+)
+
+
 class CQLEnv:
     def __init__(
         self,
@@ -130,6 +145,8 @@ class CQLAgent(BaseAlgo):
     actor: Actor
     qnet: DoubleQCritic
     qnet_target: DoubleQCritic
+    risk_qnet: DoubleQCritic | None
+    risk_qnet_target: DoubleQCritic | None
 
     def __init__(
         self,
@@ -171,6 +188,9 @@ class CQLAgent(BaseAlgo):
         self._offline_shuffle_buffer: RAMShuffleBuffer | None = None
         self._offline_num_samples = 0
         self._critic_update_step = 0
+        self.risk_qnet = None
+        self.risk_qnet_target = None
+        self.risk_q_optimizer: optim.Optimizer | None = None
 
         if config.cql_num_action_samples <= 0:
             raise ValueError(f"cql_num_action_samples must be > 0, got {config.cql_num_action_samples}")
@@ -222,6 +242,27 @@ class CQLAgent(BaseAlgo):
                 "offline_refill_threshold must be in [0, offline_buffer_capacity), "
                 f"got threshold={config.offline_refill_threshold}, capacity={config.offline_buffer_capacity}"
             )
+        if config.use_risk_aware_cql:
+            if config.risk_learning_rate <= 0.0:
+                raise ValueError(f"risk_learning_rate must be > 0, got {config.risk_learning_rate}")
+            if config.risk_lambda < 0.0:
+                raise ValueError(f"risk_lambda must be >= 0, got {config.risk_lambda}")
+            if config.risk_legacy_terminal_cost < 0.0:
+                raise ValueError(
+                    f"risk_legacy_terminal_cost must be >= 0, got {config.risk_legacy_terminal_cost}"
+                )
+            if config.risk_cost_beta < 0.0 or config.risk_cost_beta >= 1.0:
+                raise ValueError(f"risk_cost_beta must be in [0, 1), got {config.risk_cost_beta}")
+            thresholds = {
+                "risk_root_pos_threshold": config.risk_root_pos_threshold,
+                "risk_root_ori_threshold": config.risk_root_ori_threshold,
+                "risk_body_pos_threshold": config.risk_body_pos_threshold,
+                "risk_object_pos_threshold": config.risk_object_pos_threshold,
+                "risk_object_ori_threshold": config.risk_object_ori_threshold,
+            }
+            invalid_thresholds = {name: value for name, value in thresholds.items() if value <= 0.0}
+            if invalid_thresholds:
+                raise ValueError(f"Risk thresholds must be > 0: {invalid_thresholds}")
 
     def setup(self) -> None:
         logger.info("Setting up scalar offline CQL")
@@ -343,6 +384,27 @@ class CQLAgent(BaseAlgo):
         )
         self.qnet_target.load_state_dict(self.qnet.state_dict())
 
+        if args.use_risk_aware_cql:
+            # wonwoo: risk critic is intentionally separate from the task/reward critic.
+            # Reward CQL keeps its original semantics; risk Q predicts future failure/tracking cost.
+            self.risk_qnet = DoubleQCritic(
+                obs_indices=self.critic_obs_indices,
+                obs_keys=list(args.critic_obs_keys),
+                n_act=n_act,
+                hidden_dim=args.critic_hidden_dim,
+                use_layer_norm=args.use_layer_norm,
+                device=device,
+            )
+            self.risk_qnet_target = DoubleQCritic(
+                obs_indices=self.critic_obs_indices,
+                obs_keys=list(args.critic_obs_keys),
+                n_act=n_act,
+                hidden_dim=args.critic_hidden_dim,
+                use_layer_norm=args.use_layer_norm,
+                device=device,
+            )
+            self.risk_qnet_target.load_state_dict(self.risk_qnet.state_dict())
+
         self.log_alpha = torch.tensor([math.log(args.alpha_init)], requires_grad=True, device=device)
         self.target_entropy = -float(n_act) * float(args.target_entropy_ratio)
         self.log_cql_alpha: torch.Tensor | None = None
@@ -368,6 +430,14 @@ class CQLAgent(BaseAlgo):
             fused=True,
             betas=(0.9, 0.95),
         )
+        if self.risk_qnet is not None:
+            self.risk_q_optimizer = optim.AdamW(
+                self.risk_qnet.parameters(),
+                lr=args.risk_learning_rate,
+                weight_decay=args.weight_decay,
+                fused=True,
+                betas=(0.9, 0.95),
+            )
         self.alpha_optimizer = optim.AdamW(
             [self.log_alpha],
             lr=args.alpha_learning_rate,
@@ -406,10 +476,15 @@ class CQLAgent(BaseAlgo):
             torch.distributed.broadcast(param.data, src=0)
         for param in self.qnet.parameters():
             torch.distributed.broadcast(param.data, src=0)
+        if self.risk_qnet is not None:
+            for param in self.risk_qnet.parameters():
+                torch.distributed.broadcast(param.data, src=0)
         torch.distributed.broadcast(self.log_alpha.data, src=0)
         if self.config.use_lagrange and self.log_cql_alpha is not None:
             torch.distributed.broadcast(self.log_cql_alpha.data, src=0)
         self.qnet_target.load_state_dict(self.qnet.state_dict())
+        if self.risk_qnet is not None and self.risk_qnet_target is not None:
+            self.risk_qnet_target.load_state_dict(self.risk_qnet.state_dict())
         logger.info(f"Synchronized CQL model parameters across {self.gpu_world_size} GPUs")
 
     def _all_reduce_model_grads(self, model: nn.Module) -> None:
@@ -432,6 +507,15 @@ class CQLAgent(BaseAlgo):
         with torch.no_grad():
             src_ps = [p.data for p in self.qnet.parameters()]
             tgt_ps = [p.data for p in self.qnet_target.parameters()]
+            torch._foreach_mul_(tgt_ps, 1.0 - self.config.tau)
+            torch._foreach_add_(tgt_ps, src_ps, alpha=self.config.tau)
+
+    def _soft_update_risk_q_target(self) -> None:
+        if self.risk_qnet is None or self.risk_qnet_target is None:
+            return
+        with torch.no_grad():
+            src_ps = [p.data for p in self.risk_qnet.parameters()]
+            tgt_ps = [p.data for p in self.risk_qnet_target.parameters()]
             torch._foreach_mul_(tgt_ps, 1.0 - self.config.tau)
             torch._foreach_add_(tgt_ps, src_ps, alpha=self.config.tau)
 
@@ -751,10 +835,159 @@ class CQLAgent(BaseAlgo):
             cql_alpha_value = self.log_cql_alpha.exp().clamp(max=self.config.cql_lagrange_max)
         return cql_alpha_value.detach(), cql_alpha_loss.detach()
 
+    def _next_tensor(
+        self,
+        data: TensorDict,
+        key: str,
+        *,
+        dtype: torch.dtype,
+        default: float | int = 0,
+    ) -> torch.Tensor:
+        next_data = data["next"]
+        if key in next_data.keys():
+            return next_data[key].to(dtype=dtype).reshape(-1)
+        batch_size = int(data["observations"].shape[0])
+        return torch.full((batch_size,), default, device=self.device, dtype=dtype)
+
+    def _risk_margin(self, error: torch.Tensor, threshold: float) -> torch.Tensor:
+        args = self.config
+        threshold_tensor = torch.tensor(threshold, device=error.device, dtype=error.dtype)
+        denom = torch.clamp((1.0 - args.risk_cost_beta) * threshold_tensor, min=1e-6)
+        return torch.clamp((error - args.risk_cost_beta * threshold_tensor) / denom, min=0.0, max=1.0)
+
+    def _compute_dense_risk_cost(self, data: TensorDict) -> torch.Tensor:
+        args = self.config
+        rewards = data["next"]["rewards"]
+        cost = torch.zeros_like(rewards, dtype=torch.float32, device=self.device)
+
+        # wonwoo: old HDF5 files do not have continuous error keys. The loader provides zeros,
+        # so this naturally degrades to sparse bad_tracking cost only.
+        cost = cost + args.risk_root_pos_weight * self._risk_margin(
+            self._next_tensor(data, "err_root_pos", dtype=torch.float32),
+            args.risk_root_pos_threshold,
+        )
+        cost = cost + args.risk_root_ori_weight * self._risk_margin(
+            self._next_tensor(data, "err_root_ori", dtype=torch.float32),
+            args.risk_root_ori_threshold,
+        )
+        cost = cost + args.risk_body_pos_weight * self._risk_margin(
+            self._next_tensor(data, "err_body_pos_max", dtype=torch.float32),
+            args.risk_body_pos_threshold,
+        )
+        cost = cost + args.risk_object_pos_weight * self._risk_margin(
+            self._next_tensor(data, "err_object_pos", dtype=torch.float32),
+            args.risk_object_pos_threshold,
+        )
+        cost = cost + args.risk_object_ori_weight * self._risk_margin(
+            self._next_tensor(data, "err_object_ori", dtype=torch.float32),
+            args.risk_object_ori_threshold,
+        )
+
+        done_bad_tracking = self._next_tensor(data, "done_bad_tracking", dtype=torch.bool)
+        cost = cost + float(args.risk_bad_tracking_terminal_cost) * done_bad_tracking.float()
+        if args.risk_legacy_terminal_cost > 0.0:
+            # wonwoo: optional old-dataset fallback. Use carefully because old data cannot distinguish
+            # bad_tracking from motion_ends; default is 0 to avoid penalizing normal clip endings.
+            dones = data["next"]["dones"].bool()
+            truncations = data["next"]["truncations"].bool()
+            done_motion_ends = self._next_tensor(data, "done_motion_ends", dtype=torch.bool)
+            done_timeout = self._next_tensor(data, "done_timeout", dtype=torch.bool)
+            unknown_terminal = dones & ~truncations & ~done_bad_tracking & ~done_motion_ends & ~done_timeout
+            cost = cost + float(args.risk_legacy_terminal_cost) * unknown_terminal.float()
+        return cost
+
+    def _compute_risk_bootstrap(self, data: TensorDict) -> torch.Tensor:
+        dones = data["next"]["dones"].bool()
+        truncations = data["next"]["truncations"].bool()
+        done_bad_tracking = self._next_tensor(data, "done_bad_tracking", dtype=torch.bool)
+        done_motion_ends = self._next_tensor(data, "done_motion_ends", dtype=torch.bool)
+        done_timeout = self._next_tensor(data, "done_timeout", dtype=torch.bool)
+
+        # wonwoo: for risk, only bad_tracking is a failure boundary. Timeout bootstraps.
+        bootstrap = torch.ones_like(dones, dtype=torch.float32, device=self.device)
+        bootstrap = torch.where(done_bad_tracking, torch.zeros_like(bootstrap), bootstrap)
+        if not self.config.risk_motion_ends_bootstrap:
+            bootstrap = torch.where(done_motion_ends, torch.zeros_like(bootstrap), bootstrap)
+        bootstrap = torch.where(done_timeout | truncations, torch.ones_like(bootstrap), bootstrap)
+
+        generic_terminal = dones & ~truncations & ~done_bad_tracking & ~done_motion_ends
+        bootstrap = torch.where(generic_terminal, torch.zeros_like(bootstrap), bootstrap)
+        return bootstrap
+
+    def _update_risk_q(
+        self,
+        data: TensorDict,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        if self.risk_qnet is None or self.risk_qnet_target is None or self.risk_q_optimizer is None:
+            zero = torch.tensor(0.0, device=self.device)
+            return zero, zero, zero, zero, zero, zero, zero
+
+        args = self.config
+        scaler = self.scaler
+        with self._maybe_amp():
+            observations = data["observations"]
+            next_observations = data["next"]["observations"]
+            critic_observations = data["critic_observations"]
+            next_critic_observations = data["next"]["critic_observations"]
+            dataset_actions = data["actions"]
+
+            risk_cost = self._compute_dense_risk_cost(data)
+            bootstrap_risk = self._compute_risk_bootstrap(data)
+            with torch.no_grad():
+                next_actions, _ = self.actor.get_actions_and_log_probs(next_observations)
+                discount = args.gamma ** data["next"]["effective_n_steps"]
+                next_risk_q1, next_risk_q2 = self.risk_qnet_target(next_critic_observations, next_actions)
+                next_risk_q = torch.minimum(next_risk_q1, next_risk_q2)
+                risk_target = risk_cost + discount * bootstrap_risk * next_risk_q
+
+            risk_q1, risk_q2 = self.risk_qnet(critic_observations, dataset_actions)
+            risk_loss = F.mse_loss(risk_q1, risk_target) + F.mse_loss(risk_q2, risk_target)
+
+            with torch.no_grad():
+                policy_actions = self.actor(observations)[0]
+                risk_pi_q1, risk_pi_q2 = self.risk_qnet(critic_observations, policy_actions)
+                risk_policy_q = torch.minimum(risk_pi_q1, risk_pi_q2).mean()
+                risk_data_q = torch.minimum(risk_q1, risk_q2).mean()
+
+        self.risk_q_optimizer.zero_grad(set_to_none=True)
+        scaler.scale(risk_loss).backward()
+
+        if self.is_multi_gpu:
+            self._all_reduce_model_grads(self.risk_qnet)
+
+        scaler.unscale_(self.risk_q_optimizer)
+        if args.max_grad_norm > 0:
+            risk_q_grad_norm = torch.nn.utils.clip_grad_norm_(self.risk_qnet.parameters(), args.max_grad_norm)
+        else:
+            risk_q_grad_norm = torch.tensor(0.0, device=self.device)
+
+        scaler.step(self.risk_q_optimizer)
+        scaler.update()
+
+        return (
+            risk_loss.detach(),
+            risk_cost.mean().detach(),
+            risk_target.mean().detach(),
+            bootstrap_risk.mean().detach(),
+            risk_data_q.detach(),
+            risk_policy_q.detach(),
+            risk_q_grad_norm.detach(),
+        )
+
     def _update_actor(
         self,
         data: TensorDict,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+    ]:
         args = self.config
         scaler = self.scaler
 
@@ -772,11 +1005,17 @@ class CQLAgent(BaseAlgo):
             q1_pi, q2_pi = self.qnet(critic_observations, actions)
             qf_value = torch.minimum(q1_pi, q2_pi)
             actor_rl_loss = (self.log_alpha.exp().detach() * log_probs - qf_value).mean()
+            risk_actor_loss = torch.zeros((), device=self.device, dtype=actor_rl_loss.dtype)
+            risk_policy_q = torch.zeros((), device=self.device, dtype=actor_rl_loss.dtype)
+            if self.config.use_risk_aware_cql and self.risk_qnet is not None and float(args.risk_lambda) > 0.0:
+                risk_q1_pi, risk_q2_pi = self.risk_qnet(critic_observations, actions)
+                risk_policy_q = torch.minimum(risk_q1_pi, risk_q2_pi).mean()
+                risk_actor_loss = float(args.risk_lambda) * risk_policy_q
             if args.bc_weight > 0.0:
                 actor_bc_loss = F.mse_loss(actions, dataset_actions)
             else:
                 actor_bc_loss = torch.zeros((), device=self.device, dtype=actor_rl_loss.dtype)
-            actor_total_loss = actor_rl_loss + float(args.bc_weight) * actor_bc_loss
+            actor_total_loss = actor_rl_loss + float(args.bc_weight) * actor_bc_loss + risk_actor_loss
 
         self.actor_optimizer.zero_grad(set_to_none=True)
         scaler.scale(actor_total_loss).backward()
@@ -801,6 +1040,8 @@ class CQLAgent(BaseAlgo):
             policy_entropy.detach(),
             action_std.detach(),
             torch.tensor(float(args.bc_weight), device=self.device).detach(),
+            risk_actor_loss.detach(),
+            risk_policy_q.detach(),
         )
 
     def _sample_offline_batch(
@@ -847,23 +1088,33 @@ class CQLAgent(BaseAlgo):
             augmented_batch["next"]["effective_n_steps"] = batch["next"]["effective_n_steps"].repeat(
                 num_aug
             )  # type: ignore[index]
+            for key in RISK_NEXT_BATCH_KEYS:
+                if key in batch["next"]:
+                    augmented_batch["next"][key] = batch["next"][key].repeat(num_aug)  # type: ignore[index]
             batch = augmented_batch
 
         batch = apply_observation_normalization(batch, normalize_obs, normalize_critic_obs)
         effective_batch_size = int(batch["observations"].shape[0])
+        next_batch = {
+            "observations": batch["next"]["observations"],
+            "critic_observations": batch["next"]["critic_observations"],
+            "rewards": batch["next"]["rewards"],
+            "truncations": batch["next"]["truncations"].to(torch.long),
+            "dones": batch["next"]["dones"].to(torch.long),
+            "effective_n_steps": batch["next"]["effective_n_steps"],
+        }
+        for key in RISK_NEXT_BATCH_KEYS:
+            if key in batch["next"]:
+                value = batch["next"][key]
+                if key.startswith("done_"):
+                    value = value.to(torch.long)
+                next_batch[key] = value
         return TensorDict(
             {
                 "observations": batch["observations"],
                 "actions": batch["actions"],
                 "critic_observations": batch["critic_observations"],
-                "next": {
-                    "observations": batch["next"]["observations"],
-                    "critic_observations": batch["next"]["critic_observations"],
-                    "rewards": batch["next"]["rewards"],
-                    "truncations": batch["next"]["truncations"].to(torch.long),
-                    "dones": batch["next"]["dones"].to(torch.long),
-                    "effective_n_steps": batch["next"]["effective_n_steps"],
-                },
+                "next": next_batch,
             },
             batch_size=effective_batch_size,
             device=self.device,
@@ -928,6 +1179,18 @@ class CQLAgent(BaseAlgo):
             self.actor_optimizer.load_state_dict(torch_checkpoint["actor_optimizer_state_dict"])
         if "q_optimizer_state_dict" in torch_checkpoint:
             self.q_optimizer.load_state_dict(torch_checkpoint["q_optimizer_state_dict"])
+        if self.risk_qnet is not None:
+            if "risk_qnet_state_dict" in torch_checkpoint:
+                self.risk_qnet.load_state_dict(torch_checkpoint["risk_qnet_state_dict"])
+            else:
+                logger.warning("Risk-aware CQL enabled, but checkpoint has no risk_qnet_state_dict. Initializing fresh.")
+        if self.risk_qnet_target is not None:
+            if "risk_qnet_target_state_dict" in torch_checkpoint:
+                self.risk_qnet_target.load_state_dict(torch_checkpoint["risk_qnet_target_state_dict"])
+            elif self.risk_qnet is not None:
+                self.risk_qnet_target.load_state_dict(self.risk_qnet.state_dict())
+        if self.risk_q_optimizer is not None and "risk_q_optimizer_state_dict" in torch_checkpoint:
+            self.risk_q_optimizer.load_state_dict(torch_checkpoint["risk_q_optimizer_state_dict"])
         if "alpha_optimizer_state_dict" in torch_checkpoint:
             self.alpha_optimizer.load_state_dict(torch_checkpoint["alpha_optimizer_state_dict"])
         if (
@@ -971,11 +1234,15 @@ class CQLAgent(BaseAlgo):
             if not hasattr(self, "_compiled_update_q"):
                 self._compiled_update_q = torch.compile(self._update_q)
                 self._compiled_update_actor = torch.compile(self._update_actor)
+                if args.use_risk_aware_cql:
+                    self._compiled_update_risk_q = torch.compile(self._update_risk_q)
             update_q = self._compiled_update_q
             update_actor = self._compiled_update_actor
+            update_risk_q = getattr(self, "_compiled_update_risk_q", self._update_risk_q)
         else:
             update_q = self._update_q
             update_actor = self._update_actor
+            update_risk_q = self._update_risk_q
 
         if self.env.num_envs > 1 and self.is_main_process:
             logger.warning(
@@ -1030,6 +1297,24 @@ class CQLAgent(BaseAlgo):
                         curr_violation_rate,
                     ) = update_q(data)
                     cql_alpha_value, cql_lagrange_loss = self._update_cql_lagrange(cql_gap)
+                    if args.use_risk_aware_cql:
+                        (
+                            risk_q_loss,
+                            risk_cost_mean,
+                            risk_target_mean,
+                            risk_bootstrap_mean,
+                            risk_data_q,
+                            risk_policy_q,
+                            risk_q_grad_norm,
+                        ) = update_risk_q(data)
+                    else:
+                        risk_q_loss = torch.tensor(0.0, device=self.device)
+                        risk_cost_mean = torch.tensor(0.0, device=self.device)
+                        risk_target_mean = torch.tensor(0.0, device=self.device)
+                        risk_bootstrap_mean = torch.tensor(0.0, device=self.device)
+                        risk_data_q = torch.tensor(0.0, device=self.device)
+                        risk_policy_q = torch.tensor(0.0, device=self.device)
+                        risk_q_grad_norm = torch.tensor(0.0, device=self.device)
 
                     self._critic_update_step += 1
                     is_actor_warmup = self.global_step <= args.actor_warmup_steps
@@ -1045,6 +1330,8 @@ class CQLAgent(BaseAlgo):
                             policy_entropy,
                             action_std,
                             actor_bc_weight,
+                            risk_actor_loss,
+                            risk_actor_policy_q,
                         ) = update_actor(data)
                     else:
                         actor_grad_norm = torch.tensor(0.0, device=self.device)
@@ -1054,8 +1341,11 @@ class CQLAgent(BaseAlgo):
                         policy_entropy = torch.tensor(0.0, device=self.device)
                         action_std = torch.tensor(0.0, device=self.device)
                         actor_bc_weight = torch.tensor(float(args.bc_weight), device=self.device)
+                        risk_actor_loss = torch.tensor(0.0, device=self.device)
+                        risk_actor_policy_q = torch.tensor(0.0, device=self.device)
 
                     self._soft_update_q_target()
+                    self._soft_update_risk_q_target()
 
                     action_ood_stats = self._compute_action_ood_stats(data)
                     self.training_metrics.add(
@@ -1080,6 +1370,16 @@ class CQLAgent(BaseAlgo):
                             "actor_rl_loss": actor_rl_loss,
                             "actor_bc_loss": actor_bc_loss,
                             "actor_bc_weight": actor_bc_weight,
+                            "risk_q_loss": risk_q_loss,
+                            "risk_q_grad_norm": risk_q_grad_norm,
+                            "risk_cost_mean": risk_cost_mean,
+                            "risk_target_mean": risk_target_mean,
+                            "risk_bootstrap_mean": risk_bootstrap_mean,
+                            "risk_data_q": risk_data_q,
+                            "risk_policy_q": risk_policy_q,
+                            "risk_actor_loss": risk_actor_loss,
+                            "risk_actor_policy_q": risk_actor_policy_q,
+                            "risk_lambda": torch.tensor(float(args.risk_lambda), device=self.device),
                             "policy_entropy": policy_entropy,
                             "action_std": action_std,
                             "cql_conservative_loss": conservative_loss,
@@ -1149,6 +1449,9 @@ class CQLAgent(BaseAlgo):
             metadata=metadata,
             cql_log_alpha=self.log_cql_alpha if self.config.use_lagrange else None,
             cql_alpha_optimizer=self.cql_alpha_optimizer if self.config.use_lagrange else None,
+            risk_qnet=self.risk_qnet if self.config.use_risk_aware_cql else None,
+            risk_qnet_target=self.risk_qnet_target if self.config.use_risk_aware_cql else None,
+            risk_q_optimizer=self.risk_q_optimizer if self.config.use_risk_aware_cql else None,
         )
 
     @torch.no_grad()

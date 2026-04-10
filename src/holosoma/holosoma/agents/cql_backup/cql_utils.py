@@ -108,6 +108,8 @@ def save_params(
     save_fn=torch.save,
     metadata: dict[str, Any] | None = None,
     env_state: dict[str, torch.Tensor | float] | None = None,
+    cql_log_alpha: torch.Tensor | None = None,
+    cql_alpha_optimizer: torch.optim.Optimizer | None = None,
 ):
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     save_dict = {
@@ -130,6 +132,10 @@ def save_params(
     }
     if env_state:
         save_dict["env_state"] = env_state
+    if cql_log_alpha is not None:
+        save_dict["cql_log_alpha"] = cql_log_alpha.detach().cpu()
+    if cql_alpha_optimizer is not None:
+        save_dict["cql_alpha_optimizer_state_dict"] = cql_alpha_optimizer.state_dict()
     if metadata is None:
         raise ValueError("Checkpoint metadata is required when saving CQL parameters.")
     save_dict.update(metadata)

@@ -21,6 +21,20 @@ REQUIRED_HDF5_KEYS: tuple[str, ...] = (
     "dones",
 )
 
+OPTIONAL_HDF5_NEXT_KEYS: tuple[str, ...] = (
+    "next_done_bad_tracking",
+    "next_done_motion_ends",
+    "next_done_timeout",
+    "next_episode_step",
+    "next_global_step",
+    "next_err_root_pos",
+    "next_err_root_ori",
+    "next_err_body_pos_max",
+    "next_err_body_pos_mean",
+    "next_err_object_pos",
+    "next_err_object_ori",
+)
+
 
 @dataclass(frozen=True)
 class HDF5OfflineRLSpec:
@@ -231,7 +245,11 @@ class HDF5ReplayReader:
             self._file = h5py.File(self.path, "r", libver="latest", swmr=self.swmr)
         except (OSError, ValueError):
             self._file = h5py.File(self.path, "r")
-        self._datasets = {key: self._file[key] for key in REQUIRED_HDF5_KEYS}
+        self._datasets = {
+            key: self._file[key]
+            for key in (*REQUIRED_HDF5_KEYS, *OPTIONAL_HDF5_NEXT_KEYS)
+            if key in self._file
+        }
 
     @staticmethod
     def _validate_feature_dim(h5_file: h5py.File, key: str, expected_dim: int | None) -> int:
@@ -304,6 +322,19 @@ class HDF5ReplayReader:
         inverse_positions[sorted_positions] = np.arange(sorted_positions.size)
         return np.ascontiguousarray(sorted_rows[inverse_positions])
 
+    def _read_optional_rows(
+        self,
+        key: str,
+        indices: np.ndarray,
+        *,
+        dtype: np.dtype,
+        default_value: float | int = 0,
+    ) -> np.ndarray:
+        self._open_if_needed()
+        if key not in self._datasets:
+            return np.full(indices.shape[0], default_value, dtype=dtype)
+        return self._read_rows(key, indices).astype(dtype, copy=False).reshape(indices.shape[0])
+
     def read_batch(
         self,
         indices: Sequence[int] | np.ndarray | torch.Tensor,
@@ -324,6 +355,39 @@ class HDF5ReplayReader:
         rewards = torch.from_numpy(self._read_rows("rewards", row_indices)).to(torch.float32).reshape(batch_size)
         truncations = torch.from_numpy(self._read_rows("truncations", row_indices)).to(torch.bool).reshape(batch_size)
         dones = torch.from_numpy(self._read_rows("dones", row_indices)).to(torch.bool).reshape(batch_size)
+        done_bad_tracking = torch.from_numpy(
+            self._read_optional_rows("next_done_bad_tracking", row_indices, dtype=np.uint8)
+        ).to(torch.bool)
+        done_motion_ends = torch.from_numpy(
+            self._read_optional_rows("next_done_motion_ends", row_indices, dtype=np.uint8)
+        ).to(torch.bool)
+        done_timeout = torch.from_numpy(self._read_optional_rows("next_done_timeout", row_indices, dtype=np.uint8)).to(
+            torch.bool
+        )
+        episode_step = torch.from_numpy(self._read_optional_rows("next_episode_step", row_indices, dtype=np.int64)).to(
+            torch.long
+        )
+        global_step = torch.from_numpy(self._read_optional_rows("next_global_step", row_indices, dtype=np.int64)).to(
+            torch.long
+        )
+        err_root_pos = torch.from_numpy(
+            self._read_optional_rows("next_err_root_pos", row_indices, dtype=np.float32)
+        ).to(torch.float32)
+        err_root_ori = torch.from_numpy(
+            self._read_optional_rows("next_err_root_ori", row_indices, dtype=np.float32)
+        ).to(torch.float32)
+        err_body_pos_max = torch.from_numpy(
+            self._read_optional_rows("next_err_body_pos_max", row_indices, dtype=np.float32)
+        ).to(torch.float32)
+        err_body_pos_mean = torch.from_numpy(
+            self._read_optional_rows("next_err_body_pos_mean", row_indices, dtype=np.float32)
+        ).to(torch.float32)
+        err_object_pos = torch.from_numpy(
+            self._read_optional_rows("next_err_object_pos", row_indices, dtype=np.float32)
+        ).to(torch.float32)
+        err_object_ori = torch.from_numpy(
+            self._read_optional_rows("next_err_object_ori", row_indices, dtype=np.float32)
+        ).to(torch.float32)
 
         batch = {
             "observations": _pin_if_possible(observations.contiguous(), enabled=self.pin_memory),
@@ -339,6 +403,17 @@ class HDF5ReplayReader:
                     torch.ones(batch_size, dtype=torch.long),
                     enabled=self.pin_memory,
                 ),
+                "done_bad_tracking": _pin_if_possible(done_bad_tracking.contiguous(), enabled=self.pin_memory),
+                "done_motion_ends": _pin_if_possible(done_motion_ends.contiguous(), enabled=self.pin_memory),
+                "done_timeout": _pin_if_possible(done_timeout.contiguous(), enabled=self.pin_memory),
+                "episode_step": _pin_if_possible(episode_step.contiguous(), enabled=self.pin_memory),
+                "global_step": _pin_if_possible(global_step.contiguous(), enabled=self.pin_memory),
+                "err_root_pos": _pin_if_possible(err_root_pos.contiguous(), enabled=self.pin_memory),
+                "err_root_ori": _pin_if_possible(err_root_ori.contiguous(), enabled=self.pin_memory),
+                "err_body_pos_max": _pin_if_possible(err_body_pos_max.contiguous(), enabled=self.pin_memory),
+                "err_body_pos_mean": _pin_if_possible(err_body_pos_mean.contiguous(), enabled=self.pin_memory),
+                "err_object_pos": _pin_if_possible(err_object_pos.contiguous(), enabled=self.pin_memory),
+                "err_object_ori": _pin_if_possible(err_object_ori.contiguous(), enabled=self.pin_memory),
             },
         }
 
@@ -398,6 +473,11 @@ class HDF5BlockReader(HDF5ReplayReader):
         )
         dones = torch.from_numpy(np.asarray(self._datasets["dones"][start:end])).to(torch.bool).reshape(block_length)
 
+        def _optional_block(key: str, dtype: torch.dtype) -> torch.Tensor:
+            if key not in self._datasets:
+                return torch.zeros(block_length, dtype=dtype)
+            return torch.from_numpy(np.asarray(self._datasets[key][start:end])).to(dtype).reshape(block_length)
+
         block = {
             "observations": observations.contiguous(),
             "actions": actions.contiguous(),
@@ -409,6 +489,17 @@ class HDF5BlockReader(HDF5ReplayReader):
                 "truncations": truncations.contiguous(),
                 "dones": dones.contiguous(),
                 "effective_n_steps": torch.ones(block_length, dtype=torch.long),
+                "done_bad_tracking": _optional_block("next_done_bad_tracking", torch.bool).contiguous(),
+                "done_motion_ends": _optional_block("next_done_motion_ends", torch.bool).contiguous(),
+                "done_timeout": _optional_block("next_done_timeout", torch.bool).contiguous(),
+                "episode_step": _optional_block("next_episode_step", torch.long).contiguous(),
+                "global_step": _optional_block("next_global_step", torch.long).contiguous(),
+                "err_root_pos": _optional_block("next_err_root_pos", torch.float32).contiguous(),
+                "err_root_ori": _optional_block("next_err_root_ori", torch.float32).contiguous(),
+                "err_body_pos_max": _optional_block("next_err_body_pos_max", torch.float32).contiguous(),
+                "err_body_pos_mean": _optional_block("next_err_body_pos_mean", torch.float32).contiguous(),
+                "err_object_pos": _optional_block("next_err_object_pos", torch.float32).contiguous(),
+                "err_object_ori": _optional_block("next_err_object_ori", torch.float32).contiguous(),
             },
         }
         if device is not None:

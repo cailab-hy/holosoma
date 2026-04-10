@@ -110,6 +110,9 @@ def save_params(
     env_state: dict[str, torch.Tensor | float] | None = None,
     cql_log_alpha: torch.Tensor | None = None,
     cql_alpha_optimizer: torch.optim.Optimizer | None = None,
+    risk_qnet: nn.Module | None = None,
+    risk_qnet_target: nn.Module | None = None,
+    risk_q_optimizer: torch.optim.Optimizer | None = None,
 ):
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     save_dict = {
@@ -136,6 +139,12 @@ def save_params(
         save_dict["cql_log_alpha"] = cql_log_alpha.detach().cpu()
     if cql_alpha_optimizer is not None:
         save_dict["cql_alpha_optimizer_state_dict"] = cql_alpha_optimizer.state_dict()
+    if risk_qnet is not None:
+        save_dict["risk_qnet_state_dict"] = cpu_state(risk_qnet.state_dict())
+    if risk_qnet_target is not None:
+        save_dict["risk_qnet_target_state_dict"] = cpu_state(risk_qnet_target.state_dict())
+    if risk_q_optimizer is not None:
+        save_dict["risk_q_optimizer_state_dict"] = risk_q_optimizer.state_dict()
     if metadata is None:
         raise ValueError("Checkpoint metadata is required when saving CQL parameters.")
     save_dict.update(metadata)
