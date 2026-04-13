@@ -165,8 +165,19 @@ g1_29dof_wbt_cql = ExperimentConfig(
             batch_size =1024,
             cql_target_action_gap =10,
             policy_frequency = 2,
-            offline_dataset_path ="offline_data/fastsac_dataset_rand3.h5"
-
+            offline_dataset_path ="offline_data/fastsac_dataset_rand_CRI.h5",
+            use_risk_aware_cql= True,
+            risk_lambda=  0.02,
+            risk_learning_rate=3.0e-4,
+            risk_cost_beta= 0.7,
+            risk_bad_tracking_terminal_cost= 1.0,
+            risk_motion_ends_bootstrap= False,
+            risk_root_pos_weight= 1.0,
+            risk_root_ori_weight= 0.5,
+            risk_body_pos_weight= 1.0,
+            risk_object_pos_weight= 0.0,
+            risk_object_ori_weight= 0.0,
+            use_gpu_cache = True
         ),
     ),
     simulator=replace(
