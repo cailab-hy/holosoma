@@ -527,6 +527,9 @@ class CQLConfig:
     offline_shuffle_block_order: bool = True
     """shuffle the order of contiguous HDF5 blocks each pass while keeping each block read contiguous"""
 
+    use_gpu_cache: bool = False
+    """whether to load the full offline dataset into GPU memory and sample directly on-device"""
+
     encoder_obs_key: str = "perception_obs"
     """the key of the encoder observation. only valid if use_cnn_encoder is True"""
 

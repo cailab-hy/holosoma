@@ -18,6 +18,7 @@ from holosoma.agents.modules.augmentation_utils import SymmetryUtils
 from holosoma.agents.modules.logging_utils import LoggingHelper
 from holosoma.config_types.algo import CQLConfig
 from holosoma.data.hdf5_offline_dataset import (
+    GPUTransitionCache,
     HDF5BlockReader,
     RAMShuffleBuffer,
     apply_observation_normalization,
@@ -186,6 +187,7 @@ class CQLAgent(BaseAlgo):
         self._offline_dataset_path = Path(config.offline_dataset_path)
         self._offline_dataset_reader: HDF5BlockReader | None = None
         self._offline_shuffle_buffer: RAMShuffleBuffer | None = None
+        self._offline_gpu_cache: GPUTransitionCache | None = None
         self._offline_num_samples = 0
         self._critic_update_step = 0
         self.risk_qnet = None
@@ -228,20 +230,21 @@ class CQLAgent(BaseAlgo):
             raise ValueError(f"alpha_init must be > 0, got {config.alpha_init}")
         if config.policy_frequency <= 0:
             raise ValueError(f"policy_frequency must be > 0, got {config.policy_frequency}")
-        if config.offline_block_size <= 0:
-            raise ValueError(f"offline_block_size must be > 0, got {config.offline_block_size}")
-        if config.offline_buffer_capacity <= 0:
-            raise ValueError(f"offline_buffer_capacity must be > 0, got {config.offline_buffer_capacity}")
-        if config.offline_block_size > config.offline_buffer_capacity:
-            raise ValueError(
-                "offline_block_size must be <= offline_buffer_capacity, "
-                f"got block_size={config.offline_block_size}, capacity={config.offline_buffer_capacity}"
-            )
-        if config.offline_refill_threshold < 0 or config.offline_refill_threshold >= config.offline_buffer_capacity:
-            raise ValueError(
-                "offline_refill_threshold must be in [0, offline_buffer_capacity), "
-                f"got threshold={config.offline_refill_threshold}, capacity={config.offline_buffer_capacity}"
-            )
+        if not config.use_gpu_cache:
+            if config.offline_block_size <= 0:
+                raise ValueError(f"offline_block_size must be > 0, got {config.offline_block_size}")
+            if config.offline_buffer_capacity <= 0:
+                raise ValueError(f"offline_buffer_capacity must be > 0, got {config.offline_buffer_capacity}")
+            if config.offline_block_size > config.offline_buffer_capacity:
+                raise ValueError(
+                    "offline_block_size must be <= offline_buffer_capacity, "
+                    f"got block_size={config.offline_block_size}, capacity={config.offline_buffer_capacity}"
+                )
+            if config.offline_refill_threshold < 0 or config.offline_refill_threshold >= config.offline_buffer_capacity:
+                raise ValueError(
+                    "offline_refill_threshold must be in [0, offline_buffer_capacity), "
+                    f"got threshold={config.offline_refill_threshold}, capacity={config.offline_buffer_capacity}"
+                )
         if config.use_risk_aware_cql:
             if config.risk_learning_rate <= 0.0:
                 raise ValueError(f"risk_learning_rate must be > 0, got {config.risk_learning_rate}")
@@ -306,30 +309,52 @@ class CQLAgent(BaseAlgo):
             }
             critic_obs_dim += obs_size
         self.critic_obs_dim = critic_obs_dim
-        self._offline_dataset_reader = HDF5BlockReader(
-            self._offline_dataset_path,
-            expected_observation_dim=self.actor_obs_dim,
-            expected_action_dim=self.env.robot_config.actions_dim,
-            expected_critic_observation_dim=self.critic_obs_dim,
-            pin_memory=False,
-        )
-        self._offline_num_samples = self._offline_dataset_reader.num_samples
-        self._offline_shuffle_buffer = RAMShuffleBuffer(
-            self._offline_dataset_reader,
-            block_size=args.offline_block_size,
-            capacity=args.offline_buffer_capacity,
-            refill_threshold=args.offline_refill_threshold,
-            pin_memory=args.offline_pin_memory and torch.cuda.is_available(),
-            shuffle_block_order=args.offline_shuffle_block_order,
-        )
-        estimated_buffer_gib = self._offline_shuffle_buffer.capacity_bytes / float(1024**3)
-        logger.info(
-            "Configured offline RAM shuffle buffer: "
-            f"block_size={args.offline_block_size}, "
-            f"capacity={args.offline_buffer_capacity}, "
-            f"refill_threshold={args.offline_refill_threshold}, "
-            f"estimated_ram={estimated_buffer_gib:.2f} GiB"
-        )
+        logger.info(f"Offline dataset sampling backend: use_gpu_cache={args.use_gpu_cache}")
+        if args.use_gpu_cache:
+            if not torch.cuda.is_available():
+                raise RuntimeError("use_gpu_cache=True requires CUDA, but no CUDA device is available.")
+            self._offline_dataset_reader = None
+            self._offline_shuffle_buffer = None
+            self._offline_gpu_cache = GPUTransitionCache(
+                self._offline_dataset_path,
+                device=self.device,
+                expected_observation_dim=self.actor_obs_dim,
+                expected_action_dim=self.env.robot_config.actions_dim,
+                expected_critic_observation_dim=self.critic_obs_dim,
+            )
+            self._offline_num_samples = self._offline_gpu_cache.num_samples
+            estimated_vram_gib = self._offline_gpu_cache.total_bytes / float(1024**3)
+            logger.info(
+                f"Configured offline GPU transition cache with {self._offline_num_samples} samples."
+            )
+            logger.info(f"Offline GPU cache keys: {list(self._offline_gpu_cache.key_names)}")
+            logger.info(f"Estimated offline GPU cache VRAM footprint: {estimated_vram_gib:.2f} GiB")
+        else:
+            self._offline_gpu_cache = None
+            self._offline_dataset_reader = HDF5BlockReader(
+                self._offline_dataset_path,
+                expected_observation_dim=self.actor_obs_dim,
+                expected_action_dim=self.env.robot_config.actions_dim,
+                expected_critic_observation_dim=self.critic_obs_dim,
+                pin_memory=False,
+            )
+            self._offline_num_samples = self._offline_dataset_reader.num_samples
+            self._offline_shuffle_buffer = RAMShuffleBuffer(
+                self._offline_dataset_reader,
+                block_size=args.offline_block_size,
+                capacity=args.offline_buffer_capacity,
+                refill_threshold=args.offline_refill_threshold,
+                pin_memory=args.offline_pin_memory and torch.cuda.is_available(),
+                shuffle_block_order=args.offline_shuffle_block_order,
+            )
+            estimated_buffer_gib = self._offline_shuffle_buffer.capacity_bytes / float(1024**3)
+            logger.info(
+                "Configured offline RAM shuffle buffer: "
+                f"block_size={args.offline_block_size}, "
+                f"capacity={args.offline_buffer_capacity}, "
+                f"refill_threshold={args.offline_refill_threshold}, "
+                f"estimated_ram={estimated_buffer_gib:.2f} GiB"
+            )
 
         self.scaler = GradScaler(enabled=args.amp)
 
@@ -1050,10 +1075,13 @@ class CQLAgent(BaseAlgo):
         normalize_obs,
         normalize_critic_obs,
     ) -> TensorDict:
-        if self._offline_shuffle_buffer is None:
-            raise RuntimeError("Offline shuffle buffer is not initialized. Call setup() before offline_learn().")
-        batch = self._offline_shuffle_buffer.sample(batch_size=batch_size)
-        batch = batch_to_device(batch, device=self.device, non_blocking=True)
+        if self._offline_gpu_cache is not None:
+            batch = self._offline_gpu_cache.sample(batch_size=batch_size)
+        else:
+            if self._offline_shuffle_buffer is None:
+                raise RuntimeError("Offline shuffle buffer is not initialized. Call setup() before offline_learn().")
+            batch = self._offline_shuffle_buffer.sample(batch_size=batch_size)
+            batch = batch_to_device(batch, device=self.device, non_blocking=True)
 
         if self.config.use_symmetry:
             augmented_batch: Dict[str, torch.Tensor | Dict[str, torch.Tensor]] = {"next": {}}
@@ -1215,6 +1243,9 @@ class CQLAgent(BaseAlgo):
         shuffle_buffer = getattr(self, "_offline_shuffle_buffer", None)
         if shuffle_buffer is not None:
             shuffle_buffer.close()
+        offline_gpu_cache = getattr(self, "_offline_gpu_cache", None)
+        if offline_gpu_cache is not None:
+            offline_gpu_cache.close()
 
 
     def offline_learn(self, max_steps: int | None = None) -> None:
@@ -1254,10 +1285,16 @@ class CQLAgent(BaseAlgo):
         normalize_critic_obs = self.critic_obs_normalizer.forward
 
         pbar = tqdm.tqdm(total=max(target_step - self.global_step, 0), initial=0, leave=False)
-        logger.info(
-            f"Streaming offline dataset from '{self._offline_dataset_path}' "
-            f"with {self._offline_num_samples} samples."
-        )
+        if self._offline_gpu_cache is not None:
+            logger.info(
+                f"Sampling offline dataset from GPU cache loaded from '{self._offline_dataset_path}' "
+                f"with {self._offline_num_samples} samples."
+            )
+        else:
+            logger.info(
+                f"Streaming offline dataset from '{self._offline_dataset_path}' "
+                f"with {self._offline_num_samples} samples."
+            )
         while self.global_step < target_step:
             self.global_step += 1
 

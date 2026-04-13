@@ -698,6 +698,236 @@ class RAMShuffleBuffer:
         return _index_nested_batch(self._storage, sample_indices, pin_memory=self.pin_memory)
 
 
+class GPUTransitionCache:
+    """Load full offline transitions into GPU memory and sample directly on-device."""
+
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        device: torch.device | str,
+        expected_observation_dim: int | None = None,
+        expected_action_dim: int | None = None,
+        expected_critic_observation_dim: int | None = None,
+    ) -> None:
+        self.path = Path(path)
+        self.device = torch.device(device)
+        self.expected_observation_dim = expected_observation_dim
+        self.expected_action_dim = expected_action_dim
+        self.expected_critic_observation_dim = expected_critic_observation_dim
+
+        self._storage: dict[str, Any] | None = None
+        self._num_samples = 0
+        self._key_names: tuple[str, ...] = ()
+        self._total_bytes = 0
+
+        self._load_all()
+
+    @property
+    def num_samples(self) -> int:
+        return self._num_samples
+
+    @property
+    def key_names(self) -> tuple[str, ...]:
+        return self._key_names
+
+    @property
+    def total_bytes(self) -> int:
+        return self._total_bytes
+
+    def _load_all(self) -> None:
+        if self.device.type != "cuda":
+            raise ValueError(
+                f"GPUTransitionCache requires a CUDA device, got device={self.device}."
+            )
+        if not self.path.exists():
+            raise FileNotFoundError(f"HDF5 dataset not found: {self.path}")
+
+        with h5py.File(self.path, "r") as h5_file:
+            missing_keys = [key for key in REQUIRED_HDF5_KEYS if key not in h5_file]
+            if missing_keys:
+                raise KeyError(f"HDF5 dataset is missing required keys: {missing_keys}")
+
+            self._num_samples = int(h5_file.attrs.get("num_samples", h5_file["observations"].shape[0]))
+            if self._num_samples <= 0:
+                raise ValueError(f"HDF5 dataset '{self.path}' has no samples.")
+
+            first_dims = {key: int(h5_file[key].shape[0]) for key in REQUIRED_HDF5_KEYS}
+            inconsistent = {key: dim for key, dim in first_dims.items() if dim < self._num_samples}
+            if inconsistent:
+                raise ValueError(
+                    f"Some datasets are shorter than num_samples={self._num_samples}: {inconsistent}"
+                )
+
+            observation_dim = HDF5ReplayReader._validate_feature_dim(
+                h5_file,
+                "observations",
+                self.expected_observation_dim,
+            )
+            action_dim = HDF5ReplayReader._validate_feature_dim(
+                h5_file,
+                "actions",
+                self.expected_action_dim,
+            )
+            critic_observation_dim = HDF5ReplayReader._validate_feature_dim(
+                h5_file,
+                "critic_observations",
+                self.expected_critic_observation_dim,
+            )
+            HDF5ReplayReader._validate_feature_dim(h5_file, "next_observations", observation_dim)
+            HDF5ReplayReader._validate_feature_dim(h5_file, "next_critic_observations", critic_observation_dim)
+            HDF5ReplayReader._validate_scalar_dim(h5_file, "rewards")
+            HDF5ReplayReader._validate_scalar_dim(h5_file, "truncations")
+            HDF5ReplayReader._validate_scalar_dim(h5_file, "dones")
+
+            def _to_device_tensor(array: np.ndarray, dtype: torch.dtype) -> torch.Tensor:
+                tensor = torch.from_numpy(np.ascontiguousarray(array))
+                return tensor.to(device=self.device, dtype=dtype, non_blocking=False).contiguous()
+
+            def _load_feature_tensor(key: str, expected_dim: int, dtype: torch.dtype = torch.float32) -> torch.Tensor:
+                array = np.asarray(h5_file[key][: self._num_samples])
+                if array.ndim != 2 or int(array.shape[1]) != expected_dim:
+                    raise ValueError(
+                        f"HDF5 key '{key}' has shape {array.shape}, expected [N, {expected_dim}]"
+                    )
+                return _to_device_tensor(array, dtype=dtype)
+
+            def _load_scalar_tensor(
+                key: str,
+                dtype: torch.dtype,
+                *,
+                default_value: float | int = 0,
+                optional: bool = False,
+            ) -> torch.Tensor:
+                if optional and key not in h5_file:
+                    return torch.full(
+                        (self._num_samples,),
+                        default_value,
+                        device=self.device,
+                        dtype=dtype,
+                    )
+                array = np.asarray(h5_file[key][: self._num_samples])
+                if array.ndim == 2 and int(array.shape[1]) == 1:
+                    array = array[:, 0]
+                if array.ndim != 1:
+                    raise ValueError(
+                        f"HDF5 key '{key}' has shape {array.shape}, expected [N] or [N, 1]"
+                    )
+                return _to_device_tensor(array, dtype=dtype).reshape(self._num_samples)
+
+            self._storage = {
+                "observations": _load_feature_tensor("observations", observation_dim, torch.float32),
+                "actions": _load_feature_tensor("actions", action_dim, torch.float32),
+                "critic_observations": _load_feature_tensor("critic_observations", critic_observation_dim, torch.float32),
+                "next": {
+                    "observations": _load_feature_tensor("next_observations", observation_dim, torch.float32),
+                    "critic_observations": _load_feature_tensor(
+                        "next_critic_observations",
+                        critic_observation_dim,
+                        torch.float32,
+                    ),
+                    "rewards": _load_scalar_tensor("rewards", torch.float32),
+                    "truncations": _load_scalar_tensor("truncations", torch.bool),
+                    "dones": _load_scalar_tensor("dones", torch.bool),
+                    "effective_n_steps": torch.ones(self._num_samples, dtype=torch.long, device=self.device),
+                    "done_bad_tracking": _load_scalar_tensor(
+                        "next_done_bad_tracking",
+                        torch.bool,
+                        optional=True,
+                    ),
+                    "done_motion_ends": _load_scalar_tensor(
+                        "next_done_motion_ends",
+                        torch.bool,
+                        optional=True,
+                    ),
+                    "done_timeout": _load_scalar_tensor(
+                        "next_done_timeout",
+                        torch.bool,
+                        optional=True,
+                    ),
+                    "episode_step": _load_scalar_tensor(
+                        "next_episode_step",
+                        torch.long,
+                        optional=True,
+                    ),
+                    "global_step": _load_scalar_tensor(
+                        "next_global_step",
+                        torch.long,
+                        optional=True,
+                    ),
+                    "err_root_pos": _load_scalar_tensor(
+                        "next_err_root_pos",
+                        torch.float32,
+                        optional=True,
+                    ),
+                    "err_root_ori": _load_scalar_tensor(
+                        "next_err_root_ori",
+                        torch.float32,
+                        optional=True,
+                    ),
+                    "err_body_pos_max": _load_scalar_tensor(
+                        "next_err_body_pos_max",
+                        torch.float32,
+                        optional=True,
+                    ),
+                    "err_body_pos_mean": _load_scalar_tensor(
+                        "next_err_body_pos_mean",
+                        torch.float32,
+                        optional=True,
+                    ),
+                    "err_object_pos": _load_scalar_tensor(
+                        "next_err_object_pos",
+                        torch.float32,
+                        optional=True,
+                    ),
+                    "err_object_ori": _load_scalar_tensor(
+                        "next_err_object_ori",
+                        torch.float32,
+                        optional=True,
+                    ),
+                },
+            }
+
+        assert self._storage is not None
+        self._key_names = tuple(self._flatten_tensor_keys(self._storage))
+        self._total_bytes = self._compute_total_bytes(self._storage)
+
+    def _flatten_tensor_keys(self, batch: dict[str, Any], prefix: str = "") -> list[str]:
+        names: list[str] = []
+        for key, value in batch.items():
+            name = f"{prefix}.{key}" if prefix else key
+            if isinstance(value, dict):
+                names.extend(self._flatten_tensor_keys(value, prefix=name))
+            elif isinstance(value, torch.Tensor):
+                names.append(name)
+        return names
+
+    def _compute_total_bytes(self, batch: dict[str, Any]) -> int:
+        total = 0
+        for value in batch.values():
+            if isinstance(value, dict):
+                total += self._compute_total_bytes(value)
+            elif isinstance(value, torch.Tensor):
+                total += value.numel() * value.element_size()
+        return total
+
+    def sample(self, batch_size: int) -> dict[str, Any]:
+        if batch_size <= 0:
+            raise ValueError(f"batch_size must be positive, got {batch_size}")
+        if self._storage is None:
+            raise RuntimeError("GPUTransitionCache storage is empty.")
+        sample_indices = torch.randint(self._num_samples, (batch_size,), device=self.device)
+        return _index_nested_batch(self._storage, sample_indices, pin_memory=False)
+
+    def close(self) -> None:
+        self._storage = None
+        if self.device.type == "cuda":
+            torch.cuda.empty_cache()
+
+    def __del__(self) -> None:
+        self.close()
+
+
 class HDF5TransitionDataset(Dataset[dict[str, Any]]):
     """Map-style dataset for random single-transition access."""
 
