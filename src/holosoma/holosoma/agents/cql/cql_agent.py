@@ -412,7 +412,7 @@ class CQLAgent(BaseAlgo):
         if args.use_risk_aware_cql:
             # wonwoo: risk critic is intentionally separate from the task/reward critic.
             # Reward CQL keeps its original semantics; risk Q predicts future failure/tracking cost.
-            self.risk_qnet = DoubleQCritic_Risk(
+            self.risk_qnet = DoubleQCritic(
                 obs_indices=self.critic_obs_indices,
                 obs_keys=list(args.critic_obs_keys),
                 n_act=n_act,
@@ -420,7 +420,7 @@ class CQLAgent(BaseAlgo):
                 use_layer_norm=args.use_layer_norm,
                 device=device,
             )
-            self.risk_qnet_target = DoubleQCritic_Risk(
+            self.risk_qnet_target = DoubleQCritic(
                 obs_indices=self.critic_obs_indices,
                 obs_keys=list(args.critic_obs_keys),
                 n_act=n_act,
