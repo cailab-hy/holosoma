@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import torch
 from torch import nn
-
+import torch.nn.functional as F
 
 class Actor(nn.Module):
     def __init__(
@@ -259,7 +259,81 @@ class QNetwork(nn.Module):
     def forward(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
         x = torch.cat([self._process_obs(obs), actions], dim=1)
         return self.net(x).squeeze(-1)
+    
+class QNetwork_Risk(nn.Module):
+    def __init__(
+        self,
+        obs_indices: dict[str, dict[str, int]],
+        obs_keys: list[str],
+        n_act: int,
+        hidden_dim: int,
+        use_layer_norm: bool = True,
+        device: torch.device | str | None = None,
+    ):
+        super().__init__()
+        self.obs_indices = obs_indices
+        self.obs_keys = obs_keys
+        self.n_act = n_act
+        self.device = device
 
+        n_obs = sum(self.obs_indices[obs_key]["size"] for obs_key in self.obs_keys)
+        self.net = nn.Sequential(
+            nn.Linear(n_obs + n_act, hidden_dim, device=device),
+            nn.LayerNorm(hidden_dim, device=device) if use_layer_norm else nn.Identity(),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, hidden_dim // 2, device=device),
+            nn.LayerNorm(hidden_dim // 2, device=device) if use_layer_norm else nn.Identity(),
+            nn.SiLU(),
+            nn.Linear(hidden_dim // 2, hidden_dim // 4, device=device),
+            nn.LayerNorm(hidden_dim // 4, device=device) if use_layer_norm else nn.Identity(),
+            nn.SiLU(),
+            nn.Linear(hidden_dim // 4, 1, device=device),
+        )
+
+    def _process_obs(self, obs: torch.Tensor) -> torch.Tensor:
+        return torch.cat(
+            [
+                obs[..., self.obs_indices[obs_key]["start"] : self.obs_indices[obs_key]["end"]]
+                for obs_key in self.obs_keys
+            ],
+            -1,
+        )
+
+    def forward(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        x = torch.cat([self._process_obs(obs), actions], dim=1)
+        return F.softplus(self.net(x).squeeze(-1))
+
+
+class DoubleQCritic_Risk(nn.Module):
+    def __init__(
+        self,
+        obs_indices: dict[str, dict[str, int]],
+        obs_keys: list[str],
+        n_act: int,
+        hidden_dim: int,
+        use_layer_norm: bool = True,
+        device: torch.device | str | None = None,
+    ):
+        super().__init__()
+        self.q1 = QNetwork_Risk(
+            obs_indices=obs_indices,
+            obs_keys=obs_keys,
+            n_act=n_act,
+            hidden_dim=hidden_dim,
+            use_layer_norm=use_layer_norm,
+            device=device,
+        )
+        self.q2 = QNetwork_Risk(
+            obs_indices=obs_indices,
+            obs_keys=obs_keys,
+            n_act=n_act,
+            hidden_dim=hidden_dim,
+            use_layer_norm=use_layer_norm,
+            device=device,
+        )
+
+    def forward(self, obs: torch.Tensor, actions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.q1(obs, actions), self.q2(obs, actions)
 
 class DoubleQCritic(nn.Module):
     def __init__(

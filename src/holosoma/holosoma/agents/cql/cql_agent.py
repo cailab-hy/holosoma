@@ -12,7 +12,7 @@ import tqdm
 from loguru import logger
 
 from holosoma.agents.base_algo.base_algo import BaseAlgo
-from holosoma.agents.cql.cql import Actor, CNNActor, DoubleQCritic
+from holosoma.agents.cql.cql import Actor, CNNActor, DoubleQCritic, DoubleQCritic_Risk
 from holosoma.agents.cql.cql_utils import EmpiricalNormalization, save_params
 from holosoma.agents.modules.augmentation_utils import SymmetryUtils
 from holosoma.agents.modules.logging_utils import LoggingHelper
@@ -412,7 +412,7 @@ class CQLAgent(BaseAlgo):
         if args.use_risk_aware_cql:
             # wonwoo: risk critic is intentionally separate from the task/reward critic.
             # Reward CQL keeps its original semantics; risk Q predicts future failure/tracking cost.
-            self.risk_qnet = DoubleQCritic(
+            self.risk_qnet = DoubleQCritic_Risk(
                 obs_indices=self.critic_obs_indices,
                 obs_keys=list(args.critic_obs_keys),
                 n_act=n_act,
@@ -420,7 +420,7 @@ class CQLAgent(BaseAlgo):
                 use_layer_norm=args.use_layer_norm,
                 device=device,
             )
-            self.risk_qnet_target = DoubleQCritic(
+            self.risk_qnet_target = DoubleQCritic_Risk(
                 obs_indices=self.critic_obs_indices,
                 obs_keys=list(args.critic_obs_keys),
                 n_act=n_act,
@@ -1035,6 +1035,7 @@ class CQLAgent(BaseAlgo):
             if self.config.use_risk_aware_cql and self.risk_qnet is not None and float(args.risk_lambda) > 0.0:
                 risk_q1_pi, risk_q2_pi = self.risk_qnet(critic_observations, actions)
                 risk_policy_q = torch.minimum(risk_q1_pi, risk_q2_pi).mean()
+                risk_policy_q = torch.clamp_min(risk_policy_q, 0.0)
                 risk_actor_loss = float(args.risk_lambda) * risk_policy_q
             if args.bc_weight > 0.0:
                 actor_bc_loss = F.mse_loss(actions, dataset_actions)
