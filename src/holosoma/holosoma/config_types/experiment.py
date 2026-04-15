@@ -82,6 +82,9 @@ class TrainingConfig:
     max_eval_steps: int | None = None
     """Maximum number of evaluation steps (None for unlimited)."""
 
+    eval_num_episodes: int = 1
+    """Number of episodes to evaluate per offline evaluation cycle."""
+
     export_onnx: bool = True
     """Export policy as ONNX model."""
 

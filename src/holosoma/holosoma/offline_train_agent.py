@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 import os
+import statistics
 import sys
 import traceback
 from contextlib import contextmanager
@@ -296,17 +297,58 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
 
         evaluate_one_episode_fn = getattr(algo, "evaluate_one_episode", None)
         max_eval_steps = tyro_config.training.max_eval_steps if tyro_config.training.max_eval_steps is not None else 1000
-        i = 1
+        eval_num_episodes = max(1, int(tyro_config.training.eval_num_episodes))
         while algo.global_step < algo.config.num_learning_iterations:
             offline_learn_fn()
             if callable(evaluate_one_episode_fn):
-                print(f"{i}th Evaluation start")
-                evaluate_one_episode_fn(
-                    max_eval_steps=max_eval_steps,
-                    use_early_termination=False,
-                )
-                print(f"{i}th Evaluation end")
-            i = i + 1
+                eval_results: list[dict[str, Any]] = []
+                for _ in range(eval_num_episodes):
+                    eval_result = evaluate_one_episode_fn(
+                        max_eval_steps=max_eval_steps,
+                        use_early_termination=False,
+                    )
+                    if isinstance(eval_result, dict):
+                        eval_results.append(eval_result)
+
+                if eval_results:
+                    episode_returns = [float(result.get("episode_return", 0.0)) for result in eval_results]
+                    episode_lengths = [float(result.get("episode_length", 0.0)) for result in eval_results]
+                    stop_reason_counts: dict[str, int] = {}
+                    for result in eval_results:
+                        stop_reason_value = result.get("stop_reason")
+                        stop_reason = str(stop_reason_value) if stop_reason_value is not None else "none"
+                        stop_reason_counts[stop_reason] = stop_reason_counts.get(stop_reason, 0) + 1
+
+                    eval_metrics: dict[str, float] = {
+                        "Eval/episode_return_mean": float(statistics.fmean(episode_returns)),
+                        "Eval/episode_return_std": float(statistics.pstdev(episode_returns))
+                        if len(episode_returns) > 1
+                        else 0.0,
+                        "Eval/episode_length_mean": float(statistics.fmean(episode_lengths)),
+                        "Eval/episode_length_std": float(statistics.pstdev(episode_lengths))
+                        if len(episode_lengths) > 1
+                        else 0.0,
+                        "Eval/num_episodes": float(len(eval_results)),
+                    }
+                    for stop_reason, count in stop_reason_counts.items():
+                        eval_metrics[f"Eval/stop_reason/{stop_reason}"] = float(count) / float(len(eval_results))
+
+                    logger.info(
+                        "[Eval] step={} episodes={} return_mean={:.4f} return_std={:.4f} length_mean={:.2f}",
+                        algo.global_step,
+                        len(eval_results),
+                        eval_metrics["Eval/episode_return_mean"],
+                        eval_metrics["Eval/episode_return_std"],
+                        eval_metrics["Eval/episode_length_mean"],
+                    )
+
+                    if is_main_process:
+                        writer = getattr(algo, "writer", None)
+                        if writer is not None:
+                            for key, value in eval_metrics.items():
+                                writer.add_scalar(key, value, algo.global_step)
+                        if wandb.run is not None:
+                            wandb.log(dict(eval_metrics, global_step=algo.global_step), step=algo.global_step)
         # teardown wandb before SimApp closes ungracefully (IsaacLab)
         if is_main_process and wandb_enabled:
             logger.info("Shutting down wandb...")

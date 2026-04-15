@@ -141,6 +141,7 @@ g1_29dof_wbt_cql = ExperimentConfig(
         project="WholeBodyTracking",
         name="g1_29dof_wbt_cql_manager",
         num_envs=1,
+        eval_num_episodes=3,
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
     algo=replace(
