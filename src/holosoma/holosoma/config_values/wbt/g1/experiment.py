@@ -152,7 +152,7 @@ g1_29dof_wbt_cql = ExperimentConfig(
             gamma=0.99,  # For motion tracking, high gamma + high num_steps is better
             num_updates=2,
             target_entropy_ratio=0.5,
-            tau=0.05,
+            tau=0.005,
             cql_num_action_samples=20,
             cql_temperature=1.0,
             cql_weight=0.05,
@@ -176,9 +176,10 @@ g1_29dof_wbt_cql = ExperimentConfig(
             risk_root_pos_weight= 1.5,
             risk_root_ori_weight= 0.5,
             risk_body_pos_weight= 1.0,
-            risk_object_pos_weight= 0.5,
-            risk_object_ori_weight= 0.5,
-            use_gpu_cache = True
+            risk_object_pos_weight= 0.0,
+            risk_object_ori_weight= 0.0,
+            risk_tau = 0.005,
+            use_gpu_cache = True,
         ),
     ),
     simulator=replace(

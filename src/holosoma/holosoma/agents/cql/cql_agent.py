@@ -541,8 +541,8 @@ class CQLAgent(BaseAlgo):
         with torch.no_grad():
             src_ps = [p.data for p in self.risk_qnet.parameters()]
             tgt_ps = [p.data for p in self.risk_qnet_target.parameters()]
-            torch._foreach_mul_(tgt_ps, 1.0 - self.config.tau)
-            torch._foreach_add_(tgt_ps, src_ps, alpha=self.config.tau)
+            torch._foreach_mul_(tgt_ps, 1.0 - self.config.risk_tau)
+            torch._foreach_add_(tgt_ps, src_ps, alpha=self.config.risk_tau)
 
     @torch.no_grad()
     def _compute_action_ood_stats(self, data: TensorDict) -> dict[str, torch.Tensor]:

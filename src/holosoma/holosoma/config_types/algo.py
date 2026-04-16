@@ -395,6 +395,8 @@ class CQLConfig:
     use_risk_aware_cql: bool = False
     """whether to train a separate risk critic and penalize risky actor actions"""
 
+    risk_tau : float = 0.01
+
     risk_learning_rate: float = 3e-4
     """learning rate for the separate risk critic"""
 
