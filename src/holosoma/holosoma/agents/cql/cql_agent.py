@@ -933,8 +933,8 @@ class CQLAgent(BaseAlgo):
         bootstrap = torch.where(done_bad_tracking, torch.zeros_like(bootstrap), bootstrap)
         if not self.config.risk_motion_ends_bootstrap:
             bootstrap = torch.where(done_motion_ends, torch.zeros_like(bootstrap), bootstrap)
-        bootstrap = torch.where(done_timeout | truncations, torch.ones_like(bootstrap), bootstrap)
-
+        # bootstrap = torch.where(done_timeout | truncations, torch.ones_like(bootstrap), bootstrap)
+        bootstrap = torch.where(done_timeout | truncations, torch.zeros_like(bootstrap), bootstrap)
         generic_terminal = dones & ~truncations & ~done_bad_tracking & ~done_motion_ends
         bootstrap = torch.where(generic_terminal, torch.zeros_like(bootstrap), bootstrap)
         return bootstrap
