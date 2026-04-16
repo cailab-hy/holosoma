@@ -618,6 +618,7 @@ class CQLAgent(BaseAlgo):
             # Action semantics aligned with IQL/TD3+BC: env/scaled action space end-to-end.
             dataset_actions = data["actions"]  # [B, action_dim]
             rewards = data["next"]["rewards"]  # [B]
+            rewards = rewards*10
             dones = data["next"]["dones"].bool()  # [B]
             truncations = data["next"]["truncations"].bool()  # [B]
             bootstrap = (truncations | ~dones).float()  # [B]
