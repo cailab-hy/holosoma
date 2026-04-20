@@ -660,6 +660,7 @@ class OfflineDataset(Dataset):
         )
         out["critic_observations"] = self.critic_obs[idx]
         out["next"]["critic_observations"] = self.next_critic_obs[idx]
+
         return out
 
     # ── Normalization statistics ──────────────────────────────────────
@@ -985,6 +986,8 @@ def save_cql_params(
     env_state: dict[str, torch.Tensor | float] | None = None,
     log_alpha_cql: torch.Tensor | None = None,
     alpha_cql_optimizer: torch.optim.Optimizer | None = None,
+    value_net: nn.Module | None = None,
+    value_optimizer: torch.optim.Optimizer | None = None,
 ) -> None:
     """Save CQL training state to disk.
 
@@ -998,6 +1001,11 @@ def save_cql_params(
 
     * ``log_alpha_cql`` — conservative-penalty Lagrange multiplier.
     * ``alpha_cql_optimizer_state_dict`` — its optimiser state.
+
+    IQL-actor additions (2 optional keys):
+
+    * ``value_net_state_dict`` — StateValueNetwork weights.
+    * ``value_optimizer_state_dict`` — its optimiser state.
 
     These are absent from FastSAC checkpoints; ``load_cql_params``
     handles their absence gracefully when warm-starting from FastSAC.
@@ -1031,6 +1039,13 @@ def save_cql_params(
         "alpha_cql_optimizer_state_dict": (
             alpha_cql_optimizer.state_dict() if alpha_cql_optimizer is not None else None
         ),
+        # ── IQL-actor keys (absent when actor_update_mode != 'iql_actor') ─
+        "value_net_state_dict": (
+            cpu_state(value_net.state_dict()) if value_net is not None else None
+        ),
+        "value_optimizer_state_dict": (
+            value_optimizer.state_dict() if value_optimizer is not None else None
+        ),
     }
     # env_state is optional — identical to FastSAC's handling
     if env_state:
@@ -1060,6 +1075,8 @@ def load_cql_params(
     scaler: GradScaler,
     log_alpha_cql: torch.Tensor | None = None,
     alpha_cql_optimizer: torch.optim.Optimizer | None = None,
+    value_net: nn.Module | None = None,
+    value_optimizer: torch.optim.Optimizer | None = None,
     actor_only: bool = False,
 ) -> dict[str, Any]:
     """Load a CQL (or FastSAC actor-only) checkpoint into live objects.
@@ -1165,6 +1182,17 @@ def load_cql_params(
         alpha_cql_optimizer.load_state_dict(ckpt["alpha_cql_optimizer_state_dict"])
     elif alpha_cql_optimizer is not None:
         logger.warning("Checkpoint has no alpha_cql_optimizer — keeping initialised state.")
+
+    # ── IQL value network (gracefully absent in non-IQL checkpoints) ───
+    if value_net is not None and ckpt.get("value_net_state_dict") is not None:
+        value_net.load_state_dict(ckpt["value_net_state_dict"])
+    elif value_net is not None:
+        logger.warning("Checkpoint has no value_net_state_dict — keeping initialised weights.")
+
+    if value_optimizer is not None and ckpt.get("value_optimizer_state_dict") is not None:
+        value_optimizer.load_state_dict(ckpt["value_optimizer_state_dict"])
+    elif value_optimizer is not None:
+        logger.warning("Checkpoint has no value_optimizer_state_dict — keeping initialised state.")
 
     logger.info(f"Loaded full CQL state from {ckpt_path} (global_step={ckpt.get('global_step', '?')})")
     return ckpt

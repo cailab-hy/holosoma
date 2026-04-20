@@ -94,6 +94,9 @@ class LoggingHelper:
         self.is_main_process: bool = is_main_process
         self.num_gpus: int = num_gpus
 
+        # Tags to exclude from TensorBoard logging (e.g. Perf/* for offline agents)
+        self.exclude_tags: set[str] = set()
+
         # Book keeping
         self.ep_infos: list[dict[str, Any]] = []
         self.raw_ep_infos: list[dict[str, Any]] = []
@@ -332,6 +335,13 @@ class LoggingHelper:
             scalars_to_log["Train/mean_episode_length/time"] = statistics.mean(self.lenbuffer)
 
         scalars_to_log["Train/num_samples"] = self.tot_timesteps
+
+        # Filter excluded tags
+        if self.exclude_tags:
+            scalars_to_log = {
+                k: v for k, v in scalars_to_log.items()
+                if k not in self.exclude_tags
+            }
 
         # Add prefix to all keys
         scalars_to_log = {f"{self.prefix}{k}": v for k, v in scalars_to_log.items()}

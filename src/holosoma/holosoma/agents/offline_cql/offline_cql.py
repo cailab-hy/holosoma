@@ -70,6 +70,41 @@ from torch import nn
 from holosoma.agents.fast_sac.fast_sac import Actor, CNNActor  # noqa: F401
 
 
+# ── State value network V(s) for IQL-style actor ──────────────────────
+class StateValueNetwork(nn.Module):
+    """Simple MLP that maps observations to a scalar state-value V(s).
+
+    Used exclusively in the ``iql_actor`` mode for expectile regression
+    against Q(s, a_data).  Architecture mirrors the Q-network hidden
+    structure but takes only observations (no actions) as input.
+    """
+
+    def __init__(
+        self,
+        n_obs: int,
+        hidden_dim: int,
+        use_layer_norm: bool = True,
+        device: torch.device | None = None,
+    ):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(n_obs, hidden_dim, device=device),
+            nn.LayerNorm(hidden_dim, device=device) if use_layer_norm else nn.Identity(),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, hidden_dim // 2, device=device),
+            nn.LayerNorm(hidden_dim // 2, device=device) if use_layer_norm else nn.Identity(),
+            nn.SiLU(),
+            nn.Linear(hidden_dim // 2, hidden_dim // 4, device=device),
+            nn.LayerNorm(hidden_dim // 4, device=device) if use_layer_norm else nn.Identity(),
+            nn.SiLU(),
+            nn.Linear(hidden_dim // 4, 1, device=device),
+        )
+
+    def forward(self, obs: torch.Tensor) -> torch.Tensor:
+        """Return V(s) of shape ``[B, 1]``."""
+        return self.net(obs)
+
+
 # ── Scalar Q-network (replaces DistributionalQNetwork) ─────────────────
 class ScalarQNetwork(nn.Module):
     """Single Q-network that outputs a scalar Q-value.
