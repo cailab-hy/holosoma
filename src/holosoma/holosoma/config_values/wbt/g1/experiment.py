@@ -138,7 +138,7 @@ g1_29dof_wbt_offline_sac = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
         name="g1_29dof_wbt_offline_sac_manager",
-        num_envs=4096,
+        num_envs=1,
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
     algo=replace(
@@ -597,7 +597,8 @@ __all__ = [
     "g1_29dof_wbt_cql_w_object",
     "g1_29dof_wbt_iql_w_object",
     "g1_29dof_wbt_bc_w_object",
-    "g1_29dof_wbt_td3_bc_w_object"
+    "g1_29dof_wbt_td3_bc_w_object",
+    "g1_29dof_wbt_offline_sac_w_object"
 ]
 
 """
