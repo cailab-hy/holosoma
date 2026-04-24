@@ -305,6 +305,139 @@ class FastSACConfig:
     actor_obs_keys: List[str] = field(default_factory=lambda: ["actor_obs"])
     critic_obs_keys: List[str] = field(default_factory=lambda: ["critic_obs"])
 
+
+@dataclass(frozen=True)
+class OfflineSACConfig:
+    num_learning_iterations: int = 25000
+    """total gradient update iterations"""
+
+    critic_learning_rate: float = 3e-4
+    """the learning rate of the critic"""
+
+    actor_learning_rate: float = 3e-4
+    """the learning rate for the actor"""
+
+    alpha_learning_rate: float = 3e-4
+    """the learning rate for alpha autotune"""
+
+    gamma: float = 0.97
+    """the discount factor gamma"""
+
+    tau: float = 0.125
+    """target network soft-update coefficient"""
+
+    batch_size: int = 8192
+    """global batch size sampled from offline dataset"""
+
+    num_updates: int = 8
+    """number of gradient updates per outer step"""
+
+    eval_interval: int = 1000
+    """steps per offline_learn() call when max_steps is not provided"""
+
+    policy_frequency: int = 4
+    """delayed actor update frequency in critic updates"""
+
+    target_entropy_ratio: float = 0.0
+    """target entropy ratio multiplied by action dimension"""
+
+    num_atoms: int = 101
+    """number of distributional support atoms"""
+
+    v_min: float = -20.0
+    """minimum critic support value"""
+
+    v_max: float = 20.0
+    """maximum critic support value"""
+
+    critic_hidden_dim: int = 768
+    """hidden dimension of critic network"""
+
+    actor_hidden_dim: int = 512
+    """hidden dimension of actor network"""
+
+    use_symmetry: bool = False
+    """whether to apply symmetry augmentation to offline batches"""
+
+    alpha_init: float = 0.001
+    """initial value of alpha"""
+
+    use_autotune: bool = True
+    """whether to learn alpha automatically"""
+
+    use_tanh: bool = True
+    """whether to use tanh-squashed actor output"""
+
+    log_std_max: float = 0.0
+    """maximum log std for actor"""
+
+    log_std_min: float = -5.0
+    """minimum log std for actor"""
+
+    compile: bool = True
+    """whether to use torch.compile for update functions"""
+
+    obs_normalization: bool = True
+    """whether to normalize actor/critic observations"""
+
+    use_layer_norm: bool = True
+    """whether to use layer normalization in networks"""
+
+    num_q_networks: int = 2
+    """number of distributional Q networks to ensemble"""
+
+    max_grad_norm: float = 0.0
+    """max grad norm (0 disables clipping)"""
+
+    amp: bool = True
+    """whether to use AMP"""
+
+    amp_dtype: str = "bf16"
+    """AMP dtype: bf16 or fp16"""
+
+    weight_decay: float = 0.001
+    """weight decay for optimizers"""
+
+    save_interval: int = 1000
+    """checkpoint interval"""
+
+    logging_interval: int = 100
+    """logging interval"""
+
+    offline_dataset_path: str = "offline_data/fastsac_dataset.h5"
+    """path to fixed offline dataset"""
+
+    offline_block_size: int = 65536
+    """number of contiguous transitions to read per HDF5 block refill"""
+
+    offline_buffer_capacity: int = 262144
+    """maximum number of transitions held in CPU RAM shuffle buffer"""
+
+    offline_refill_threshold: int = 65536
+    """refill shuffle buffer when remaining transitions fall below this threshold"""
+
+    offline_pin_memory: bool = True
+    """pin sampled CPU batches before CPU->GPU transfer"""
+
+    offline_shuffle_block_order: bool = True
+    """shuffle HDF5 block order while preserving contiguous per-block reads"""
+
+    use_gpu_cache: bool = False
+    """whether to load the full offline dataset into GPU memory"""
+
+    encoder_obs_key: str = "perception_obs"
+    """encoder observation key, used only when use_cnn_encoder is True"""
+
+    encoder_obs_shape: tuple[int, int, int] = (1, 13, 9)
+    """encoder observation shape, used only when use_cnn_encoder is True"""
+
+    use_cnn_encoder: bool = False
+    """whether to use CNN actor/critic encoders"""
+
+    actor_obs_keys: List[str] = field(default_factory=lambda: ["actor_obs"])
+    critic_obs_keys: List[str] = field(default_factory=lambda: ["critic_obs"])
+
+
 #===================================== FOR CQL ===============================================
 @dataclass(frozen=True)
 class CQLConfig:
@@ -882,6 +1015,21 @@ class FastSACAlgoConfig:
     config: FastSACConfig
     """Algorithm-specific configuration."""
 
+
+@dataclass(frozen=True)
+class OfflineSACAlgoConfig:
+    """Configuration for offline SAC algorithm wrapper."""
+
+    _target_: str
+    """Target algorithm class."""
+
+    _recursive_: bool
+    """Whether to recursively instantiate."""
+
+    config: OfflineSACConfig
+    """Algorithm-specific configuration."""
+
+
 @dataclass(frozen=True)
 class CQLAlgoConfig:
     """Configuration for algorithm wrapper."""
@@ -952,11 +1100,21 @@ class TD3BCAlgoConfig:
     """Algorithm-specific configuration."""
 
 
-AlgoInitConfig = Union[PPOConfig, FastSACConfig, CQLConfig, CQLSupportAwareConfig, IQLConfig, BCConfig, TD3BCConfig]
+AlgoInitConfig = Union[
+    PPOConfig,
+    FastSACConfig,
+    OfflineSACConfig,
+    CQLConfig,
+    CQLSupportAwareConfig,
+    IQLConfig,
+    BCConfig,
+    TD3BCConfig,
+]
 
 AlgoConfig = Union[
     PPOAlgoConfig,
     FastSACAlgoConfig,
+    OfflineSACAlgoConfig,
     CQLAlgoConfig,
     CQLSupportAwareAlgoConfig,
     IQLAlgoConfig,
