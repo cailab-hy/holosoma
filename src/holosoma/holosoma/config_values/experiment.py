@@ -16,7 +16,8 @@ from holosoma.config_values.wbt.g1.experiment import (
     g1_29dof_wbt_cql_w_object,
     g1_29dof_wbt_iql_w_object,
     g1_29dof_wbt_td3_bc_w_object,
-    g1_29dof_wbt_offline_sac_w_object
+    g1_29dof_wbt_offline_sac_w_object,
+    g1_29dof_wbt_CODAC_w_object
 )
 
 DEFAULTS = {
@@ -36,6 +37,7 @@ DEFAULTS = {
     "g1_29dof_wbt_bc_w_object": g1_29dof_wbt_bc_w_object,
     "g1_29dof_wbt_td3_bc_w_object": g1_29dof_wbt_td3_bc_w_object,
     "g1_29dof_wbt_offline_sac_w_object": g1_29dof_wbt_offline_sac_w_object,
+    "g1_29dof_wbt_CODAC_w_object": g1_29dof_wbt_CODAC_w_object,
 
 }
 

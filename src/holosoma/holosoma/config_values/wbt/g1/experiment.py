@@ -196,6 +196,73 @@ g1_29dof_wbt_offline_sac = ExperimentConfig(
 )
 
 
+g1_29dof_wbt_CODAC = ExperimentConfig(
+    training=TrainingConfig(
+        project="WholeBodyTracking",
+        name="g1_29dof_wbt_CODAC_manager",
+        num_envs=1,
+    ),
+    env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
+    algo=replace(
+        algo.codac,
+        config=replace(
+            algo.codac.config,
+            num_learning_iterations=400000,
+            v_max=20.0,
+            v_min=-20.0,
+            gamma=0.99,  # For motion tracking, high gamma + high num_steps is better
+            num_steps=1,
+            num_updates=4,
+            num_atoms=501,
+            policy_frequency=2,
+            target_entropy_ratio=0.5,
+            tau=0.05,
+            use_symmetry=False,
+            obs_normalization = False,
+            use_gpu_cache = True,
+            offline_dataset_path ="offline_data/fastsac_dataset_CRI.h5",
+        ),
+    ),
+    simulator=replace(
+        simulator.isaacsim,
+        config=replace(
+            simulator.isaacsim.config,
+            sim=replace(
+                simulator.isaacsim.config.sim,
+                max_episode_length_s=10.0,
+            ),
+        ),
+    ),
+    robot=replace(
+        robot.g1_29dof,
+        control=replace(robot.g1_29dof.control, action_scale=1.0),
+        asset=replace(robot.g1_29dof.asset, enable_self_collisions=True),
+        init_state=replace(robot.g1_29dof.init_state, pos=[0.0, 0.0, 0.76]),
+    ),
+    terrain=terrain.terrain_locomotion_plane,
+    observation=observation.g1_29dof_wbt_observation,
+    action=action.g1_29dof_joint_pos,
+    termination=termination.g1_29dof_wbt_termination,
+    randomization=randomization.g1_29dof_wbt_randomization,
+    command=command.g1_29dof_wbt_command,
+    curriculum=curriculum.g1_29dof_wbt_curriculum,
+    reward=reward.g1_29dof_wbt_fast_sac_reward,
+    nightly=NightlyConfig(
+        iterations=200000,
+        metrics={
+            "Episode/rew_motion_global_ref_position_error_exp": [0.40, "inf"],
+            "Episode/rew_motion_global_ref_orientation_error_exp": [0.25, "inf"],
+            "Episode/rew_motion_relative_body_position_error_exp": [1.1, "inf"],
+            "Episode/rew_motion_relative_body_orientation_error_exp": [0.35, "inf"],
+            "Episode/rew_motion_global_body_lin_vel": [0.45, "inf"],
+            "Episode/rew_motion_global_body_ang_vel": [0.15, "inf"],
+        },
+    ),
+)
+
+
+
+
 ##for offline rL
 g1_29dof_wbt_cql = ExperimentConfig(
     training=TrainingConfig(
@@ -524,6 +591,28 @@ g1_29dof_wbt_offline_sac_w_object = replace(
     ),
 )
 
+g1_29dof_wbt_CODAC_w_object = replace(
+    g1_29dof_wbt_CODAC,
+    command=command.g1_29dof_wbt_command_w_object,
+    robot=replace(
+        robot.g1_29dof_w_object,
+        asset=replace(robot.g1_29dof_w_object.asset, enable_self_collisions=True),
+        object=replace(
+            robot.g1_29dof_w_object.object,
+            object_urdf_path="holosoma/data/motions/g1_29dof/whole_body_tracking/objects_largebox.urdf",
+        ),
+        init_state=replace(robot.g1_29dof_w_object.init_state, pos=[0.0, 0.0, 0.76]),
+    ),
+    randomization=randomization.g1_29dof_wbt_randomization_w_object,
+    observation=observation.g1_29dof_wbt_observation_w_object,
+    reward=reward.g1_29dof_wbt_reward_w_object,
+    simulator=replace(
+        simulator.isaacsim,
+        config=replace(simulator.isaacsim.config, scene=replace(simulator.isaacsim.config.scene, env_spacing=0.0)),
+    ),
+)
+
+
 g1_29dof_wbt_cql_w_object = replace(
     g1_29dof_wbt_cql,
     command=command.g1_29dof_wbt_command_w_object,
@@ -611,6 +700,7 @@ __all__ = [
     "g1_29dof_wbt",
     "g1_29dof_wbt_fast_sac",
     "g1_29dof_wbt_offline_sac",
+    "g1_29dof_wbt_CODAC",
     "g1_29dof_wbt_iql",
     "g1_29dof_wbt_cql",
     "g1_29dof_wbt_bc",
@@ -620,7 +710,8 @@ __all__ = [
     "g1_29dof_wbt_iql_w_object",
     "g1_29dof_wbt_bc_w_object",
     "g1_29dof_wbt_td3_bc_w_object",
-    "g1_29dof_wbt_offline_sac_w_object"
+    "g1_29dof_wbt_offline_sac_w_object",
+    "g1_29dof_wbt_CODAC_w_object",
 ]
 
 """

@@ -438,6 +438,41 @@ class OfflineSACConfig:
     critic_obs_keys: List[str] = field(default_factory=lambda: ["critic_obs"])
 
 
+@dataclass(frozen=True)
+class CODACConfig(OfflineSACConfig):
+    """Configuration for Stage-1 CODAC built on top of OfflineSAC."""
+
+    conservative_weight: float = 1.0
+    """weight applied to conservative regularization term"""
+
+    conservative_temperature: float = 1.0
+    """temperature for conservative log-sum-exp aggregation"""
+
+    num_action_samples: int = 10
+    """number of random/current/next action samples per state for conservative term"""
+
+    use_lagrange: bool = False
+    """whether to auto-tune conservative multiplier with Lagrange optimization"""
+
+    target_action_gap: float = 10.0
+    """target conservative gap used when use_lagrange=True"""
+
+    cql_lagrange_init: float = 1.0
+    """initial value for conservative Lagrange multiplier"""
+
+    cql_lagrange_learning_rate: float = 3e-4
+    """learning rate for conservative Lagrange multiplier optimizer"""
+
+    cql_lagrange_max: float = 1e6
+    """maximum clamp value for conservative Lagrange multiplier"""
+
+    actor_q_aggregation: str = "min"
+    """actor objective Q aggregation over critic ensemble: 'mean' or 'min'"""
+
+    critic_conservative_mode: str = "mean_q_stage1"
+    """conservative mode. Stage-1 implements only 'mean_q_stage1'."""
+
+
 #===================================== FOR CQL ===============================================
 @dataclass(frozen=True)
 class CQLConfig:
@@ -1031,6 +1066,20 @@ class OfflineSACAlgoConfig:
 
 
 @dataclass(frozen=True)
+class CODACAlgoConfig:
+    """Configuration for CODAC algorithm wrapper."""
+
+    _target_: str
+    """Target algorithm class."""
+
+    _recursive_: bool
+    """Whether to recursively instantiate."""
+
+    config: CODACConfig
+    """Algorithm-specific configuration."""
+
+
+@dataclass(frozen=True)
 class CQLAlgoConfig:
     """Configuration for algorithm wrapper."""
 
@@ -1104,6 +1153,7 @@ AlgoInitConfig = Union[
     PPOConfig,
     FastSACConfig,
     OfflineSACConfig,
+    CODACConfig,
     CQLConfig,
     CQLSupportAwareConfig,
     IQLConfig,
@@ -1115,6 +1165,7 @@ AlgoConfig = Union[
     PPOAlgoConfig,
     FastSACAlgoConfig,
     OfflineSACAlgoConfig,
+    CODACAlgoConfig,
     CQLAlgoConfig,
     CQLSupportAwareAlgoConfig,
     IQLAlgoConfig,
