@@ -167,7 +167,7 @@ offline_sac = OfflineSACAlgoConfig(
 )
 
 codac = CODACAlgoConfig(
-    _target_="holosoma.agents.CODAC.codac_agent.CODACAgent",
+    _target_="holosoma.agents.CODAC.CODAC_agent.CODACAgent",
     _recursive_=False,
     config=CODACConfig(
         num_learning_iterations=50000,

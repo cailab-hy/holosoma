@@ -25,7 +25,7 @@ from typing import Any
 import tqdm
 from loguru import logger
 
-from holosoma.agents.CODAC.codac_utils import save_params
+from holosoma.agents.CODAC.CODAC_utils import save_params
 from holosoma.agents.offline_sac.offline_sac_agent import OfflineSACAgent, OfflineSACEnv
 from holosoma.config_types.algo import CODACConfig
 from holosoma.utils.safe_torch_import import F, TensorDict, autocast, optim, torch

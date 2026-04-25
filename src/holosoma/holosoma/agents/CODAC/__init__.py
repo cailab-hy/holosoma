@@ -1,4 +1,4 @@
-from holosoma.agents.CODAC.codac_agent import CODACAgent, CODACEnv
+from holosoma.agents.CODAC.CODAC_agent import CODACAgent, CODACEnv
 
 # Backward compatibility aliases for earlier names.
 OFFLINESACAgent = CODACAgent
