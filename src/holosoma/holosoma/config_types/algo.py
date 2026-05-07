@@ -455,6 +455,42 @@ class OfflineCQLConfig:
     When ``None`` (default), bc_weight is constant throughout training.
     Checkpoint-compatibility field only — no decay logic is implemented."""
 
+    # ── q_normalizer (actor RL term divisor) ───────────────────────
+    q_normalizer_mode: str = "adaptive"
+    """How the q_normalizer used in the actor RL term is updated.
+
+    Supported values:
+      - ``"adaptive"`` (default, legacy): per-batch
+        ``q_normalizer = max(|min_q|.mean(), 1.0)`` — recomputed
+        every actor update.
+      - ``"slow_ema"``: maintain an EMA buffer
+        ``ema ← (1−τ)·ema + τ·raw_adaptive`` and use it as the
+        active divisor.  Initial value = first batch's raw_adaptive.
+      - ``"freeze_at_step"``: behave as ``adaptive`` until
+        ``global_step >= q_normalizer_freeze_step``, then freeze
+        the active divisor at the value captured exactly at that
+        step.
+
+    In all modes the active divisor is clamped to
+    ``[max(q_normalizer_min, 1.0), +inf)``.  Telemetry exposes
+    both ``raw_adaptive`` and ``active`` simultaneously."""
+
+    q_normalizer_ema_tau: float = 0.005
+    """EMA mixing rate for ``q_normalizer_mode='slow_ema'``.
+
+    ``ema ← (1 − τ)·ema + τ·raw_adaptive``.  Smaller = slower."""
+
+    q_normalizer_min: float = 1.0
+    """Lower bound on the active q_normalizer divisor.
+
+    Hard floor applied AFTER ema/freeze logic.  Default 1.0
+    matches legacy adaptive behaviour."""
+
+    q_normalizer_freeze_step: int = 0
+    """Global step at which to freeze the active q_normalizer.
+
+    Only consulted when ``q_normalizer_mode='freeze_at_step'``."""
+
     # ── SAC α lower bound ──────────────────────────────────────────
     alpha_min: float | None = None
     """Hard lower bound for the SAC entropy temperature α.
@@ -488,6 +524,84 @@ class OfflineCQLConfig:
     """Constant effective CQL α used when ``cql_alpha_mode='fixed_effective'``.
 
     Only read when ``cql_alpha_mode='fixed_effective'``.  Ignored otherwise."""
+
+    cql_effective_alpha_cap: float = 0.0
+    """Phase P1 (effective-α blow-up confounder isolation) — upper cap on
+    the CQL effective α used in the loss multiplier.
+
+    When ``> 0`` and ``cql_alpha_mode == 'td_relative'``, the loss weight
+    becomes ``min(max(raw, floor), cap)`` instead of ``max(raw, floor)``.
+    This blocks the ``effective_α = cql_td_ratio · td_loss / |penalty|``
+    blow-up that occurs when ``|cql_penalty| → 0`` (or sign-flips) without
+    altering anything else in the critic objective.
+
+    ``= 0`` (default) is a strict no-op and keeps all prior runs bit-exact.
+    Recommended pilot when active: ``= 1.0`` (the upper end of the
+    healthy effective_α regime observed in F1/G1 mid-run telemetry).
+    Honoured under ``cql_alpha_mode == 'fixed_effective'`` as well, where
+    it caps the constant value (rare, primarily for safety).  Ignored
+    when the Lagrangian path is in use (``cql_td_ratio is None`` and
+    ``cql_alpha_autotune == True``).  No sweep is gated by this field;
+    sweeps are managed externally."""
+
+    cql_penalty_floor_optin: bool = False
+    """Phase P1b (penalty sign-flip noise isolation) — one-sided floor on
+    the CQL penalty used in the loss term ONLY.
+
+    When ``True``::
+
+        penalty_for_loss = clamp_min(cql_penalty, 0.0)
+        cql_loss         = effective_alpha * penalty_for_loss
+
+    The raw ``cql_penalty`` (= logsumexp − Q_data) is preserved unchanged
+    in all telemetry and in the autotune Lagrangian update path.  Only
+    the scalar fed into ``critic_loss`` is replaced with its non-negative
+    half.  This eliminates the negative-loss / Q-pi-pushing-up regime
+    that becomes active in late training when |penalty| → 0 and the
+    sign oscillates around zero (B2 / B2+P1 sign-flip events at steps
+    4700–5000).  Mathematically, this is equivalent to a one-sided ReLU
+    on the conservatism gradient: when the policy is already more
+    pessimistic than the random/policy-mixture logsumexp, no extra
+    pessimism is injected.
+
+    Default ``False`` is a strict no-op (bit-exact regression for all
+    prior runs).  Intended to be combined with ``cql_effective_alpha_cap``
+    (P1) — the cap suppresses the multiplier blow-up while this floor
+    suppresses the residual sign-flip noise.  Honoured under both
+    ``td_relative`` and ``fixed_effective`` modes; ignored under the
+    Lagrangian path."""
+
+    cql_loss_scale: float = 1.0
+    """Stage R1 (P3 SMQR-SG redesign) — mode-agnostic multiplicative
+    scale on the conservative CQL loss term that enters
+    ``critic_loss``.
+
+    Mathematically::
+
+        critic_loss = td_loss + cql_loss_scale * cql_loss + v1_shrink_loss
+
+    where ``cql_loss`` is the (already α_cql · penalty_for_loss)
+    scalar produced by the active α-CQL dispatch branch
+    (``td_relative`` / ``fixed_effective`` / Lagrangian).  Applies
+    uniformly to all three branches and to all ``smqr_lse_mode``
+    variants — independent of the (failed) ``cql_alpha_init`` /
+    ``cql_alpha_floor`` Track B knobs that are ignored under
+    ``td_relative``.
+
+    Telemetry effect: ``cql_loss`` and ``cql_effective_alpha`` are
+    logged BEFORE the scale (i.e. unchanged), and a separate scalar
+    ``cql_loss_scale`` is emitted so the realised contribution to the
+    critic loss is ``cql_loss_scale × cql_loss``.
+
+    Default ``= 1.0`` is a strict no-op (bit-exact regression for all
+    prior runs).  Recommended Stage R1 sweep values: ``0.5`` (half
+    pressure), ``0.25`` (quarter pressure).  Setting this to ``0.0``
+    disables the conservative term entirely (effectively pure SAC+BC)
+    — use only for diagnostic ablations.
+
+    Compatible with ``cql_effective_alpha_cap``: the cap is applied
+    first to bound ``effective_α``; the scale is applied last to
+    bound ``cql_loss``.  Both are independent confounder controls."""
 
     # ── IQL-style actor (diagnostic hybrid) ─────────────────────────
     actor_update_mode: str = "sac_bc"
@@ -538,6 +652,16 @@ class OfflineCQLConfig:
     * ``'sc_cql'`` — Selective Conservatism CQL: per-state soft mask
       reweights the CQL penalty to concentrate on policy-side near-OOD
       states where Q(s, π(s)) is dangerously close to Q(s, a_data).
+    * ``'smqr_cont_self'`` — Continuous-action SMQR baseline (A-fidelity).
+      Per-critic self-mask
+      ``g_i(s,a) = σ((Q_i(s,a) − τ(s)) / β)`` (no detach) combined with a
+      *shared* state-dependent scalar threshold τ(s) head.  Penalty is
+      ``log(1/K · Σ_k exp(Q_i(s,a_k)·g_i(s,a_k) − log p(a_k|s))) − Q_i(s,a_data)``.
+      Designed to (i) preserve the original SMQR exp(Q·g(Q,τ)) gradient
+      structure under continuous action sampling and (ii) expose the
+      Qg′ amplification hypothesis to the critic gradient.  Legacy SC
+      heuristics (``sc_mask_*``, severity, phase gating) are NOT applied
+      in this mode.
     """
 
     sc_mask_target: str = "policy_curr_only"
@@ -648,6 +772,44 @@ class OfflineCQLConfig:
     and phase-gating activation on the first SC-CQL update step.
     Also logs the effective SC config to console at setup time."""
 
+    # ── SMQR continuous-action baseline (smqr_cont_self) ───────────
+    sc_tau_beta: float = 1.0
+    """Soft-mask temperature β for the SMQR self-mask
+    ``g_i(s,a) = σ((Q_i(s,a) − τ(s)) / β)``.
+    Smaller β → sharper mask transition near τ(s).  Only used when
+    ``critic_penalty_mode='smqr_cont_self'``.  Recommended starting
+    point is 1.0; tune so that ``train/smqr/g/g_mean`` does NOT
+    saturate to 0 or 1 in early training."""
+
+    sc_tau_eps: float = 1e-6
+    """Numerical floor for divisions inside the SMQR penalty (β,
+    log-density, etc.).  Only used when
+    ``critic_penalty_mode='smqr_cont_self'``."""
+
+    sc_tau_near_abs_eps: float = 0.05
+    """Absolute |Δ| threshold for ``train/smqr/.../near_frac_abs``
+    near-τ occupancy diagnostics, where Δ = Q_i(s,a) − τ(s).  Only
+    affects logging."""
+
+    sc_tau_near_beta_coeff: float = 1.0
+    """Coefficient c_β such that
+    ``train/smqr/.../near_frac_beta = mean(|Δ| ≤ c_β · β)``.  Only
+    affects logging."""
+
+    sc_tau_res_scale: float = 2.0
+    """Scale of the bounded τ residual in the SMQR parameterization
+    ``τ(s) = Q_data_min(s).detach() + sc_tau_res_scale · tanh(τ_raw(s))``.
+    Caps how far the learned τ can move from the per-state anchor,
+    preventing the ``τ → ±∞ / g → {0,1}`` collapse observed with a
+    free-scalar residual.  Default 2.0 = 2·β (two mask-transition
+    widths on either side of the anchor) — enough headroom to learn
+    a non-trivial threshold while keeping the residual bounded.
+    Only used when ``critic_penalty_mode='smqr_cont_self'``."""
+
+    sc_tau_log_hist: bool = False
+    """If True, additionally log per-tensor histograms (τ, Δ).  Off by
+    default to keep TensorBoard storage small."""
+
     obs_normalization: bool = True
     """Whether to normalise observations using dataset statistics."""
 
@@ -695,6 +857,480 @@ class OfflineCQLConfig:
 
     eval_callbacks: Any = None
     """Optional evaluation callbacks configuration."""
+
+    # ── Phase A: unified algorithm mode scaffold ───────────────────
+    # See holosoma.agents.offline_cql.algo_mode for the resolver.
+    # All three keys are *additive*; default values keep every legacy
+    # call site bit-equivalent ("auto" defers to critic_penalty_mode +
+    # sc_tau_res_scale).  Phase A blocks training in 'smqr_learned'.
+    algo_mode: str = "auto"
+    """Unified algorithm mode router.
+
+    * ``'auto'`` (default) — infer from legacy keys
+      (``critic_penalty_mode`` + ``sc_tau_res_scale``).  Backward
+      compatible with every pre-Phase-A run.
+    * ``'cql'`` — vanilla CQL (requires ``critic_penalty_mode='vanilla_cql'``).
+    * ``'smqr_anchor'`` — anchor-only SMQR (requires
+      ``critic_penalty_mode='smqr_cont_self'`` AND
+      ``sc_tau_res_scale=0.0``).
+    * ``'smqr_learned'`` — learnable τ-residual SMQR.  *Phase A guard
+      raises NotImplementedError* — Phase B branch will lift this gate.
+
+    Resolved by :func:`holosoma.agents.offline_cql.algo_mode.resolve_algo_mode`.
+    """
+
+    smqr_learned_variant: str = "vanilla"
+    """Variant selector for the learned-τ branch (Phase A: placeholder).
+
+    * ``'vanilla'`` — the existing
+      ``τ(s) = anchor + scale·tanh(τ_raw(s))`` parameterisation.
+    * ``'stabilized'`` — placeholder for a future stabilised gradient
+      formulation (e.g. log-density-shifted LSE).  Not implemented in
+      Phase A; selecting it raises NotImplementedError even when the
+      Phase B gate is open.
+
+    Only consulted when the resolved mode is ``smqr_learned``.
+    """
+
+    smqr_logging_namespace: Any = None
+    """Optional override for the TensorBoard / metric mode-prefix.
+
+    When ``None`` (default) the prefix is derived from the resolved
+    mode name as ``train/<mode>/``.  When set to a string it is used
+    verbatim (with a single trailing ``/`` enforced).  Intended for
+    A/B sweeps that need to log multiple modes into a single run dir
+    without key collisions.
+    """
+
+    smqr_learned_phase_b_optin: bool = False
+    """Phase B opt-in gate for ``algo_mode='smqr_learned'``.
+
+    When ``False`` (default) the Phase A guard fires and
+    ``smqr_learned`` cannot be trained — protecting the anchor-only
+    hypothesis track from accidental learned-τ activation.
+
+    When ``True`` *and* ``algo_mode='smqr_learned'`` *and*
+    ``smqr_learned_variant='vanilla'``, the existing
+    ``critic_penalty_mode='smqr_cont_self'`` code path runs unchanged
+    with ``sc_tau_res_scale > 0``.  No new numerical branches are
+    added in Phase B — this flag only opens the gate.
+
+    The ``stabilized`` variant additionally requires
+    ``smqr_learned_phase_c_optin=True``.
+    """
+
+    smqr_learned_phase_c_optin: bool = False
+    """Phase C opt-in gate for ``smqr_learned_variant='stabilized'``.
+
+    When ``True`` *and* ``smqr_learned_phase_b_optin=True`` *and*
+    ``algo_mode='smqr_learned'`` *and*
+    ``smqr_learned_variant='stabilized'``, the critic-side weighted
+    logits switch from the vanilla form
+
+        logits_k  =  Q(s,a_k) · g(s,a_k) − log p(a_k)
+
+    to the stabilized form
+
+        logits_k  =  Q(s,a_k) + log(g(s,a_k) + ε) − log p(a_k)
+
+    where ``ε = smqr_stab_g_eps``.  This bounds the d/dQ contribution
+    by a softmax-weighted ``(1 - g)/β`` term instead of the vanilla
+    ``g(1-g)/β`` term that is amplified by Q itself, addressing the
+    tanh-saturation collapse observed in the Phase B vanilla pilot.
+
+    All other paths (cql, smqr_anchor, smqr_learned-vanilla) are
+    untouched when this flag is set.
+    """
+
+    smqr_stab_g_eps: float = 1e-6
+    """Floor ε added inside ``log(g + ε)`` for the stabilized
+    learned-τ variant.
+
+    Only consulted when ``smqr_learned_variant='stabilized'`` AND the
+    Phase C opt-in is granted.  Smaller ε keeps the stabilised
+    gradient closer to the vanilla limit; larger ε is more
+    conservative (broader effective support).  Recommended pilot
+    value: ``1e-6``.  Conservative fallback: ``1e-4``.
+    """
+
+    smqr_learned_phase_d_optin: bool = False
+    """Phase D opt-in gate for ``smqr_learned_variant='v1_oneside_shrink'``.
+
+    When ``True`` *and* ``smqr_learned_phase_b_optin=True`` *and*
+    ``algo_mode='smqr_learned'`` *and*
+    ``smqr_learned_variant='v1_oneside_shrink'``, the τ
+    parameterisation switches to the one-sided form
+
+        τ(s) = Q_data_min(s).detach() − sc_tau_res_scale · softplus(τ_raw(s))
+
+    so that τ can never exceed the per-state anchor.  The critic
+    objective remains the stabilised form ``Q + log(g + ε)``;
+    only the τ parameterisation and an additive shrinkage term
+    differ from the Phase C variant.
+
+    All other paths (cql, smqr_anchor, smqr_learned-vanilla,
+    smqr_learned-stabilized) are untouched when this flag is set.
+    """
+
+    smqr_v1_shrink_lambda: float = 1e-3
+    """Anchor-shrinkage coefficient λ_sh for the V1 / F1 variants.
+
+    Consulted when ``smqr_learned_variant`` is either
+    ``'v1_oneside_shrink'`` (Phase D) or ``'f1_st_qg'`` (Phase F),
+    AND the corresponding opt-in is granted.  Adds the term
+
+        L_shrink = λ_sh · E_s [ (τ_anchor(s) − τ(s))² ]
+
+    to the critic loss.  Gradient flows only into the τ-head (the
+    anchor is detached).  Default ``1e-3``.  Conservative
+    fallback: ``1e-2``.  Disable: ``0.0``.
+    """
+
+    smqr_learned_phase_f_optin: bool = False
+    """Phase F opt-in gate for ``smqr_learned_variant='f1_st_qg'``.
+
+    When ``True`` *and* ``smqr_learned_phase_b_optin=True`` *and*
+    ``algo_mode='smqr_learned'`` *and*
+    ``smqr_learned_variant='f1_st_qg'``, the τ parameterisation
+    reuses the V1 form
+
+        τ(s) = Q_data_min(s).detach() − sc_tau_res_scale · softplus(τ_raw(s))
+
+    AND the SMQR weighted-logits switch from the stabilised form
+
+        logits_k = Q + log(g + ε) − log p
+
+    to the ST-split form
+
+        logits_k = 0.5 · ( Q · sg(g) + sg(Q) · g ) − log p
+
+    whose forward value equals vanilla ``Q · g`` bit-exactly while
+    the symmetric stop-gradient identity halves the Q·g'
+    amplification on both θ_Q and θ_τ.  No ``log(g+ε)`` floor is
+    used — the ε / log_g_min / g_lt_eps_frac failure modes observed
+    in Phase C/D/E are eliminated by construction.
+
+    Reuses ``smqr_v1_shrink_lambda`` for the shrinkage coefficient.
+    Reuses ``sc_tau_res_scale`` for the τ-residual scale.  No new
+    Phase F-specific hyperparameters.
+    """
+
+    smqr_f1_random_full_grad: bool = False
+    """Phase G1 (`f1_random_full_grad`) — candidate-wise objective routing
+    on top of the F1 base.
+
+    Sub-flag of :attr:`smqr_learned_phase_f_optin`.  Has effect ONLY when
+    ``algo_mode='smqr_learned'``  AND
+    ``smqr_learned_variant='f1_st_qg'``  AND
+    ``smqr_learned_phase_f_optin=True``  AND
+    this flag is ``True``.  In all other configurations the flag is a
+    silent no-op (no behavioural change, no telemetry emitted).
+
+    When active, the SMQR weighted-logits along the K-axis switch from
+    a uniform F1 ST-split to a candidate-wise mixed form::
+
+        K-axis layout:  Q_cat_raw = cat([q_rand, q_pi], dim=-1)
+            indices [0, num_random)         — uniform random candidates
+            indices [num_random, N_total)   — current-policy candidates
+
+        random  channel:  qg_k = Q · g                              (vanilla full-grad)
+        policy  channel:  qg_k = 0.5 · ( Q · sg(g) + sg(Q) · g )    (F1 ST-split, unchanged)
+
+    Forward value is bit-exactly equal to vanilla ``Q · g`` on every K
+    index (since ``0.5·(Q·g + Q·g) ≡ Q·g``); only the backward routing
+    differs.  The data term and the τ-parameterisation are untouched.
+
+    Rationale (from the F1 5k short-run, exp_17_smqrlrnf1_short5k_seed1):
+    F1's symmetric ½-attenuation of the Q·g' backward restored
+    near_pi_frac_beta ≈ 0.57 (τ-band recovery) but halved the CQL
+    push-down on random candidates, leaving cql_q_rand_mean ≈ +9.6 and
+    cql_penalty ≈ −3.7.  Random candidates are τ-band irrelevant
+    (they do not need the ST-split's τ-grad protection), so restoring
+    vanilla full-grad on the random channel only is the minimum-change
+    intervention to recover conservatism without disturbing F1's
+    policy-channel τ-band recovery.
+
+    No new opt-in is introduced: this flag is gated entirely by the
+    Phase F opt-in.  Setting it to ``True`` without the F1 base active
+    is silently ignored (and logged as inactive).
+    """
+
+    smqr_h1_alpha_floor: float = 0.0
+    """Phase H1 (`f1_random_alpha_floor`) — additive constant floor on
+    the random-branch effective gate.
+
+    Sub-flag of :attr:`smqr_f1_random_full_grad` (G1 routing).  Has
+    effect ONLY when ``algo_mode='smqr_learned'``  AND
+    ``smqr_learned_variant='f1_st_qg'``  AND
+    ``smqr_learned_phase_f_optin=True``  AND
+    ``smqr_f1_random_full_grad=True``  AND
+    ``smqr_h1_alpha_floor > 0.0``.  In all other configurations the
+    field is a silent no-op (no behavioural change, no telemetry
+    emitted).
+
+    When active, the random-branch SMQR weighted-logit changes from
+
+        qg_k_rand = Q_k · g_k                                  (G1)
+
+    to
+
+        qg_k_rand = Q_k · ( g_k + α )                          (H1)
+
+    where ``α = smqr_h1_alpha_floor``.  The policy branch retains the
+    F1 ST-split (G1 routing unchanged) and the data term is untouched.
+
+    Rationale (from the G1 5k short-run): the random branch suffers
+    late-stage gradient starvation when ``g_rand → 0`` because
+    ``∂qg/∂Q = g + Q·g'/β → 0`` with it.  The α floor introduces a
+    state-independent push-down lower bound: ``∂qg_rand/∂Q ≥ α > 0``
+    even when the gate fully closes.  ``α = 0`` recovers G1 bit-exactly,
+    so the field is opt-in via a strictly positive value.
+
+    Recommended pilot: ``α = 0.05``.  Conservative fallback: ``0.1``.
+    Disable: ``0.0`` (default, identical to G1).  No sweep is gated by
+    this field; sweeps are managed externally.
+    """
+
+    smqr_b2_alpha_floor: float = 0.0
+    """Phase B2 (`f1_random_st_max_clip_backward_floor`) — STE-based
+    backward-only floor on the random-branch Q-gradient.
+
+    Sub-flag of :attr:`smqr_f1_random_full_grad` (G1 routing).  Has
+    effect ONLY when ``algo_mode='smqr_learned'``  AND
+    ``smqr_learned_variant='f1_st_qg'``  AND
+    ``smqr_learned_phase_f_optin=True``  AND
+    ``smqr_f1_random_full_grad=True``  AND
+    ``smqr_b2_alpha_floor > 0.0``.  Mutually exclusive with H1
+    (``smqr_h1_alpha_floor > 0.0``); enabling both raises a
+    ``RuntimeError`` at agent setup.  In all other configurations
+    the field is a silent no-op.
+
+    When active, the random-branch SMQR weighted-logit becomes a
+    straight-through estimator (STE) with a backward-only floor:
+
+        forward(qg_k_rand)        = Q_k · g_k                       (= G1, bit-exact)
+        ∂qg_k_rand / ∂Q_k         = max(g_k, α)                     (Q-grad floor)
+        ∂qg_k_rand / ∂g_k         = Q_k                              (= G1, τ-grad unchanged)
+
+    where ``α = smqr_b2_alpha_floor``.  The policy branch retains the
+    F1 ST-split (G1 routing unchanged) and the data term is untouched.
+
+    Rationale (Phase I memo): under G1 the random branch suffers
+    late-stage Q-gradient starvation when ``g_rand → 0`` because
+    ``∂qg/∂Q ∝ g``.  H1 lifts the lower bound by changing the FORWARD
+    to ``Q·(g+α)``, which over-shifts the forward logsumexp mass
+    toward random and degrades the F1 policy τ-band recovery.  B2
+    keeps the forward bit-exact to G1 and lifts ONLY the backward
+    Q-gradient floor via a clamp on the detached gate.  Healthy
+    random candidates (``g_rand ≥ α``) see G1-identical Q-grad;
+    starved candidates (``g_rand < α``) get a floored ``α`` push-down
+    signal.  ``α = 0`` reproduces G1 bit-exactly (forward, Q-grad,
+    τ-grad).
+
+    Recommended pilot: ``α = 0.05``.  Conservative fallback: ``0.1``.
+    Disable: ``0.0`` (default, identical to G1).  No sweep is gated by
+    this field; sweeps are managed externally.
+    """
+
+    smqr_anchor_objective: str = "vanilla"
+    """Phase E (objective-isolation ablation) — SMQR objective selector
+    for the anchor-only branch.
+
+    Only consulted when ``algo_mode='smqr_anchor'`` (i.e.
+    ``critic_penalty_mode='smqr_cont_self'`` AND
+    ``sc_tau_res_scale=0.0``).
+
+    * ``'vanilla'`` (default) — the existing weighted-logits form
+
+          logits_k = Q(s,a_k) · g(s,a_k) − log p(a_k)
+
+      Bit-equivalent to all pre-existing anchor-only runs.
+
+    * ``'stabilized'`` — the Phase C stabilised form
+
+          logits_k = Q(s,a_k) + log(g(s,a_k) + ε) − log p(a_k)
+
+      with ``ε = smqr_stab_g_eps``, but **with τ ≡ τ_anchor** (no
+      learned residual / head — ``sc_tau_res_scale`` MUST be 0.0).
+      This isolates whether the stabilised objective itself is the
+      1st-order cause of the Phase C/D learned-τ failures,
+      independently of τ-parameterisation.  Requires
+      ``smqr_anchor_phase_e_optin=True``.
+
+    Selecting ``'stabilized'`` for any non-anchor mode raises.
+    """
+
+    smqr_anchor_phase_e_optin: bool = False
+    """Phase E opt-in gate for ``smqr_anchor_objective='stabilized'``.
+
+    When ``False`` (default) the Phase E guard fires and the
+    stabilised anchor-only objective cannot be trained — protecting
+    the anchor-only baseline path from accidental objective swaps.
+
+    When ``True`` *and* ``algo_mode='smqr_anchor'`` *and*
+    ``smqr_anchor_objective='stabilized'``, the SMQR weighted-logits
+    branch in :class:`OfflineCQLAgent._update_critic` switches to the
+    stabilised form.  All other paths (cql, smqr_anchor-vanilla,
+    smqr_learned-*) are untouched when this flag is set.
+
+    Reuses ``smqr_stab_g_eps`` for the floor ε — Phase E does not
+    introduce a separate ε field, since the objective form is
+    structurally identical to Phase C.
+    """
+
+    smqr_lse_mode: str = "q_times_g"
+    """Step-3 SMQR-SG sub-mode selector for the **anchor-only vanilla**
+    weighted-logits branch.
+
+    Hypothesis #2 (Q·g distortion): the existing
+    ``logits = Q · g − log p`` form couples the conservative gate ``g``
+    multiplicatively to ``Q``, so for actions with ``Q ≈ τ`` the
+    softmax/Q-grad pressure is dominated by ``Q · g'(Q-τ)/β`` rather
+    than the gate ``g`` itself, distorting both the forward ranking
+    and the backward conservative pressure.  SMQR-SG re-routes the
+    gate to act as a (detached) action-wise weight on the logsumexp
+    instead of a multiplicative critic scaler.
+
+    Allowed values:
+
+    * ``'q_times_g'`` (default) — the existing baseline, BIT-EXACT to
+      pre-Step-3 anchor-vanilla runs:
+
+          logits_k = Q(s,a_k) · g(s,a_k) − log p(a_k)
+
+    * ``'q_times_detached_g'`` — backward-only ablation:
+
+          logits_k = Q(s,a_k) · stop_grad(g(s,a_k)) − log p(a_k)
+
+      Forward is identical to ``q_times_g`` (so forward ranking
+      distortion is preserved); only the gate-derivative path
+      ``Q · g'/β`` into θ_Q is removed.
+
+    * ``'sg_weighted_lse'`` — SMQR-SG main:
+
+          logits_k = Q(s,a_k) − log p(a_k) + log(stop_grad(g(s,a_k)) + ε)
+
+      Removes ``Q · g`` multiplication entirely.  The gate enters as
+      a detached additive constant ``log(g+ε)`` so the softmax
+      effectively becomes a *gate-weighted* softmax over
+      ``Q − log p``.  Q-ranking is preserved, and
+      ``∂lse/∂Q_i = softmax_i(weighted_logits)`` (no ``Q·g'`` term).
+
+    * ``'sg_blend'`` — Stage R1 (P3 redesign) 50/50 LOSS-level blend:
+
+          per_state_penalty =
+              0.5 · per_state_penalty[q_times_g]
+            + 0.5 · per_state_penalty[sg_weighted_lse]
+
+      Both logsumexps are computed independently (with the same
+      ``q_clip`` and ``smqr_sg_eps``) and the resulting per-state
+      penalties are averaged BEFORE the α_cql multiplier.
+      Mathematically equivalent to::
+
+          L_conservative = 0.5 · L_q_times_g + 0.5 · L_sg_weighted_lse
+
+      Intent: keep the strong critic→actor signal of ``q_times_g``
+      (which P2 SMQR-anchor benefited from) while injecting half of
+      the gate-weighted-softmax (``sg_weighted_lse``) ranking
+      structure that P3 was attempting to isolate.  Telemetry uses
+      the ``sg_weighted_lse`` side for the SMQR mechanism keys
+      (near_τ frac, gradient amplification, etc.).
+
+    Only consulted when **all** of the following hold:
+
+      * ``algo_mode='smqr_anchor'`` (``critic_penalty_mode='smqr_cont_self'``
+        AND ``sc_tau_res_scale=0.0``)
+      * ``smqr_anchor_objective='vanilla'`` (i.e. NOT the Phase E
+        ``stabilized`` branch — Phase E uses its own ``Q + log(g+ε)``
+        path with ``g`` un-detached)
+      * F1/G1/H1/B2 sub-flags inactive (those modify the same logits
+        block via different mechanisms)
+
+    Selecting any non-``'q_times_g'`` value while any of the above
+    contamination conditions are violated raises in
+    :meth:`OfflineCQLAgent.setup`.
+
+    ``'q_times_g'`` (default) preserves bit-exact behaviour for
+    every pre-Step-3 anchor-vanilla run.
+    """
+
+    smqr_sg_eps: float = 1e-6
+    """Floor ε used inside ``log(stop_grad(g) + ε)`` for SMQR-SG
+    (``smqr_lse_mode='sg_weighted_lse'``).
+
+    Smaller ε keeps the gate-weighting closer to ``log(g)`` (i.e.
+    sub-τ candidates are more aggressively suppressed in the
+    softmax); larger ε is more conservative (broader effective
+    support).  Independent of ``smqr_stab_g_eps``: Step-3 SMQR-SG
+    uses a *detached* ``g``, while the Phase C/D/E stabilised branch
+    uses an *attached* ``g`` and therefore has a different gradient
+    structure even at identical ε.
+    """
+
+    # ─────────── sg_blend λ schedule (Stage S) ──────────────────────
+    # Only consulted when ``smqr_lse_mode == 'sg_blend'``.  λ is the
+    # mixing weight on the sg_weighted_lse side:
+    #   per_state_penalty = (1 - λ) * P_qg + λ * P_sgw
+    # λ=0  → pure q_times_g, λ=1 → pure sg_weighted_lse.
+    # The previous sg_blend implementation hard-coded λ=0.5; setting
+    # ``smqr_blend_schedule='fixed'`` and ``smqr_blend_lambda_start=
+    # smqr_blend_lambda_end=0.5`` recovers it bit-exactly.
+
+    smqr_blend_schedule: str = "fixed"
+    """λ schedule mode for ``smqr_lse_mode='sg_blend'``.  One of:
+
+    * ``'fixed'`` (default)  — constant λ = ``smqr_blend_lambda_start``.
+      ``smqr_blend_lambda_end`` and ramp/warmup/hold fields are
+      ignored.  Default values (start=0.5) recover the Stage R2 R4
+      behaviour bit-exactly.
+    * ``'linear'`` — linear ramp from ``λ_start`` to ``λ_end`` over
+      the first ``smqr_blend_ramp_steps`` global-steps, then held at
+      ``λ_end`` thereafter.  ``smqr_blend_warmup_steps`` is ignored.
+    * ``'delayed_linear'`` — λ held at ``λ_start`` for the first
+      ``smqr_blend_warmup_steps`` global-steps (discovery phase),
+      then linearly ramped to ``λ_end`` over the next
+      ``smqr_blend_ramp_steps`` steps, then held at ``λ_end``.
+    * ``'piecewise'`` — three-segment schedule:
+      [0, warmup): ``λ_start``;
+      [warmup, warmup+ramp): linear ramp to ``λ_end``;
+      [warmup+ramp, warmup+ramp+hold): ``λ_end``;
+      thereafter: ``λ_end`` (hold field is informational only and
+      does not change behaviour after the held window).
+
+    Outside of ``smqr_lse_mode='sg_blend'`` this field is ignored.
+    """
+
+    smqr_blend_lambda_start: float = 0.5
+    """λ value at training step 0 (and during the warmup phase for
+    ``delayed_linear`` / ``piecewise`` schedules).  Default 0.5 to
+    match Stage R2 R4 fixed blend exactly when paired with
+    ``smqr_blend_schedule='fixed'``.
+
+    Must satisfy 0.0 ≤ λ_start ≤ 1.0.  Validated in
+    :meth:`OfflineCQLAgent.setup`."""
+
+    smqr_blend_lambda_end: float = 0.5
+    """λ value reached at the end of the ramp (and held afterwards).
+    Default 0.5 matches Stage R2 R4 when ``schedule='fixed'`` (in
+    which case this field is ignored anyway).
+
+    Must satisfy 0.0 ≤ λ_end ≤ 1.0."""
+
+    smqr_blend_warmup_steps: int = 0
+    """Number of global-steps to hold λ at ``λ_start`` BEFORE the ramp
+    begins.  Used by ``delayed_linear`` and ``piecewise`` schedules.
+    Ignored under ``fixed`` and ``linear``.  Must be ≥ 0."""
+
+    smqr_blend_ramp_steps: int = 1
+    """Length (in global-steps) of the linear ramp from ``λ_start`` to
+    ``λ_end``.  Used by ``linear``, ``delayed_linear``, and
+    ``piecewise``.  Ignored under ``fixed``.  Must be ≥ 1
+    (1 ≈ instantaneous step)."""
+
+    smqr_blend_hold_steps: int = 0
+    """Used by ``piecewise`` schedule only — informational; the
+    schedule continues to hold at ``λ_end`` after this window
+    expires.  Ignored otherwise.  Must be ≥ 0."""
 
 
 @dataclass(frozen=True)

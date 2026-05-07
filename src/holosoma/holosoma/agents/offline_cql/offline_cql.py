@@ -198,6 +198,39 @@ class TwinQCritic(nn.Module):
             ]
         )
 
+        # ── SMQR shared τ(s) head (action-independent) ────────────────
+        # State-dependent scalar threshold τ(s) used by the
+        # ``smqr_cont_self`` continuous-action SMQR baseline.
+        #
+        # * Input  : ``process_obs(obs)`` — the same sliced observation
+        #            features that the Q-networks consume.  Action is
+        #            NOT an input.
+        # * Output : scalar ``[B]``.
+        # * Shared across both critics in the ensemble: the SMQR
+        #   per-critic *self-mask* uses each critic's own Q together
+        #   with this single shared τ(s).
+        #
+        # Always constructed (cost is negligible) so that
+        # ``state_dict`` keys are stable; only consumed when
+        # ``critic_penalty_mode == 'smqr_cont_self'``.
+        self.tau_head = nn.Sequential(
+            nn.Linear(n_obs, max(hidden_dim // 4, 32), device=device),
+            nn.LayerNorm(max(hidden_dim // 4, 32), device=device)
+            if use_layer_norm else nn.Identity(),
+            nn.SiLU(),
+            nn.Linear(max(hidden_dim // 4, 32), 1, device=device),
+        )
+        # Zero-init the final Linear so that at step 0 the raw
+        # residual output is exactly 0 → tanh(0) = 0 → τ(s) starts
+        # at the per-state anchor (Q_data_min).  This avoids any
+        # early drift from a random-init residual being amplified
+        # by the bounded parameterization.
+        with torch.no_grad():
+            _tau_last: nn.Linear = self.tau_head[-1]  # type: ignore[assignment]
+            _tau_last.weight.zero_()
+            if _tau_last.bias is not None:
+                _tau_last.bias.zero_()
+
     # ── forward pass ──────────────────────────────────────────────────
 
     def forward(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
@@ -275,6 +308,37 @@ class TwinQCritic(nn.Module):
             [qnet(obs_expanded, actions_flat) for qnet in self.qnets], dim=0
         )  # [num_q, B*N, 1]
         return q_vals.view(self.num_q_networks, B, N, 1)
+
+    # ── SMQR τ(s) head forward ────────────────────────────────────────
+
+    def tau(self, obs: torch.Tensor) -> torch.Tensor:
+        """Return state-dependent scalar threshold τ(s) of shape ``[B]``.
+
+        Used by the ``smqr_cont_self`` continuous-action SMQR baseline.
+        Action-independent.  Shared across the two critics so that the
+        per-critic self-mask
+        ``g_i(s,a) = σ((Q_i(s,a) − τ(s)) / β)``
+        compares each critic's own Q-value against a single, common
+        state-level threshold.
+
+        Parameters
+        ----------
+        obs:
+            Full (unsliced) observation tensor ``[B, full_obs_dim]``.
+            ``process_obs()`` is applied internally so the τ-head sees
+            the same features as the Q-networks.
+        """
+        x = self.process_obs(obs)
+        return self.tau_head(x).squeeze(-1)
+
+    def tau_from_processed(self, obs_processed: torch.Tensor) -> torch.Tensor:
+        """Same as :meth:`tau` but expects already-sliced features.
+
+        Avoids redundant ``process_obs`` calls when the caller already has
+        the processed observation tensor (e.g. inside the critic update
+        where it is reused for ``q_values_for_actions``).
+        """
+        return self.tau_head(obs_processed).squeeze(-1)
 
     # ── target construction ───────────────────────────────────────────
 
