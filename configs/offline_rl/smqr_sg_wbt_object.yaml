@@ -1,0 +1,76 @@
+# =====================================================================
+# Example config: SMQR-SG sg_blend on WBT-object (Step 5 scaffold)
+# =====================================================================
+# Example / template — NOT consumed by train_agent.py automatically.
+#
+# ★ Current BEST golden ★
+#   exp_S6_1m_fixed05_cqls05_bc30_seed1_bs4096
+#   checkpoint: model_1000000.pt
+#   success_rate = 25.00 %, mean_reward = 26.63
+#   (configs/golden/offline_rl_golden_manifest.yaml)
+# =====================================================================
+
+algorithm: smqr_sg
+dataset: wbt_object
+
+legacy_config_reference: |
+  Preset:  exp:g1-29dof-wbt-offline-cql-w-object
+  Launch:
+    bash -c '
+      source scripts/train_replication/_common.sh
+      ALGO_LABEL=smqr_sg_blend SEED=1 RUN_TAG=exp_NN_smqr_sg_blend \
+      NUM_ITERS=1000000 SAVE_INTERVAL=50000 \
+      run_training \
+        --algo.config.critic-penalty-mode smqr_cont_self \
+        --algo.config.algo-mode smqr_anchor \
+        --algo.config.smqr-anchor-objective vanilla \
+        --algo.config.sc-tau-res-scale 0.0 \
+        --algo.config.smqr-lse-mode sg_blend \
+        --algo.config.smqr-blend-schedule fixed \
+        --algo.config.smqr-blend-lambda-start 0.5 \
+        --algo.config.smqr-blend-lambda-end 0.5 \
+        --algo.config.cql-loss-scale 0.5 \
+        --algo.config.bc-weight 3.0 \
+        --algo.config.batch-size 4096
+    '
+  Active code path:
+    holosoma/agents/offline_cql/offline_cql_agent.py
+    (algo_mode='smqr_anchor', smqr_lse_mode='sg_blend')
+  Extracted helpers (Step 4-C):
+    holosoma/agents/offline_rl/algorithms/smqr_sg/losses.py
+    holosoma/agents/offline_rl/algorithms/smqr_sg/schedules.py
+
+run_name_example: exp_NN_smqr_sg_blend_seed<S>_bs<B>_<iters>k
+checkpoint_example: logs/hv-g1-manager/exp_S6_1m_fixed05_cqls05_bc30_seed1_bs4096/model_1000000.pt
+eval_manifest_entry_example:
+  experiment_name: smqr_sg_sweep_default
+  checkpoint_steps: [500000, 750000, 1000000]
+
+# ★ S6 best settings ★
+hyperparameters:
+  critic_penalty_mode: smqr_cont_self
+  algo_mode: smqr_anchor
+  smqr_anchor_objective: vanilla
+  sc_tau_res_scale: 0.0
+  smqr_lse_mode: sg_blend             # LOSS-level blend of qg + sg
+  smqr_blend_schedule: fixed
+  smqr_blend_lambda_start: 0.5
+  smqr_blend_lambda_end: 0.5
+  smqr_blend_warmup_steps: 0
+  smqr_blend_ramp_steps: 1
+  smqr_sg_eps: 1.0e-6
+  cql_loss_scale: 0.5
+  bc_weight: 3.0
+  batch_size: 4096
+  num_learning_iterations: 1000000
+  save_interval: 50000
+
+notes: |
+  * Loss helper (compute_sg_blend_penalty / compute_sg_weighted_lse_penalty)
+    and schedule helper (compute_smqr_blend_lambda) extracted in
+    Step 4-C; 60 equivalence test cases lock bit-exactness against
+    the inline reference (sg_weighted_lse, sg_blend, schedule).
+  * S6 smoke (Step 5 preflight): 50 steps PASSED — finite metrics,
+    lambda_active=0.5 confirmed, sg_blend branch entered correctly.
+  * DO NOT use this YAML as a Pydantic config — it is documentation
+    only.

@@ -1,0 +1,194 @@
+# =====================================================================
+#  Offline-RL Eval Pipeline — Manifest
+# =====================================================================
+#  Purpose
+#  -------
+#  Drive the eval pipeline (Step 1) on top of the Step-0 golden
+#  reference.  Each entry under ``runs`` describes one training run
+#  whose checkpoints we want to sweep with
+#  ``python -m holosoma.eval_agent`` and aggregate via
+#  ``scripts/eval/collect_eval_results.py``.
+#
+#  Schema (required keys per entry)
+#  --------------------------------
+#    experiment_name        : free-form label (used for folder naming)
+#    algorithm_name         : "cql" | "smqr_anchor" | "smqr_sg" | "<custom>"
+#    algorithm_group        : "cql" | "smqr" | "smqr_sg" | "auxiliary"
+#    run_dir                : path containing model_*.pt + holosoma_config.yaml
+#    checkpoint_steps       : list[int] of training steps to evaluate
+#    checkpoint_pattern     : python-format string with {step:07d} placeholder
+#    eval_output_dir        : root directory for eval results
+#    eval_seed              : int (passed as --training.seed)
+#    num_eval_envs          : int (--eval-overrides.num-envs)
+#    num_eval_episodes      : int (--training.max-eval-steps  – steps cap)
+#    eval_agent_args        : list[str] – extra raw CLI args appended verbatim
+#                             AFTER the canonical --checkpoint block
+#    expected_eval_metrics  : optional dict[metric -> value] for golden compare
+#    tolerance              : optional dict overriding defaults below
+#    notes                  : optional free-form list of strings
+#
+#  Skip semantics
+#  --------------
+#  Missing checkpoints are skipped (status=skip) and recorded in
+#  STATUS.log; they DO NOT mark the runner as failed.
+#
+#  Tolerance defaults (used when an entry omits ``tolerance``)
+#  -----------------------------------------------------------
+#    success_rate            : absolute  0.02
+#    mean_reward             : relative  0.10  (10%)
+#    mean_min_hand_obj_dist  : relative  0.10
+#    lift_rate_v1            : absolute  0.05
+#
+#  Per-entry tolerance keys override the defaults atomically (per key).
+# =====================================================================
+
+manifest_version: 1
+recorded_at: 2026-05-11
+
+# Eval settings shared by all runs (can be overridden per-entry via
+# ``eval_agent_args``).
+defaults:
+  num_eval_envs: 256
+  num_eval_episodes: 600          # max_eval_steps cap (single_episode_per_env)
+  eval_seed: 20240601
+  headless: true
+  torch_deterministic: true
+  single_episode_per_env: true
+  save_eval_results: true
+  eval_grasp_radius: 0.12
+  eval_lift_height_margin: 0.05
+  # Canonical comparison tolerances; can be overridden per-entry.
+  tolerance:
+    success_rate:           {kind: absolute, value: 0.02}
+    mean_reward:            {kind: relative, value: 0.10}
+    mean_min_hand_obj_dist: {kind: relative, value: 0.10}
+    lift_rate_v1:           {kind: absolute, value: 0.05}
+
+# =====================================================================
+#  Golden reference entries (Step-0 manifest mirror)
+#  These three are the canonical regression targets.
+# =====================================================================
+runs:
+
+  - experiment_name: cql_golden_300k
+    algorithm_name: cql
+    algorithm_group: cql
+    run_dir: logs/hv-g1-manager/exp_80_perf_cql_seed1_bs4096_300k
+    checkpoint_steps: [300000]
+    checkpoint_pattern: "model_{step:07d}.pt"
+    eval_output_dir: eval_out/step1/cql_golden_300k
+    eval_seed: 20240601
+    num_eval_envs: 256
+    num_eval_episodes: 600
+    eval_agent_args:
+      - --algo-name=cql_golden
+    expected_eval_metrics:
+      success_rate: 0.0000
+      mean_reward: 11.31
+      mean_length: 119.31
+      lift_rate_v1: 0.3438
+      mean_min_hand_obj_dist: 0.4425
+    notes:
+      - "Step-0 CQL golden — exp_80_perf_cql_seed1_bs4096_300k @ 300k."
+    tolerance:
+      success_rate: {kind: absolute, value: 0.02}
+      mean_reward:  {kind: relative, value: 0.10}
+
+  - experiment_name: smqr_anchor_golden_300k
+    algorithm_name: smqr_anchor
+    algorithm_group: smqr
+    run_dir: logs/hv-g1-manager/exp_81_perf_smqr_qtimesg_seed1_bs4096_300k
+    checkpoint_steps: [300000]
+    checkpoint_pattern: "model_{step:07d}.pt"
+    eval_output_dir: eval_out/step1/smqr_anchor_golden_300k
+    eval_seed: 20240601
+    num_eval_envs: 256
+    num_eval_episodes: 600
+    eval_agent_args:
+      - --algo-name=smqr_anchor_golden
+    expected_eval_metrics:
+      success_rate: 0.0938
+      mean_reward: 17.5140
+      mean_length: 180.44
+      lift_rate_v1: 0.4297
+      mean_min_hand_obj_dist: 0.4120
+    notes:
+      - "Step-0 SMQR anchor golden — q_times_g, anchor-only τ."
+
+  - experiment_name: smqr_sg_current_best_1m
+    algorithm_name: smqr_sg
+    algorithm_group: smqr_sg
+    run_dir: logs/hv-g1-manager/exp_S6_1m_fixed05_cqls05_bc30_seed1_bs4096
+    checkpoint_steps: [1000000]
+    checkpoint_pattern: "model_{step:07d}.pt"
+    eval_output_dir: eval_out/step1/smqr_sg_current_best_1m
+    eval_seed: 20240601
+    num_eval_envs: 256
+    num_eval_episodes: 600
+    eval_agent_args:
+      - --algo-name=smqr_sg_current_best
+    expected_eval_metrics:
+      success_rate: 0.2500
+      mean_reward: 26.6347
+      mean_length: 262.99
+      lift_rate_v1: 0.5703
+      mean_min_hand_obj_dist: 0.3373
+    notes:
+      - "Step-0 SMQR-SG current best — sg_blend λ=0.5 fixed, cql_loss_scale=0.5, bc_weight=3.0, 1M steps."
+
+  # ===================================================================
+  #  Auxiliary sweep — 0→1M checkpoint scan over the SMQR-SG run
+  #  Default step grid per Step-1 requirements; missing steps skip.
+  # ===================================================================
+  - experiment_name: smqr_sg_sweep_default
+    algorithm_name: smqr_sg
+    algorithm_group: auxiliary
+    run_dir: logs/hv-g1-manager/exp_S6_1m_fixed05_cqls05_bc30_seed1_bs4096
+    checkpoint_steps:
+      - 50000
+      - 100000
+      - 200000
+      - 300000
+      - 500000
+      - 750000
+      - 1000000
+    checkpoint_pattern: "model_{step:07d}.pt"
+    eval_output_dir: eval_out/step1/smqr_sg_sweep_default
+    eval_seed: 20240601
+    num_eval_envs: 256
+    num_eval_episodes: 600
+    eval_agent_args:
+      - --algo-name=smqr_sg_sweep
+    notes:
+      - "Default sweep grid (Step-1 spec). The runner skips steps with no matching ckpt and records them in STATUS.log."
+      - "No expected_eval_metrics: this is a sweep, not a regression entry."
+
+  # ===================================================================
+  #  Auxiliary sweep — optional fine-grained grid (commented out by
+  #  default; uncomment when wider coverage is needed).
+  # ===================================================================
+  # - experiment_name: smqr_sg_sweep_fine
+  #   algorithm_name: smqr_sg
+  #   algorithm_group: auxiliary
+  #   run_dir: logs/hv-g1-manager/exp_S6_1m_fixed05_cqls05_bc30_seed1_bs4096
+  #   checkpoint_steps:
+  #     - 10000
+  #     - 20000
+  #     - 30000
+  #     - 40000
+  #     - 50000
+  #     - 100000
+  #     - 150000
+  #     - 200000
+  #     - 250000
+  #     - 300000
+  #     - 400000
+  #     - 500000
+  #     - 600000
+  #     - 750000
+  #     - 1000000
+  #   checkpoint_pattern: "model_{step:07d}.pt"
+  #   eval_output_dir: eval_out/step1/smqr_sg_sweep_fine
+  #   eval_seed: 20240601
+  #   num_eval_envs: 256
+  #   num_eval_episodes: 600

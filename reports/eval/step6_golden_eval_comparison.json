@@ -1,0 +1,160 @@
+{
+  "runs": [
+    {
+      "name": "cql_golden_300k",
+      "checkpoint": "logs/hv-g1-manager/exp_80_perf_cql_seed1_bs4096_300k/model_0300000.pt",
+      "missing_required": [],
+      "compare": {
+        "success_rate": {
+          "actual": 0.0,
+          "expected": 0.0,
+          "err": 0.0,
+          "ok": true
+        },
+        "mean_reward": {
+          "actual": 11.309441254241392,
+          "expected": 11.31,
+          "err": 4.940280801135994e-05,
+          "ok": true
+        },
+        "mean_length": {
+          "actual": 119.30859375,
+          "expected": 119.31,
+          "err": 1.1786522504419358e-05,
+          "ok": true
+        },
+        "lift_rate_v1": {
+          "actual": 0.34375,
+          "expected": 0.3438,
+          "err": 4.999999999999449e-05,
+          "ok": true
+        },
+        "mean_min_hand_obj_dist": {
+          "actual": 0.44246101926546544,
+          "expected": 0.4425,
+          "err": 8.809205544534707e-05,
+          "ok": true
+        }
+      },
+      "all_metrics": {
+        "success_rate": 0.0,
+        "first_contact_rate": 0.0,
+        "grasp_rate_v1": 0.0,
+        "grasp_rate_v2": 0.0,
+        "lift_rate_v1": 0.34375,
+        "lift_after_contact_rate": 0.0,
+        "bad_tracking_after_lift_rate": 0.0,
+        "mean_min_hand_obj_dist": 0.44246101926546544,
+        "mean_max_obj_height": 0.18114028766285628,
+        "mean_goal_progress_frac": 0.27029444970193817,
+        "mean_action_norm": 7.650684959255159,
+        "mean_length": 119.30859375,
+        "mean_reward": 11.309441254241392
+      }
+    },
+    {
+      "name": "smqr_anchor_golden_300k",
+      "checkpoint": "logs/hv-g1-manager/exp_81_perf_smqr_qtimesg_seed1_bs4096_300k/model_0300000.pt",
+      "missing_required": [],
+      "compare": {
+        "success_rate": {
+          "actual": 0.09375,
+          "expected": 0.0938,
+          "err": 4.999999999999449e-05,
+          "ok": true
+        },
+        "mean_reward": {
+          "actual": 17.514023237861693,
+          "expected": 17.514,
+          "err": 1.3268163579741422e-06,
+          "ok": true
+        },
+        "mean_length": {
+          "actual": 180.4375,
+          "expected": 180.44,
+          "err": 1.385502105961941e-05,
+          "ok": true
+        },
+        "lift_rate_v1": {
+          "actual": 0.4296875,
+          "expected": 0.4297,
+          "err": 1.2500000000026379e-05,
+          "ok": true
+        },
+        "mean_min_hand_obj_dist": {
+          "actual": 0.41195203649112955,
+          "expected": 0.412,
+          "err": 0.00011641628366609222,
+          "ok": true
+        }
+      },
+      "all_metrics": {
+        "success_rate": 0.09375,
+        "first_contact_rate": 0.0,
+        "grasp_rate_v1": 0.0,
+        "grasp_rate_v2": 0.0,
+        "lift_rate_v1": 0.4296875,
+        "lift_after_contact_rate": 0.0,
+        "bad_tracking_after_lift_rate": 0.0,
+        "mean_min_hand_obj_dist": 0.41195203649112955,
+        "mean_max_obj_height": 0.22603204695042223,
+        "mean_goal_progress_frac": 0.26746318944495145,
+        "mean_action_norm": 8.645765527151525,
+        "mean_length": 180.4375,
+        "mean_reward": 17.514023237861693
+      }
+    },
+    {
+      "name": "smqr_sg_current_best_1m",
+      "checkpoint": "logs/hv-g1-manager/exp_S6_1m_fixed05_cqls05_bc30_seed1_bs4096/model_1000000.pt",
+      "missing_required": [],
+      "compare": {
+        "success_rate": {
+          "actual": 0.25,
+          "expected": 0.25,
+          "err": 0.0,
+          "ok": true
+        },
+        "mean_reward": {
+          "actual": 26.63474643463269,
+          "expected": 26.6347,
+          "err": 1.7433886129767223e-06,
+          "ok": true
+        },
+        "mean_length": {
+          "actual": 262.98828125,
+          "expected": 262.99,
+          "err": 6.535419597737917e-06,
+          "ok": true
+        },
+        "lift_rate_v1": {
+          "actual": 0.5703125,
+          "expected": 0.5703,
+          "err": 1.2499999999970868e-05,
+          "ok": true
+        },
+        "mean_min_hand_obj_dist": {
+          "actual": 0.33728337119100615,
+          "expected": 0.3373,
+          "err": 4.929975983941565e-05,
+          "ok": true
+        }
+      },
+      "all_metrics": {
+        "success_rate": 0.25,
+        "first_contact_rate": 0.0,
+        "grasp_rate_v1": 0.0,
+        "grasp_rate_v2": 0.0,
+        "lift_rate_v1": 0.5703125,
+        "lift_after_contact_rate": 0.0,
+        "bad_tracking_after_lift_rate": 0.0,
+        "mean_min_hand_obj_dist": 0.33728337119100615,
+        "mean_max_obj_height": 0.3140007791807875,
+        "mean_goal_progress_frac": 0.25537350535642833,
+        "mean_action_norm": 9.994563363492489,
+        "mean_length": 262.98828125,
+        "mean_reward": 26.63474643463269
+      }
+    }
+  ]
+}

@@ -19,7 +19,7 @@ import torch
 from torch import nn
 
 from holosoma.agents.fast_sac.fast_sac_utils import EmpiricalNormalization
-from holosoma.agents.offline_cql.offline_cql_utils import (
+from holosoma.agents.offline_rl.common.datasets import (
     create_frozen_normalizer,
     validate_normalization,
 )

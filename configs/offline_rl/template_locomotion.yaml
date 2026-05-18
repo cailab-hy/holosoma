@@ -1,0 +1,43 @@
+# =====================================================================
+# Example config: Template baseline on locomotion dataset (Step 5)
+# =====================================================================
+# This config is a PLACEHOLDER demonstrating the future shape of
+# baseline-on-locomotion configurations.  Neither the algorithm nor
+# the dataset is implemented in Step 5.
+#
+# Calling any registry entrypoint for these names yields
+# NotImplementedError — see:
+#   src/holosoma/holosoma/agents/offline_rl/algorithms/template/README.md
+#   src/holosoma/holosoma/agents/offline_rl/datasets/README.md
+# =====================================================================
+
+algorithm: template          # one of {bc, iql, td3_bc, awac, ...} in future
+dataset: locomotion_template # placeholder
+
+legacy_config_reference: |
+  None — neither algorithm nor dataset has a legacy implementation.
+  This file documents the expected schema only.
+
+run_name_example: exp_NN_<algo>_locomotion_seed<S>_bs<B>_<iters>k
+checkpoint_example: <none>
+eval_manifest_entry_example:
+  experiment_name: <pending>
+  checkpoint_steps: []
+
+hyperparameters:
+  # Placeholder values — real fields TBD by the future baseline
+  # implementer.  See algorithms/template/README.md §1.
+  batch_size: 256
+  num_learning_iterations: 5000
+  save_interval: 1000
+  learning_rate: 3.0e-4
+
+notes: |
+  * algorithm='template' resolves to status='placeholder' in
+    algorithms/registry.py (or one of bc / iql / td3_bc / awac when
+    the user picks a concrete baseline).
+  * dataset='locomotion_template' resolves to status='placeholder' in
+    datasets/registry.py.
+  * Both raise NotImplementedError if instantiated.
+  * DO NOT launch training with this config — it is documentation
+    only.

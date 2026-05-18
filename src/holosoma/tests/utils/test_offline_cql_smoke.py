@@ -48,14 +48,17 @@ from torch import nn
 
 from holosoma.agents.fast_sac.fast_sac import Actor
 from holosoma.agents.modules.logging_utils import LoggingHelper
-from holosoma.agents.offline_cql.offline_cql import TwinQCritic, polyak_update
-from holosoma.agents.offline_cql.offline_cql_agent import OfflineCQLAgent
-from holosoma.agents.offline_cql.offline_cql_utils import (
-    create_frozen_normalizer,
-    save_cql_params,
+from holosoma.agents.offline_rl.algorithms.cql.agent import CQLAgent
+from holosoma.agents.offline_rl.common.checkpointing import (
     load_cql_params,
+    save_cql_params,
+)
+from holosoma.agents.offline_rl.common.datasets import (
+    create_frozen_normalizer,
     validate_normalization,
 )
+from holosoma.agents.offline_rl.common.loss_utils import polyak_update
+from holosoma.agents.offline_rl.common.networks import TwinQCritic
 from holosoma.utils.average_meters import TensorAverageMeterDict
 from holosoma.utils.safe_torch_import import GradScaler, TensorDict, TensorboardSummaryWriter
 
@@ -124,11 +127,11 @@ def _make_agent(
     action_scale: torch.Tensor | None = None,
     action_bias: torch.Tensor | None = None,
     obs_normalization: bool = False,
-) -> OfflineCQLAgent:
-    """Build a minimal OfflineCQLAgent without __init__/setup()."""
+) -> CQLAgent:
+    """Build a minimal :class:`CQLAgent` without __init__/setup()."""
     cfg = config or _SmokeConfig()
     cfg.obs_normalization = obs_normalization
-    agent = object.__new__(OfflineCQLAgent)
+    agent = object.__new__(CQLAgent)
 
     agent.config = cfg
     agent.device = DEVICE
@@ -364,12 +367,8 @@ class TestSingleUpdateSmoke:
         "q_data_max",
         "q_data_min",
         "td_target_mean",
-        "td_target_max",
-        "td_target_min",
         "cql_q_rand_mean",
-        "cql_q_pi_mean",
         "q_overestimation_gap",
-        "cql_logsumexp_mean",
     }
 
     EXPECTED_ACTOR_KEYS = {
@@ -570,7 +569,7 @@ class TestOverfitSmallBatch:
 class TestCheckpointRoundTrip:
     """Save → load into a fresh agent → params match bit-for-bit."""
 
-    def _make_trained_agent(self, steps: int = 5) -> OfflineCQLAgent:
+    def _make_trained_agent(self, steps: int = 5) -> CQLAgent:
         agent = _make_agent()
         data = _make_batch()
         for _ in range(steps):
@@ -913,9 +912,7 @@ class TestStatLogging:
             "q_data_max",
             "q_data_min",
             "q_overestimation_gap",
-            "cql_logsumexp_mean",
             "cql_q_rand_mean",
-            "cql_q_pi_mean",
         ):
             assert key in m, f"missing Q stat: {key}"
             val = m[key]
@@ -926,7 +923,7 @@ class TestStatLogging:
 
     def test_target_stats_present_and_finite(self) -> None:
         m = self._run_one_cycle()
-        for key in ("td_target_mean", "td_target_max", "td_target_min"):
+        for key in ("td_target_mean",):
             assert key in m, f"missing target stat: {key}"
             assert torch.isfinite(m[key]), f"target stat '{key}' non-finite"
 

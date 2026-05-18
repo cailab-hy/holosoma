@@ -1,4 +1,4 @@
-"""Network definitions for Offline CQL.
+"""Canonical network definitions for offline RL.
 
 Actor Reuse Rationale
 ---------------------
@@ -68,6 +68,7 @@ from torch import nn
 
 # ── Actor is imported unchanged from fast_sac ──────────────────────────
 from holosoma.agents.fast_sac.fast_sac import Actor, CNNActor  # noqa: F401
+from holosoma.agents.offline_rl.common.loss_utils import polyak_update
 
 
 # ── State value network V(s) for IQL-style actor ──────────────────────
@@ -385,31 +386,9 @@ class TwinQCritic(nn.Module):
             -1,
         )
 
-
-# ── Target network Polyak update ─────────────────────────────────────────
-
-
-@torch.no_grad()
-def polyak_update(source: nn.Module, target: nn.Module, tau: float) -> None:
-    """In-place Polyak (exponential moving average) update of target params.
-
-    ::
-
-        θ_target ← τ · θ_source + (1 − τ) · θ_target
-
-    Uses ``torch._foreach_*`` for fused element-wise operations, matching
-    the same pattern as ``FastSACAgent``'s inline target update.
-
-    Parameters
-    ----------
-    source:
-        The online network whose parameters are being tracked.
-    target:
-        The target network to update in-place.
-    tau:
-        Interpolation coefficient in ``(0, 1]``.  Typical value: 0.005.
-    """
-    src_params = [p.data for p in source.parameters()]
-    tgt_params = [p.data for p in target.parameters()]
-    torch._foreach_mul_(tgt_params, 1.0 - tau)
-    torch._foreach_add_(tgt_params, src_params, alpha=tau)
+__all__ = [
+    "ScalarQNetwork",
+    "TwinQCritic",
+    "StateValueNetwork",
+    "polyak_update",
+]

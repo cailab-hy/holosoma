@@ -1,0 +1,94 @@
+{
+  "run": "exp_S6_1m_fixed05_cqls05_bc30_seed1_bs4096",
+  "attempted_steps": [
+    50000,
+    100000,
+    200000,
+    300000,
+    500000,
+    750000,
+    1000000
+  ],
+  "evaluated_steps": [
+    300000,
+    500000,
+    750000,
+    1000000
+  ],
+  "skipped": [
+    {
+      "step": 50000,
+      "reason": "checkpoint missing"
+    },
+    {
+      "step": 100000,
+      "reason": "checkpoint missing"
+    },
+    {
+      "step": 200000,
+      "reason": "checkpoint missing"
+    }
+  ],
+  "rows": [
+    {
+      "step": 300000,
+      "success_rate": 0.0859375,
+      "mean_reward": 17.337971126660705,
+      "mean_length": 177.13671875,
+      "lift_rate_v1": 0.37890625,
+      "first_contact_rate": 0.0,
+      "lift_after_contact_rate": 0.0,
+      "mean_min_hand_obj_dist": 0.40414273721398786,
+      "mean_max_obj_height": 0.20172333141090348,
+      "mean_goal_progress_frac": 0.24386210489574106,
+      "mean_action_norm": 8.615400141105056
+    },
+    {
+      "step": 500000,
+      "success_rate": 0.06640625,
+      "mean_reward": 18.685357650509104,
+      "mean_length": 190.640625,
+      "lift_rate_v1": 0.484375,
+      "first_contact_rate": 0.0,
+      "lift_after_contact_rate": 0.0,
+      "mean_min_hand_obj_dist": 0.3756981220212765,
+      "mean_max_obj_height": 0.2515779411769472,
+      "mean_goal_progress_frac": 0.23550059569146742,
+      "mean_action_norm": 9.366969176568091
+    },
+    {
+      "step": 750000,
+      "success_rate": 0.15625,
+      "mean_reward": 21.41335948277265,
+      "mean_length": 215.4296875,
+      "lift_rate_v1": 0.47265625,
+      "first_contact_rate": 0.0,
+      "lift_after_contact_rate": 0.0,
+      "mean_min_hand_obj_dist": 0.3792944148881361,
+      "mean_max_obj_height": 0.25618911965284497,
+      "mean_goal_progress_frac": 0.2539610741792132,
+      "mean_action_norm": 9.340969807468355
+    },
+    {
+      "step": 1000000,
+      "success_rate": 0.25,
+      "mean_reward": 26.63474643463269,
+      "mean_length": 262.98828125,
+      "lift_rate_v1": 0.5703125,
+      "first_contact_rate": 0.0,
+      "lift_after_contact_rate": 0.0,
+      "mean_min_hand_obj_dist": 0.33728337119100615,
+      "mean_max_obj_height": 0.3140007791807875,
+      "mean_goal_progress_frac": 0.25537350535642833,
+      "mean_action_norm": 9.994563363492489
+    }
+  ],
+  "best": {
+    "step": 1000000,
+    "success_rate": 0.25,
+    "mean_reward": 26.63474643463269,
+    "lift_rate_v1": 0.5703125,
+    "mean_min_hand_obj_dist": 0.33728337119100615,
+    "mean_goal_progress_frac": 0.25537350535642833
+  }
+}

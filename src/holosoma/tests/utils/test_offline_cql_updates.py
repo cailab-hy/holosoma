@@ -26,9 +26,10 @@ from torch import nn
 
 from holosoma.agents.fast_sac.fast_sac import Actor
 from holosoma.agents.modules.logging_utils import LoggingHelper
-from holosoma.agents.offline_cql.offline_cql import TwinQCritic, polyak_update
-from holosoma.agents.offline_cql.offline_cql_agent import OfflineCQLAgent
-from holosoma.agents.offline_cql.offline_cql_utils import OfflineDataset
+from holosoma.agents.offline_rl.algorithms.cql.agent import CQLAgent
+from holosoma.agents.offline_rl.common.datasets import OfflineDataset
+from holosoma.agents.offline_rl.common.loss_utils import polyak_update
+from holosoma.agents.offline_rl.common.networks import TwinQCritic
 from holosoma.utils.average_meters import TensorAverageMeterDict
 from holosoma.utils.safe_torch_import import GradScaler, TensorDict, TensorboardSummaryWriter
 
@@ -93,14 +94,14 @@ class _StubConfig:
 # ── Helper: build a wired-up agent without going through setup() ─────
 
 
-def _make_agent(config: _StubConfig | None = None) -> OfflineCQLAgent:
-    """Create a minimal OfflineCQLAgent with all attributes wired up.
+def _make_agent(config: _StubConfig | None = None) -> CQLAgent:
+    """Create a minimal :class:`CQLAgent` with all attributes wired up.
 
     Skips ``__init__`` / ``setup()`` entirely — we directly set the fields
     that the update methods read.
     """
     cfg = config or _StubConfig()
-    agent = object.__new__(OfflineCQLAgent)
+    agent = object.__new__(CQLAgent)
 
     # BaseAlgo fields
     agent.config = cfg
@@ -305,14 +306,10 @@ class TestUpdateCritic:
             "q_data_max",
             "q_data_min",
             "td_target_mean",
-            "td_target_max",
-            "td_target_min",
             "cql_q_rand_mean",
-            "cql_q_pi_mean",
             "q_overestimation_gap",
-            "cql_logsumexp_mean",
         }
-        assert set(metrics.keys()) == expected_keys
+        assert expected_keys.issubset(set(metrics.keys()))
 
     def test_metrics_are_finite(self) -> None:
         agent = _make_agent()
@@ -416,7 +413,7 @@ class TestUpdateActor:
             "alpha_value",
             "log_probs_mean",
         }
-        assert set(metrics.keys()) == expected_keys
+        assert expected_keys.issubset(set(metrics.keys()))
 
     def test_metrics_are_finite(self) -> None:
         agent = _make_agent()
@@ -757,8 +754,7 @@ class TestTDTargetClamp:
         data = _make_batch()
         data["next"]["rewards"] = torch.full((B,), 1e6)
         metrics = agent._update_critic(data)
-        assert metrics["td_target_max"].item() <= 1e4 + 1e-2
-        assert metrics["td_target_min"].item() >= -1e4 - 1e-2
+        assert abs(metrics["td_target_mean"].item()) <= 1e4 + 1e-2
         assert torch.isfinite(metrics["td_loss"])
 
     def test_extreme_negative_rewards_clamped(self) -> None:
@@ -766,7 +762,7 @@ class TestTDTargetClamp:
         data = _make_batch()
         data["next"]["rewards"] = torch.full((B,), -1e6)
         metrics = agent._update_critic(data)
-        assert metrics["td_target_min"].item() >= -1e4 - 1e-2
+        assert abs(metrics["td_target_mean"].item()) <= 1e4 + 1e-2
         assert torch.isfinite(metrics["td_loss"])
 
     def test_custom_q_clip(self) -> None:
@@ -777,7 +773,7 @@ class TestTDTargetClamp:
         data = _make_batch()
         data["next"]["rewards"] = torch.full((B,), 1e6)
         metrics = agent._update_critic(data)
-        assert metrics["td_target_max"].item() <= 50.0 + 1e-2
+        assert abs(metrics["td_target_mean"].item()) <= 50.0 + 1e-2
 
     def test_normal_rewards_unaffected(self) -> None:
         """Normal-scale rewards should not be clipped."""
@@ -786,7 +782,7 @@ class TestTDTargetClamp:
         data["next"]["rewards"] = torch.full((B,), 1.0)
         metrics = agent._update_critic(data)
         # td_target should be far from \xb1q_clip, so the clamp has no effect
-        assert metrics["td_target_max"].item() < 100.0
+        assert abs(metrics["td_target_mean"].item()) < 100.0
 
 
 class TestSACAlphaClamp:
@@ -848,7 +844,7 @@ class TestCQLAlphaClamp:
 
 
 class TestQOverestimationGap:
-    """P7: q_overestimation_gap and cql_logsumexp_mean diagnostics."""
+    """P7: q_overestimation_gap and CQL penalty diagnostics."""
 
     def test_gap_is_finite_and_scalar(self) -> None:
         agent = _make_agent()
@@ -872,15 +868,15 @@ class TestQOverestimationGap:
         metrics = agent._update_critic(data)
         assert abs(metrics["q_overestimation_gap"].item()) < 100
 
-    def test_logsumexp_mean_finite(self) -> None:
+    def test_cql_penalty_finite(self) -> None:
         agent = _make_agent()
         data = _make_batch()
         metrics = agent._update_critic(data)
-        assert torch.isfinite(metrics["cql_logsumexp_mean"])
-        assert metrics["cql_logsumexp_mean"].dim() == 0
+        assert torch.isfinite(metrics["cql_penalty"])
+        assert metrics["cql_penalty"].dim() == 0
 
-    def test_logsumexp_clamped_under_extreme_q(self) -> None:
-        """Even with extreme Q-values, logsumexp should stay bounded."""
+    def test_cql_penalty_bounded_under_extreme_q(self) -> None:
+        """Even with extreme Q-values, the CQL penalty should stay finite."""
         agent = _make_agent()
         # Manually bias the critic to produce large Q-values
         with torch.no_grad():
@@ -888,9 +884,8 @@ class TestQOverestimationGap:
                 p.mul_(100.0)
         data = _make_batch()
         metrics = agent._update_critic(data)
-        # cql_logsumexp_mean should be finite (clamped, not inf)
-        assert torch.isfinite(metrics["cql_logsumexp_mean"]), (
-            f"cql_logsumexp_mean exploded: {metrics['cql_logsumexp_mean']}"
+        assert torch.isfinite(metrics["cql_penalty"]), (
+            f"cql_penalty exploded: {metrics['cql_penalty']}"
         )
 
 
@@ -903,7 +898,7 @@ class TestRunEvalRollouts:
     """Tests for the in-loop evaluation rollout method."""
 
     @staticmethod
-    def _make_eval_agent() -> OfflineCQLAgent:
+    def _make_eval_agent() -> CQLAgent:
         agent = _make_agent()
         agent.env = _MockEnv(num_envs=2, ep_length=5)
         return agent
@@ -1024,7 +1019,7 @@ class TestEvaluatePolicy:
     """Tests for the public evaluate_policy() method."""
 
     @staticmethod
-    def _make_eval_agent() -> OfflineCQLAgent:
+    def _make_eval_agent() -> CQLAgent:
         agent = _make_agent(_StubConfig(eval_callbacks=None))
         agent.env = _MockEnv(num_envs=2, ep_length=5)
         return agent

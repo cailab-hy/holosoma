@@ -1,0 +1,52 @@
+# =====================================================================
+# Example config: SMQR anchor (q_times_g) on WBT-object (Step 5 scaffold)
+# =====================================================================
+# Example / template — NOT consumed by train_agent.py automatically.
+#
+# Golden reference: exp_81_perf_smqr_qtimesg_seed1_bs4096_300k
+#   success_rate = 9.38 %, mean_reward = 17.51
+#   (configs/golden/offline_rl_golden_manifest.yaml)
+# =====================================================================
+
+algorithm: smqr
+dataset: wbt_object
+
+legacy_config_reference: |
+  Preset:  exp:g1-29dof-wbt-offline-cql-w-object
+  Launch:  bash scripts/train_replication/train_smqr_seed2.sh
+  Active code path:
+    holosoma/agents/offline_cql/offline_cql_agent.py
+    (algo_mode='smqr_anchor', smqr_lse_mode='q_times_g',
+     sc_tau_res_scale=0.0, smqr_anchor_objective='vanilla')
+  Extracted helper (Step 4-B):
+    holosoma/agents/offline_rl/algorithms/smqr/losses.py
+
+run_name_example: exp_NN_smqr_qtimesg_seed<S>_bs<B>_<iters>k
+checkpoint_example: logs/hv-g1-manager/exp_81_perf_smqr_qtimesg_seed1_bs4096_300k/model_0300000.pt
+eval_manifest_entry_example:
+  experiment_name: smqr_anchor_golden_300k
+  checkpoint_steps: [300000]
+
+hyperparameters:
+  critic_penalty_mode: smqr_cont_self
+  algo_mode: smqr_anchor
+  smqr_anchor_objective: vanilla
+  sc_tau_res_scale: 0.0
+  smqr_lse_mode: q_times_g
+  sc_tau_beta: 1.0
+  cql_num_random_actions: 10
+  cql_num_policy_actions: 10
+  cql_alpha_init: 1.0
+  cql_loss_scale: 1.0
+  bc_weight: 1.0
+  batch_size: 4096
+  num_learning_iterations: 300000
+  save_interval: 50000
+
+notes: |
+  * q_times_g penalty helper extracted in Step 4-B; 18 equivalence
+    test cases lock the formula bit-exactly.
+  * Anchor-only vanilla branch (no SG, no learned tau, no F1/G1/H1/
+    B2/P1/P1b stabilised variants).
+  * DO NOT use this YAML as a Pydantic config — it is documentation
+    only.

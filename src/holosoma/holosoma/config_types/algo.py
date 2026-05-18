@@ -859,7 +859,7 @@ class OfflineCQLConfig:
     """Optional evaluation callbacks configuration."""
 
     # ── Phase A: unified algorithm mode scaffold ───────────────────
-    # See holosoma.agents.offline_cql.algo_mode for the resolver.
+    # See holosoma.agents.offline_rl.common.algo_mode for the resolver.
     # All three keys are *additive*; default values keep every legacy
     # call site bit-equivalent ("auto" defers to critic_penalty_mode +
     # sc_tau_res_scale).  Phase A blocks training in 'smqr_learned'.
@@ -876,7 +876,7 @@ class OfflineCQLConfig:
     * ``'smqr_learned'`` — learnable τ-residual SMQR.  *Phase A guard
       raises NotImplementedError* — Phase B branch will lift this gate.
 
-    Resolved by :func:`holosoma.agents.offline_cql.algo_mode.resolve_algo_mode`.
+    Resolved by :func:`holosoma.agents.offline_rl.common.algo_mode.resolve_algo_mode`.
     """
 
     smqr_learned_variant: str = "vanilla"

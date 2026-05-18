@@ -104,7 +104,7 @@ fast_sac = FastSACAlgoConfig(
 )
 
 offline_cql = OfflineCQLAlgoConfig(
-    _target_="holosoma.agents.offline_cql.offline_cql_agent.OfflineCQLAgent",
+    _target_="holosoma.agents.offline_rl.algorithms.cql.agent.CQLAgent",
     _recursive_=False,
     config=OfflineCQLConfig(
         dataset_path="",

@@ -1,0 +1,500 @@
+# =====================================================================
+#  Offline-RL Golden Reference Manifest
+# =====================================================================
+#  Purpose
+#  -------
+#  Pin the current behaviour of the three production-track offline-RL
+#  algorithms (CQL / SMQR anchor / SMQR-SG) so any future refactor of
+#  ``src/holosoma/holosoma/agents/offline_cql/`` can be regression-tested
+#  against a fixed set of (config, checkpoint, eval-metric) tuples.
+#
+#  Conventions
+#  -----------
+#  * ``checkpoint_path`` and ``config_path`` are RELATIVE to the repo root
+#    ( /home/cai/holosoma ).  The config YAMLs are the FULL hydra-style
+#    snapshots that ``train_agent`` writes alongside every run; they are
+#    the authoritative record of the run's ExperimentConfig.
+#  * ``train_command`` records the entry-point.  Concrete CLI overrides
+#    used to launch these specific exp_* runs were typed in interactively
+#    and are not preserved on disk — the saved ``holosoma_config.yaml``
+#    is the ground truth.  Re-deriving CLI args from the YAML is
+#    straightforward (every leaf key maps 1:1 to a ``--<dotted.key>``
+#    tyro flag).
+#  * ``eval_command`` shows the canonical eval invocation; concrete
+#    paths used per algo are listed under each entry.
+#  * Eval metrics in ``expected_eval_metrics`` are taken VERBATIM from
+#    ``eval_summary.json`` for the listed checkpoint, evaluated with the
+#    settings under ``eval_settings``.
+#  * Train metrics in ``expected_train_metrics`` are listed as REQUIRED
+#    KEYS, not numeric baselines.  Numeric baselines would require
+#    parsing the TensorBoard event files; the manifest deliberately
+#    pins the keys (so a refactor cannot silently drop a metric) and
+#    delegates numeric regression to a follow-up TB-scrape script.
+#  * All numbers were recorded on 2026-05-11.
+
+manifest_version: 1
+recorded_at: 2026-05-11
+repo_root: /home/cai/holosoma
+train_entrypoint: python -m holosoma.train_agent
+eval_entrypoint:  python -m holosoma.eval_agent
+
+# Shared eval settings used to produce every eval_summary.json below.
+# Matches scripts/run_paired_eval.sh defaults.
+eval_settings:
+  num_envs: 256
+  max_steps: 600
+  seed: 20240601
+  torch_deterministic: true
+  grasp_radius: 0.12
+  lift_height_margin: 0.05
+  headless: true
+  single_episode_per_env: true
+  save_eval_results: true
+
+# Shared dataset / task envelope (identical across all three algos;
+# pinned here so a refactor can't silently swap dataset or task).
+shared_envelope:
+  dataset_path: offline_data/fastsac_dataset.h5
+  task: g1_29dof whole-body tracking + box (sub3_largebox_003)
+  env_class: holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager
+  simulator: holosoma.simulator.isaacsim.isaacsim.IsaacSim
+  algo_target: holosoma.agents.offline_rl.algorithms.cql.agent.CQLAgent
+  robot_actions_dim: 29
+  num_q_networks: 2
+  gamma: 0.99
+  target_tau: 0.005
+  amp: true
+  amp_dtype: bf16
+  obs_normalization: true
+  q_normalizer_mode: adaptive
+  use_layer_norm: true
+  use_tanh: true
+  actor_hidden_dim: 256
+  critic_hidden_dim: 256
+  actor_learning_rate: 3.0e-4
+  alpha_init: 0.2
+  alpha_learning_rate: 3.0e-4
+  alpha_min: 0.02
+  use_autotune: true                 # SAC α autotune
+  cql_num_random_actions: 40
+  cql_num_policy_actions: 40
+  q_clip: 10000.0
+  policy_frequency: 2
+  save_interval: 10000
+  logging_interval: 100
+
+# =====================================================================
+#                          ALGORITHM ENTRIES
+# =====================================================================
+algorithms:
+
+  # -------------------------------------------------------------------
+  #  A. CQL baseline
+  # -------------------------------------------------------------------
+  - algorithm_name: cql
+    role: baseline
+    run_name: exp_80_perf_cql_seed1_bs4096_300k
+    checkpoint_path: logs/hv-g1-manager/exp_80_perf_cql_seed1_bs4096_300k/model_0300000.pt
+    config_path:     logs/hv-g1-manager/exp_80_perf_cql_seed1_bs4096_300k/holosoma_config.yaml
+    eval_results_dir: eval_out/perf_stage1_cql/step_300000
+    train_log:       logs/hv-g1-manager/exp_80_perf_cql_seed1_bs4096_300k/train.log
+    tfevents_glob:   logs/hv-g1-manager/exp_80_perf_cql_seed1_bs4096_300k/events.out.tfevents.*
+    train_script: |
+      # Equivalent to:
+      python -m holosoma.train_agent \
+        --algo.config.algo_mode auto \
+        --algo.config.critic_penalty_mode vanilla_cql \
+        --algo.config.actor_update_mode sac_bc \
+        --algo.config.batch_size 4096 \
+        --algo.config.num_learning_iterations 300000 \
+        --algo.config.bc_weight 2.5 \
+        --algo.config.cql_alpha_mode td_relative \
+        --algo.config.cql_td_ratio 0.5 \
+        --algo.config.cql_alpha_floor 0.008 \
+        --algo.config.dataset_path offline_data/fastsac_dataset.h5 \
+        --training.seed 1
+    eval_command: |
+      python -m holosoma.eval_agent \
+        --checkpoint logs/hv-g1-manager/exp_80_perf_cql_seed1_bs4096_300k/model_0300000.pt \
+        --eval-results-dir eval_out/perf_stage1_cql/step_300000 \
+        --algo-name perf_cql --checkpoint-step 300000 \
+        --single-episode-per-env --save-eval-results \
+        --eval-grasp-radius 0.12 --eval-lift-height-margin 0.05 \
+        --eval-overrides.num-envs 256 --eval-overrides.headless True \
+        --training.seed 20240601 --training.torch-deterministic True \
+        --training.max-eval-steps 600
+    key_hyperparameters:
+      algo_mode: auto                              # resolves -> 'cql'
+      critic_penalty_mode: vanilla_cql
+      actor_update_mode: sac_bc
+      batch_size: 4096
+      bc_weight: 2.5
+      num_learning_iterations: 300000
+      critic_learning_rate: 3.0e-4
+      cql_alpha_mode: td_relative
+      cql_td_ratio: 0.5
+      cql_alpha_floor: 0.008
+      cql_alpha_init: 0.02
+      cql_fixed_effective_alpha: 0.015            # unused under td_relative
+      cql_effective_alpha_cap: 0.0                # disabled
+      cql_penalty_floor_optin: false
+      cql_loss_scale: 1.0                         # default (key absent => 1.0)
+      # SMQR keys present but inert under critic_penalty_mode=vanilla_cql:
+      sc_tau_res_scale: 2.0
+      sc_tau_beta: 1.0
+      smqr_lse_mode: q_times_g
+      smqr_anchor_objective: vanilla
+    expected_eval_metrics:
+      checkpoint_step: 300000
+      mean_reward: 11.3094
+      mean_length: 119.31
+      success_rate: 0.0
+      first_contact_rate: 0.0
+      grasp_rate_v1: 0.0
+      grasp_rate_v2: 0.0
+      lift_rate_v1: 0.34375
+      lift_after_contact_rate: 0.0
+      mean_min_hand_obj_dist: 0.4425
+    expected_train_metrics_required_keys:
+      - td_loss
+      - critic_grad_norm
+      - cql_penalty
+      - q_data_mean
+      - cql_q_rand_mean
+      - q_overestimation_gap
+      - actor_loss
+      - bc_loss
+      - action_std
+      - policy_entropy
+    notes:
+      - "algo_mode='auto' resolves to MODE_CQL via algo_mode.resolve_algo_mode() because critic_penalty_mode='vanilla_cql'."
+      - "Warm-started from exp_70_perf_cql_seed1_bs4096_100k/model_0100000.pt (see training.checkpoint in yaml); the 300k checkpoint is the canonical end-of-stage1 baseline."
+      - "No grasp/success at 300k — this is the CQL floor against which SMQR variants are compared."
+
+  # -------------------------------------------------------------------
+  #  B. SMQR anchor (anchor-only, q_times_g)
+  # -------------------------------------------------------------------
+  - algorithm_name: smqr_anchor
+    role: anchor_baseline
+    run_name: exp_81_perf_smqr_qtimesg_seed1_bs4096_300k
+    checkpoint_path: logs/hv-g1-manager/exp_81_perf_smqr_qtimesg_seed1_bs4096_300k/model_0300000.pt
+    config_path:     logs/hv-g1-manager/exp_81_perf_smqr_qtimesg_seed1_bs4096_300k/holosoma_config.yaml
+    eval_results_dir: eval_out/perf_stage1_smqr_qtg/step_300000
+    train_log:       logs/hv-g1-manager/exp_81_perf_smqr_qtimesg_seed1_bs4096_300k/train.log
+    tfevents_glob:   logs/hv-g1-manager/exp_81_perf_smqr_qtimesg_seed1_bs4096_300k/events.out.tfevents.*
+    train_script: |
+      python -m holosoma.train_agent \
+        --algo.config.algo_mode smqr_anchor \
+        --algo.config.critic_penalty_mode smqr_cont_self \
+        --algo.config.actor_update_mode sac_bc \
+        --algo.config.smqr_anchor_objective vanilla \
+        --algo.config.smqr_lse_mode q_times_g \
+        --algo.config.sc_tau_res_scale 0.0 \
+        --algo.config.sc_tau_beta 1.0 \
+        --algo.config.batch_size 4096 \
+        --algo.config.num_learning_iterations 300000 \
+        --algo.config.bc_weight 2.5 \
+        --algo.config.cql_alpha_mode td_relative \
+        --algo.config.cql_td_ratio 0.5 \
+        --algo.config.dataset_path offline_data/fastsac_dataset.h5 \
+        --training.seed 1
+    eval_command: |
+      python -m holosoma.eval_agent \
+        --checkpoint logs/hv-g1-manager/exp_81_perf_smqr_qtimesg_seed1_bs4096_300k/model_0300000.pt \
+        --eval-results-dir eval_out/perf_stage1_smqr_qtg/step_300000 \
+        --algo-name perf_smqr_qtg --checkpoint-step 300000 \
+        --single-episode-per-env --save-eval-results \
+        --eval-grasp-radius 0.12 --eval-lift-height-margin 0.05 \
+        --eval-overrides.num-envs 256 --eval-overrides.headless True \
+        --training.seed 20240601 --training.torch-deterministic True \
+        --training.max-eval-steps 600
+    key_hyperparameters:
+      algo_mode: smqr_anchor
+      critic_penalty_mode: smqr_cont_self
+      actor_update_mode: sac_bc
+      smqr_anchor_objective: vanilla
+      smqr_lse_mode: q_times_g                    # logits = Q·g − log p
+      sc_tau_res_scale: 0.0                        # anchor-only (residual disabled)
+      sc_tau_beta: 1.0
+      sc_tau_eps: 1.0e-6
+      smqr_anchor_phase_e_optin: false
+      smqr_f1_random_full_grad: false
+      smqr_h1_alpha_floor: 0.0
+      smqr_b2_alpha_floor: 0.0
+      batch_size: 4096
+      bc_weight: 2.5
+      num_learning_iterations: 300000
+      critic_learning_rate: 3.0e-4
+      cql_alpha_mode: td_relative
+      cql_td_ratio: 0.5
+      cql_loss_scale: 1.0                          # default (key absent in yaml)
+    expected_eval_metrics:
+      checkpoint_step: 300000
+      mean_reward: 17.5140
+      mean_length: 180.44
+      success_rate: 0.09375
+      first_contact_rate: 0.0
+      grasp_rate_v1: 0.0
+      grasp_rate_v2: 0.0
+      lift_rate_v1: 0.4297
+      lift_after_contact_rate: 0.0
+      mean_min_hand_obj_dist: 0.4120
+    expected_train_metrics_required_keys:
+      - td_loss
+      - critic_grad_norm
+      - cql_penalty
+      - q_data_mean
+      - cql_q_rand_mean
+      - q_overestimation_gap
+      - actor_loss
+      - bc_loss
+      - action_std
+      - policy_entropy
+    notes:
+      - "Anchor-only invariant: τ(s) = min_i Q_i(s, a_data).detach()  (residual disabled via sc_tau_res_scale=0.0)."
+      - "Critic logits use the Q·g multiplicative form; preserves the legacy SMQR Qg′ gradient channel (this is the Qg′-amplification hypothesis baseline)."
+      - "Cross-contamination guard in offline_cql_agent.py:307–350 hard-fails if any of {smqr_anchor_phase_e_optin, F1/G1/H1/B2 flags, non-zero sc_tau_res_scale} are combined with this preset."
+
+  # -------------------------------------------------------------------
+  #  C. SMQR-SG  (current best candidate — sg_blend fixed λ=0.5, 1M steps)
+  # -------------------------------------------------------------------
+  - algorithm_name: smqr_sg
+    role: current_best_candidate
+    run_name: exp_S6_1m_fixed05_cqls05_bc30_seed1_bs4096
+    checkpoint_path: logs/hv-g1-manager/exp_S6_1m_fixed05_cqls05_bc30_seed1_bs4096/model_1000000.pt
+    config_path:     logs/hv-g1-manager/exp_S6_1m_fixed05_cqls05_bc30_seed1_bs4096/holosoma_config.yaml
+    eval_results_dir: eval_out/s6_1m/step_1000000
+    train_log:       logs/hv-g1-manager/exp_S6_1m_fixed05_cqls05_bc30_seed1_bs4096/train.log
+    tfevents_glob:   logs/hv-g1-manager/exp_S6_1m_fixed05_cqls05_bc30_seed1_bs4096/events.out.tfevents.*
+    train_script: |
+      python -m holosoma.train_agent \
+        --algo.config.algo_mode smqr_anchor \
+        --algo.config.critic_penalty_mode smqr_cont_self \
+        --algo.config.actor_update_mode sac_bc \
+        --algo.config.smqr_anchor_objective vanilla \
+        --algo.config.smqr_lse_mode sg_blend \
+        --algo.config.smqr_blend_schedule fixed \
+        --algo.config.smqr_blend_lambda_start 0.5 \
+        --algo.config.smqr_blend_lambda_end 0.5 \
+        --algo.config.smqr_blend_warmup_steps 0 \
+        --algo.config.smqr_blend_ramp_steps 1 \
+        --algo.config.smqr_blend_hold_steps 0 \
+        --algo.config.smqr_sg_eps 1.0e-6 \
+        --algo.config.sc_tau_res_scale 0.0 \
+        --algo.config.sc_tau_beta 1.0 \
+        --algo.config.cql_loss_scale 0.5 \
+        --algo.config.bc_weight 3.0 \
+        --algo.config.batch_size 4096 \
+        --algo.config.num_learning_iterations 1000000 \
+        --algo.config.cql_alpha_mode td_relative \
+        --algo.config.cql_td_ratio 0.5 \
+        --algo.config.dataset_path offline_data/fastsac_dataset.h5 \
+        --training.seed 1
+    eval_command: |
+      python -m holosoma.eval_agent \
+        --checkpoint logs/hv-g1-manager/exp_S6_1m_fixed05_cqls05_bc30_seed1_bs4096/model_1000000.pt \
+        --eval-results-dir eval_out/s6_1m/step_1000000 \
+        --algo-name s6_1m --checkpoint-step 1000000 \
+        --single-episode-per-env --save-eval-results \
+        --eval-grasp-radius 0.12 --eval-lift-height-margin 0.05 \
+        --eval-overrides.num-envs 256 --eval-overrides.headless True \
+        --training.seed 20240601 --training.torch-deterministic True \
+        --training.max-eval-steps 600
+    key_hyperparameters:
+      algo_mode: smqr_anchor
+      critic_penalty_mode: smqr_cont_self
+      actor_update_mode: sac_bc
+      smqr_anchor_objective: vanilla
+      smqr_lse_mode: sg_blend                      # 50/50 LOSS-level blend
+      smqr_blend_schedule: fixed
+      smqr_blend_lambda_start: 0.5
+      smqr_blend_lambda_end: 0.5
+      smqr_blend_warmup_steps: 0
+      smqr_blend_ramp_steps: 1
+      smqr_blend_hold_steps: 0
+      smqr_sg_eps: 1.0e-6
+      sc_tau_res_scale: 0.0                        # anchor-only
+      sc_tau_beta: 1.0
+      cql_loss_scale: 0.5                          # << differs from CQL/anchor (1.0)
+      bc_weight: 3.0                               # << differs from CQL/anchor (2.5)
+      batch_size: 4096
+      num_learning_iterations: 1000000
+      critic_learning_rate: 3.0e-4
+      cql_alpha_mode: td_relative
+      cql_td_ratio: 0.5
+      cql_alpha_floor: 0.008
+    expected_eval_metrics:
+      checkpoint_step: 1000000
+      mean_reward: 26.6347
+      mean_length: 262.99
+      success_rate: 0.25
+      first_contact_rate: 0.0
+      grasp_rate_v1: 0.0
+      grasp_rate_v2: 0.0
+      lift_rate_v1: 0.5703
+      lift_after_contact_rate: 0.0
+      mean_min_hand_obj_dist: 0.3373
+    expected_train_metrics_required_keys:
+      - td_loss
+      - critic_grad_norm
+      - cql_penalty
+      - q_data_mean
+      - cql_q_rand_mean
+      - q_overestimation_gap
+      - actor_loss
+      - bc_loss
+      - action_std
+      - policy_entropy
+    notes:
+      - "Current best SMQR-SG candidate. Forward path: per_state_penalty = 0.5·P_qg + 0.5·P_sgw (LOSS-level blend, NOT logit-level)."
+      - "P_sgw side uses logits = Q + log(detach(g) + ε) − log p (β-independent Q-grad)."
+      - "P_qg side uses logits = Q·g − log p (legacy multiplicative form)."
+      - "cql_loss_scale=0.5 halves the conservative penalty contribution to compensate for sg_blend's reduced down-push magnitude."
+      - "bc_weight=3.0 (vs 2.5) was empirically required at 1M-step horizon to keep the actor tight against the dataset."
+
+  # -------------------------------------------------------------------
+  #  C-aux. SMQR-SG secondary references (pin both 300k checkpoint
+  #  and the pure sg_weighted_lse variant for regression coverage)
+  # -------------------------------------------------------------------
+  - algorithm_name: smqr_sg
+    role: 300k_reference
+    run_name: exp_S6_stageS_fixed05_cqls05_bc30_seed1_bs4096_300k
+    checkpoint_path: logs/hv-g1-manager/exp_S6_stageS_fixed05_cqls05_bc30_seed1_bs4096_300k/model_0300000.pt
+    config_path:     logs/hv-g1-manager/exp_S6_stageS_fixed05_cqls05_bc30_seed1_bs4096_300k/holosoma_config.yaml
+    eval_results_dir: eval_out/stageS_S6/step_300000
+    key_hyperparameters:
+      smqr_lse_mode: sg_blend
+      smqr_blend_lambda_start: 0.5
+      smqr_blend_lambda_end: 0.5
+      smqr_blend_schedule: fixed
+      cql_loss_scale: 0.5
+      bc_weight: 3.0
+      batch_size: 4096
+      num_learning_iterations: 300000
+    expected_eval_metrics:
+      checkpoint_step: 300000
+      mean_reward: 18.1334
+      mean_length: 183.90
+      success_rate: 0.1133
+      lift_rate_v1: 0.4141
+      mean_min_hand_obj_dist: 0.4093
+    notes:
+      - "Same training-time config as the 1M run; the 300k checkpoint is the early-horizon snapshot from the staging run (exp_S6_stageS_*). Use for short-horizon regression."
+
+  - algorithm_name: smqr_sg
+    role: pure_sgw_reference
+    run_name: exp_82_perf_smqrsg_critlr05_seed1_bs4096_300k
+    checkpoint_path: logs/hv-g1-manager/exp_82_perf_smqrsg_critlr05_seed1_bs4096_300k/model_0300000.pt
+    config_path:     logs/hv-g1-manager/exp_82_perf_smqrsg_critlr05_seed1_bs4096_300k/holosoma_config.yaml
+    eval_results_dir: eval_out/perf_stage1_smqrsg/step_300000
+    key_hyperparameters:
+      smqr_lse_mode: sg_weighted_lse              # PURE sgw, no blend
+      smqr_sg_eps: 1.0e-6
+      critic_learning_rate: 1.5e-4                # << halved (this is what "critlr05" means)
+      bc_weight: 2.5
+      cql_loss_scale: 1.0                         # default (no scale)
+      batch_size: 4096
+      num_learning_iterations: 300000
+    expected_eval_metrics:
+      checkpoint_step: 300000
+      mean_reward: 12.4982
+      mean_length: 135.47
+      success_rate: 0.00391
+      lift_rate_v1: 0.3281
+      mean_min_hand_obj_dist: 0.4343
+    notes:
+      - "Pure sg_weighted_lse with halved critic LR. Under-performs sg_blend (success 0.4% vs 11% at 300k); kept as regression anchor for the pure-SG code path."
+      - "Demonstrates the regression in performance when neither cql_loss_scale nor the q_times_g blend term is used to compensate for the reduced down-push of pure SG."
+
+# =====================================================================
+#  Must-Preserve Behaviours  (refactor invariants)
+# =====================================================================
+must_preserve_behaviors:
+  router_invariants:
+    - "algo_mode='auto' + critic_penalty_mode='vanilla_cql' must resolve to MODE_CQL."
+    - "algo_mode='smqr_anchor' + critic_penalty_mode='smqr_cont_self' + sc_tau_res_scale=0.0 must validate and run."
+    - "Explicit algo_mode contradicting the legacy keys must raise ValueError (per resolve_algo_mode)."
+    - "Phase A guard: algo_mode='smqr_learned' must still be runnable only behind smqr_learned_phase_b_optin=True."
+  numerical_invariants:
+    - "tau(s) for anchor-only SMQR == q_data.detach().min(dim=0).values  (no residual when sc_tau_res_scale=0.0)."
+    - "q_times_g logits  ==  Q_cat_raw * g − log_p_cat  (no detach on g, no log floor)."
+    - "sg_weighted_lse logits  ==  Q_cat_raw + log(g.detach().clamp_min(smqr_sg_eps)) − log_p_cat."
+    - "sg_blend per_state_penalty  ==  (1−λ)·P_qg + λ·P_sgw  where λ resolves from smqr_blend_schedule."
+    - "Fixed-schedule λ_start=λ_end=0.5 is bit-equivalent to the prior 50/50 blend at all steps."
+    - "cql_logsumexp computed in float32 with clamp(±q_clip); upcast must be preserved under AMP."
+    - "cql_loss = cql_loss_scale · α_effective · penalty_for_loss   (Stage-R1 multiplicative scale)."
+    - "α_effective dispatch: td_relative / fixed_effective / Lagrangian — three branches must remain bit-exact for each."
+    - "cql_penalty (telemetry tensor) stays unfiltered even when cql_penalty_floor_optin=True; only the loss copy is clamped to ≥0."
+  cross_contamination_guards:
+    - "smqr_lse_mode ∈ {q_times_detached_g, sg_weighted_lse, sg_blend} must hard-fail unless algo_mode='smqr_anchor' AND smqr_anchor_objective='vanilla' AND sc_tau_res_scale=0.0 AND smqr_learned_phase_f_optin=False AND no F1/G1/H1/B2 flag is set."
+    - "smqr_anchor_objective='stabilized' must hard-fail unless smqr_anchor_phase_e_optin=True."
+    - "smqr_h1_alpha_floor and smqr_b2_alpha_floor must be mutually exclusive (only one >0)."
+  logging_invariants:
+    - "train metric dict must continue to expose: td_loss, critic_grad_norm, cql_penalty, q_data_mean, cql_q_rand_mean, q_overestimation_gap, actor_loss, bc_loss, action_std, policy_entropy, cql_alpha."
+    - "eval_summary.json must continue to expose: success_rate, first_contact_rate, grasp_rate_v1, grasp_rate_v2, lift_rate_v1, lift_after_contact_rate, mean_min_hand_obj_dist, mean_reward, mean_length."
+  io_invariants:
+    - "Checkpoint format: torch state_dict at model_{step:07d}.pt + ONNX export at model_{step:07d}.onnx."
+    - "Per-run holosoma_config.yaml snapshot must remain a faithful ExperimentConfig dump (used here as ground truth)."
+
+# =====================================================================
+#  Refactor Risk Register
+# =====================================================================
+refactor_risks:
+  - id: R1
+    area: algo_mode resolver
+    description: "Splitting the three modes into separate Strategy/Policy classes risks dropping the explicit-vs-legacy validation in _validate_explicit_against_legacy()."
+    mitigation: "Unit-test resolve_algo_mode() with the explicit (legacy_key, expected_mode) matrix from algo_mode.py docstring before/after refactor."
+
+  - id: R2
+    area: τ(s) computation
+    description: "Anchor τ uses q_data.detach().min(dim=0) where dim=0 is the critic axis. A refactor that moves this into a shared helper can easily swap to dim=1 (batch axis) → silent τ collapse to a scalar."
+    mitigation: "Pin a tensor-shape assert (τ.shape == (B,)) and a numerical equivalence test against the q_data fixture."
+
+  - id: R3
+    area: SMQR logit branches
+    description: "Five logit forms (q_times_g, q_times_detached_g, sg_weighted_lse, sg_blend, stabilized) currently share local variables (_g, _log_p_cat, _q_clip). Splitting into methods risks ε-default drift, detach-position drift, or losing the per-branch clamp."
+    mitigation: "Property-test each logit form against a fixed (Q, log_p, tau, beta) fixture and compare to bit-exact reference tensors."
+
+  - id: R4
+    area: sg_blend λ schedule
+    description: "smqr_blend_schedule has 4 modes (fixed / linear / delayed_linear / piecewise). Moving the schedule into a Scheduler class risks off-by-one at warmup boundary or losing the fixed-mode shortcut."
+    mitigation: "Test λ(t) values at t ∈ {0, warmup_steps−1, warmup_steps, warmup_steps+ramp_steps, +∞} per schedule type."
+
+  - id: R5
+    area: cql_loss scaling chain
+    description: "cql_loss is multiplied by cql_loss_scale AFTER the α-dispatch but BEFORE addition to critic_loss. The V1 anchor-shrinkage term (_v1_shrink_loss) is added separately and is NOT scaled. A naive 'unified scale' refactor can mis-scale the shrinkage."
+    mitigation: "Add an explicit test that toggling cql_loss_scale changes critic_loss by exactly cql_loss_scale · (old cql_loss) and leaves shrinkage untouched."
+
+  - id: R6
+    area: cross-contamination guards
+    description: "Setup-time hard-fails (offline_cql_agent.py:307–392) ensure mutually-incompatible flags can't co-activate. A refactor that moves validation into pydantic/dataclass __post_init__ may lose the error-message context and the specific allowlist semantics."
+    mitigation: "Keep guards as standalone validator that runs against the resolved ExperimentConfig; add negative tests for each illegal combination."
+
+  - id: R7
+    area: legacy key fallthrough
+    description: "Code reads getattr(args, 'smqr_lse_mode', 'q_times_g') etc. with safe defaults in multiple places. Centralising config access must preserve the exact default for each key."
+    mitigation: "Diff the getattr-defaults table from offline_cql_agent.py and assert each default survives in the refactored config layer."
+
+  - id: R8
+    area: AMP / dtype boundaries
+    description: "cql_logsumexp upcasts to float32 and clamps via _q_clip explicitly; q_pred_all stays in autocast dtype. A refactor consolidating dtypes can introduce silent fp16/bf16 overflow."
+    mitigation: "Run a smoke test under amp_dtype=bf16 with a high-|Q| fixture; assert no NaN/Inf in cql_logsumexp."
+
+  - id: R9
+    area: eval-side reproducibility
+    description: "Eval numbers in this manifest are pinned to (seed=20240601, num_envs=256, max_steps=600, torch_deterministic=True). Refactoring the actor sampling code (actions_with_log_probs, get_actions_and_log_probs) can change the deterministic sequence."
+    mitigation: "Pin an eval-byte-level regression: rerun eval_command for each algo against the golden checkpoint and require eval_summary.json scalars within ±1e-4 of recorded."
+
+  - id: R10
+    area: checkpoint compatibility
+    description: "Refactor that renames qnet / actor submodule attributes (e.g. tau_head) breaks load of these golden checkpoints."
+    mitigation: "Provide an explicit state_dict-key migration table and a load_checkpoint smoke test against each pinned checkpoint."
+
+# =====================================================================
+#  Caveats / Known Gaps
+# =====================================================================
+caveats:
+  - "Numeric train-metric baselines (e.g. final td_loss, cql_penalty values) are NOT recorded here — only required keys are pinned. The TensorBoard event files under each run's tfevents_glob are the authoritative numeric source; a follow-up script should scrape them into a sidecar YAML."
+  - "Training launch commands shown in train_script are RECONSTRUCTED from the saved holosoma_config.yaml. The original interactive CLI history is not preserved on disk."
+  - "exp_82_perf_smqrsg_critlr05 uses critic_learning_rate=1.5e-4 (half of the shared 3e-4). This is intentional and is the only divergence from the shared envelope; it is retained as the canonical 'pure sg_weighted_lse, halved critic LR' regression point."
+  - "Several flags (smqr_learned_phase_*_optin, sc_mask_*, sc_severity_*, sc_phase_*) are inert under all three current production tracks but are still serialised into holosoma_config.yaml. They MUST remain readable from config without raising, even after refactor."

@@ -14,7 +14,7 @@ import pytest
 import torch
 from torch import nn
 
-from holosoma.agents.offline_cql.offline_cql import (
+from holosoma.agents.offline_rl.common.networks import (
     Actor,
     ScalarQNetwork,
     TwinQCritic,

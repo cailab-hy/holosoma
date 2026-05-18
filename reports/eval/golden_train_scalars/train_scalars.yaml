@@ -1,0 +1,2223 @@
+exp_80_perf_cql_seed1_bs4096_300k:
+  run_dir: logs/hv-g1-manager/exp_80_perf_cql_seed1_bs4096_300k
+  n_scalar_tags: 111
+  resolved_tags:
+    td_loss: Loss/td_loss
+    critic_loss: Loss/critic_loss
+    critic_grad_norm: Loss/critic_grad_norm
+    cql_penalty: Loss/cql_penalty
+    q_data_mean: Loss/q_data_mean
+    cql_q_rand_mean: Loss/cql_q_rand_mean
+    cql_q_pi_mean: Loss/cql_q_pi_mean
+    q_overestimation_gap: Loss/q_overestimation_gap
+    q_data_q_pi_gap: Loss/q_data_q_pi_gap
+    actor_loss: Loss/actor_loss
+    bc_loss: Loss/bc_loss
+    rl_actor_term: Loss/rl_actor_term
+    action_l2_vs_data: Loss/action_l2_vs_data
+    action_std: Loss/action_std
+    policy_entropy: Loss/policy_entropy
+    actor_grad_norm: Loss/actor_grad_norm
+  missing_tags:
+  - near_tau_gradient_amplification_ratio
+  - near_tau_grad_mass
+  - rank_corr_q_vs_core_input
+  - rank_corr_q_vs_final_logits
+  - smqr_blend_lambda_active
+  by_step:
+    100000:
+      td_loss:
+        final: 0.04959964007139206
+        window_mean: 0.05043975015481313
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      critic_loss:
+        final: 0.23057430982589722
+        window_mean: 0.23122895056126164
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      critic_grad_norm:
+        final: 0.6903209686279297
+        window_mean: 0.7734159020816579
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      cql_penalty:
+        final: 22.62183380126953
+        window_mean: 22.598648931465895
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      q_data_mean:
+        final: 5.308432579040527
+        window_mean: 5.190544913796818
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      cql_q_rand_mean:
+        final: -78.0
+        window_mean: -78.03921568627452
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      cql_q_pi_mean:
+        final: 5.25
+        window_mean: 5.148897058823529
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      q_overestimation_gap:
+        final: 0.019323348999023438
+        window_mean: 0.00017185323786536317
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      q_data_q_pi_gap:
+        final: 0.058432579040527344
+        window_mean: 0.044772988294853884
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      actor_loss:
+        final: -0.553766667842865
+        window_mean: -0.5491453023517833
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      bc_loss:
+        final: 0.1964602768421173
+        window_mean: 0.19620324788140317
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      rl_actor_term:
+        final: -1.044917345046997
+        window_mean: -1.0396534297980515
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      action_l2_vs_data:
+        final: 5.697348594665527
+        window_mean: 5.689894302218568
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      action_std:
+        final: 0.09910497814416885
+        window_mean: 0.09993531043623008
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      policy_entropy:
+        final: 5.781237602233887
+        window_mean: 5.729161112916236
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      actor_grad_norm:
+        final: 1.159196376800537
+        window_mean: 0.9977906813808516
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      near_tau_gradient_amplification_ratio:
+        status: missing
+      near_tau_grad_mass:
+        status: missing
+      rank_corr_q_vs_core_input:
+        status: missing
+      rank_corr_q_vs_final_logits:
+        status: missing
+      smqr_blend_lambda_active:
+        status: missing
+    200000:
+      td_loss:
+        final: 0.05447259172797203
+        window_mean: 0.05459237087628629
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      critic_loss:
+        final: 0.2296425700187683
+        window_mean: 0.22978078433782748
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      critic_grad_norm:
+        final: 0.7398945689201355
+        window_mean: 0.7492888475408649
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      cql_penalty:
+        final: 21.896244049072266
+        window_mean: 21.89855116664773
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      q_data_mean:
+        final: 4.576623916625977
+        window_mean: 4.5584150635369936
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      cql_q_rand_mean:
+        final: -84.5
+        window_mean: -84.4009900990099
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      cql_q_pi_mean:
+        final: 4.53125
+        window_mean: 4.515779702970297
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      q_overestimation_gap:
+        final: -0.0002745389938354492
+        window_mean: -0.00023928216819513182
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      q_data_q_pi_gap:
+        final: 0.04818668216466904
+        window_mean: 0.0441453689248255
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      actor_loss:
+        final: -0.4508173167705536
+        window_mean: -0.4508698547240531
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      bc_loss:
+        final: 0.19248825311660767
+        window_mean: 0.1924264380837431
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      rl_actor_term:
+        final: -0.9320380091667175
+        window_mean: -0.9319359601134121
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      action_l2_vs_data:
+        final: 5.582159519195557
+        window_mean: 5.580366734230872
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      action_std:
+        final: 0.10015923529863358
+        window_mean: 0.10010415920526675
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      policy_entropy:
+        final: 5.379456520080566
+        window_mean: 5.377431930881916
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      actor_grad_norm:
+        final: 0.9351463317871094
+        window_mean: 0.9251163082547708
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      near_tau_gradient_amplification_ratio:
+        status: missing
+      near_tau_grad_mass:
+        status: missing
+      rank_corr_q_vs_core_input:
+        status: missing
+      rank_corr_q_vs_final_logits:
+        status: missing
+      smqr_blend_lambda_active:
+        status: missing
+    300000:
+      td_loss:
+        final: 0.055199649184942245
+        window_mean: 0.0534760104674919
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      critic_loss:
+        final: 0.22555367648601532
+        window_mean: 0.22391075480218028
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      critic_grad_norm:
+        final: 0.5755645036697388
+        window_mean: 0.5793185339254492
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      cql_penalty:
+        final: 21.294252395629883
+        window_mean: 21.30434197070552
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      q_data_mean:
+        final: 4.100801944732666
+        window_mean: 4.098629381142411
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      cql_q_rand_mean:
+        final: -89.5
+        window_mean: -89.5
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      cql_q_pi_mean:
+        final: 4.0625
+        window_mean: 4.0625
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      q_overestimation_gap:
+        final: -0.00035412071156315506
+        window_mean: -0.0001738683795159815
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      q_data_q_pi_gap:
+        final: 0.03173942118883133
+        window_mean: 0.03615092800236216
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      actor_loss:
+        final: -0.4043506383895874
+        window_mean: -0.4032386897825727
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      bc_loss:
+        final: 0.18987154960632324
+        window_mean: 0.18994342550343157
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      rl_actor_term:
+        final: -0.8790295124053955
+        window_mean: -0.8780972490123674
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      action_l2_vs_data:
+        final: 5.506275653839111
+        window_mean: 5.508359432220459
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      action_std:
+        final: 0.1001141369342804
+        window_mean: 0.1000617012089374
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      policy_entropy:
+        final: 5.072760105133057
+        window_mean: 5.070140595529594
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      actor_grad_norm:
+        final: 0.8259720206260681
+        window_mean: 0.8493171696569405
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      near_tau_gradient_amplification_ratio:
+        status: missing
+      near_tau_grad_mass:
+        status: missing
+      rank_corr_q_vs_core_input:
+        status: missing
+      rank_corr_q_vs_final_logits:
+        status: missing
+      smqr_blend_lambda_active:
+        status: missing
+    500000:
+      td_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      critic_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      critic_grad_norm:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_penalty:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_data_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_q_rand_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_q_pi_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_overestimation_gap:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_data_q_pi_gap:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      actor_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      bc_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      rl_actor_term:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      action_l2_vs_data:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      action_std:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      policy_entropy:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      actor_grad_norm:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      near_tau_gradient_amplification_ratio:
+        status: missing
+      near_tau_grad_mass:
+        status: missing
+      rank_corr_q_vs_core_input:
+        status: missing
+      rank_corr_q_vs_final_logits:
+        status: missing
+      smqr_blend_lambda_active:
+        status: missing
+    750000:
+      td_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      critic_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      critic_grad_norm:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_penalty:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_data_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_q_rand_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_q_pi_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_overestimation_gap:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_data_q_pi_gap:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      actor_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      bc_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      rl_actor_term:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      action_l2_vs_data:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      action_std:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      policy_entropy:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      actor_grad_norm:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      near_tau_gradient_amplification_ratio:
+        status: missing
+      near_tau_grad_mass:
+        status: missing
+      rank_corr_q_vs_core_input:
+        status: missing
+      rank_corr_q_vs_final_logits:
+        status: missing
+      smqr_blend_lambda_active:
+        status: missing
+    1000000:
+      td_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      critic_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      critic_grad_norm:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_penalty:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_data_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_q_rand_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_q_pi_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_overestimation_gap:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_data_q_pi_gap:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      actor_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      bc_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      rl_actor_term:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      action_l2_vs_data:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      action_std:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      policy_entropy:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      actor_grad_norm:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      near_tau_gradient_amplification_ratio:
+        status: missing
+      near_tau_grad_mass:
+        status: missing
+      rank_corr_q_vs_core_input:
+        status: missing
+      rank_corr_q_vs_final_logits:
+        status: missing
+      smqr_blend_lambda_active:
+        status: missing
+exp_81_perf_smqr_qtimesg_seed1_bs4096_300k:
+  run_dir: logs/hv-g1-manager/exp_81_perf_smqr_qtimesg_seed1_bs4096_300k
+  n_scalar_tags: 242
+  resolved_tags:
+    td_loss: Loss/td_loss
+    critic_loss: Loss/critic_loss
+    critic_grad_norm: Loss/critic_grad_norm
+    cql_penalty: Loss/cql_penalty
+    q_data_mean: Loss/q_data_mean
+    cql_q_rand_mean: Loss/cql_q_rand_mean
+    cql_q_pi_mean: Loss/cql_q_pi_mean
+    q_overestimation_gap: Loss/q_overestimation_gap
+    q_data_q_pi_gap: Loss/q_data_q_pi_gap
+    actor_loss: Loss/actor_loss
+    bc_loss: Loss/bc_loss
+    rl_actor_term: Loss/rl_actor_term
+    action_l2_vs_data: Loss/action_l2_vs_data
+    action_std: Loss/action_std
+    policy_entropy: Loss/policy_entropy
+    actor_grad_norm: Loss/actor_grad_norm
+    near_tau_gradient_amplification_ratio: Loss/smqr/sg/near_tau_grad_mass
+    near_tau_grad_mass: Loss/smqr/sg/near_tau_grad_mass
+    rank_corr_q_vs_core_input: Loss/smqr/sg/rank_corr_q_vs_core_input
+    rank_corr_q_vs_final_logits: Loss/smqr/sg/rank_corr_q_vs_final_logits
+  missing_tags:
+  - smqr_blend_lambda_active
+  by_step:
+    100000:
+      td_loss:
+        final: 0.09857325255870819
+        window_mean: 0.09403047286996655
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      critic_loss:
+        final: 1.1149682998657227
+        window_mean: 1.111743639497196
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      critic_grad_norm:
+        final: 1.2428988218307495
+        window_mean: 1.0382824201209873
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      cql_penalty:
+        final: 127.04938507080078
+        window_mean: 127.2141378066119
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      q_data_mean:
+        final: 10.94154167175293
+        window_mean: 10.857986020106896
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      cql_q_rand_mean:
+        final: -0.71484375
+        window_mean: -0.706265318627451
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      cql_q_pi_mean:
+        final: 10.9375
+        window_mean: 10.860294117647058
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      q_overestimation_gap:
+        final: 0.03185844421386719
+        window_mean: 0.016010357249601214
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      q_data_q_pi_gap:
+        final: 0.0040416717529296875
+        window_mean: 0.000939685397622502
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      actor_loss:
+        final: -0.6364557147026062
+        window_mean: -0.6340364428127513
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      bc_loss:
+        final: 0.20772193372249603
+        window_mean: 0.20684660912728778
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      rl_actor_term:
+        final: -1.1557605266571045
+        window_mean: -1.151152959056929
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      action_l2_vs_data:
+        final: 6.0239362716674805
+        window_mean: 5.99855167725507
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      action_std:
+        final: 0.10044533014297485
+        window_mean: 0.10109366330445982
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      policy_entropy:
+        final: 7.7172698974609375
+        window_mean: 7.590146569644704
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      actor_grad_norm:
+        final: 0.8844242095947266
+        window_mean: 0.9024603121420917
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      near_tau_gradient_amplification_ratio:
+        final: 0.003824949264526367
+        window_mean: 0.0038360796284441856
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      near_tau_grad_mass:
+        final: 0.003824949264526367
+        window_mean: 0.0038360796284441856
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      rank_corr_q_vs_core_input:
+        final: 0.9773935079574585
+        window_mean: 0.9766541696062275
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      rank_corr_q_vs_final_logits:
+        final: -0.978683590888977
+        window_mean: -0.9775674611914391
+        window_n: 51
+        closest_step: 100000
+        status: ok
+      smqr_blend_lambda_active:
+        status: missing
+    200000:
+      td_loss:
+        final: 0.07719817757606506
+        window_mean: 0.07689874139752718
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      critic_loss:
+        final: 1.101283073425293
+        window_mean: 1.1009039642787215
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      critic_grad_norm:
+        final: 0.6359499096870422
+        window_mean: 0.6263934303038191
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      cql_penalty:
+        final: 128.0106201171875
+        window_mean: 128.00064608130126
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      q_data_mean:
+        final: 10.458905220031738
+        window_mean: 10.46405827172912
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      cql_q_rand_mean:
+        final: -0.85546875
+        window_mean: -0.8587561881188119
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      cql_q_pi_mean:
+        final: 10.4375
+        window_mean: 10.461633663366337
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      q_overestimation_gap:
+        final: 0.015625208616256714
+        window_mean: 0.015679092247887414
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      q_data_q_pi_gap:
+        final: -0.0023453235626220703
+        window_mean: -0.001263264736168128
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      actor_loss:
+        final: -0.6395053863525391
+        window_mean: -0.6401298677567209
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      bc_loss:
+        final: 0.20427419245243073
+        window_mean: 0.20425175750019528
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      rl_actor_term:
+        final: -1.150190830230713
+        window_mean: -1.1507592590728608
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      action_l2_vs_data:
+        final: 5.923951148986816
+        window_mean: 5.923300927228267
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      action_std:
+        final: 0.1013040840625763
+        window_mean: 0.10131921228205804
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      policy_entropy:
+        final: 7.560654640197754
+        window_mean: 7.572777936954309
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      actor_grad_norm:
+        final: 0.8909198045730591
+        window_mean: 0.8243323900912067
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      near_tau_gradient_amplification_ratio:
+        final: 0.003626797813922167
+        window_mean: 0.003731341815857899
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      near_tau_grad_mass:
+        final: 0.003626797813922167
+        window_mean: 0.003731341815857899
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      rank_corr_q_vs_core_input:
+        final: 0.9784592986106873
+        window_mean: 0.9782986292744628
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      rank_corr_q_vs_final_logits:
+        final: -0.9792433977127075
+        window_mean: -0.9790466917623387
+        window_n: 101
+        closest_step: 200000
+        status: ok
+      smqr_blend_lambda_active:
+        status: missing
+    300000:
+      td_loss:
+        final: 0.0716126337647438
+        window_mean: 0.07076317846190695
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      critic_loss:
+        final: 1.0999900102615356
+        window_mean: 1.0990632211460787
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      critic_grad_norm:
+        final: 0.47671666741371155
+        window_mean: 0.4787491174305187
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      cql_penalty:
+        final: 128.54718017578125
+        window_mean: 128.53749922210096
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      q_data_mean:
+        final: 10.18990421295166
+        window_mean: 10.194947878519693
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      cql_q_rand_mean:
+        final: -0.9296875
+        window_mean: -0.9279258578431373
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      cql_q_pi_mean:
+        final: 10.1875
+        window_mean: 10.188725490196079
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      q_overestimation_gap:
+        final: 0.015139589086174965
+        window_mean: 0.015679293933014076
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      q_data_q_pi_gap:
+        final: -0.0007208919269032776
+        window_mean: -0.0012773670708103215
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      actor_loss:
+        final: -0.6436002254486084
+        window_mean: -0.6431787189315347
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      bc_loss:
+        final: 0.20289751887321472
+        window_mean: 0.2029436782878988
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      rl_actor_term:
+        final: -1.1508439779281616
+        window_mean: -1.1505378952213363
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      action_l2_vs_data:
+        final: 5.88402795791626
+        window_mean: 5.885366589415307
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      action_std:
+        final: 0.10143093019723892
+        window_mean: 0.10139213268663369
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      policy_entropy:
+        final: 7.570790767669678
+        window_mean: 7.560250403834324
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      actor_grad_norm:
+        final: 0.7449052929878235
+        window_mean: 0.747931954907436
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      near_tau_gradient_amplification_ratio:
+        final: 0.0035893525928258896
+        window_mean: 0.0036341724917292595
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      near_tau_grad_mass:
+        final: 0.0035893525928258896
+        window_mean: 0.0036341724917292595
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      rank_corr_q_vs_core_input:
+        final: 0.9782012701034546
+        window_mean: 0.9780951504613838
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      rank_corr_q_vs_final_logits:
+        final: -0.9790527820587158
+        window_mean: -0.979019395276612
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      smqr_blend_lambda_active:
+        status: missing
+    500000:
+      td_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      critic_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      critic_grad_norm:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_penalty:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_data_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_q_rand_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_q_pi_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_overestimation_gap:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_data_q_pi_gap:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      actor_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      bc_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      rl_actor_term:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      action_l2_vs_data:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      action_std:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      policy_entropy:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      actor_grad_norm:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      near_tau_gradient_amplification_ratio:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      near_tau_grad_mass:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      rank_corr_q_vs_core_input:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      rank_corr_q_vs_final_logits:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      smqr_blend_lambda_active:
+        status: missing
+    750000:
+      td_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      critic_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      critic_grad_norm:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_penalty:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_data_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_q_rand_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_q_pi_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_overestimation_gap:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_data_q_pi_gap:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      actor_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      bc_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      rl_actor_term:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      action_l2_vs_data:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      action_std:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      policy_entropy:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      actor_grad_norm:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      near_tau_gradient_amplification_ratio:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      near_tau_grad_mass:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      rank_corr_q_vs_core_input:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      rank_corr_q_vs_final_logits:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      smqr_blend_lambda_active:
+        status: missing
+    1000000:
+      td_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      critic_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      critic_grad_norm:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_penalty:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_data_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_q_rand_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_q_pi_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_overestimation_gap:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_data_q_pi_gap:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      actor_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      bc_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      rl_actor_term:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      action_l2_vs_data:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      action_std:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      policy_entropy:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      actor_grad_norm:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      near_tau_gradient_amplification_ratio:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      near_tau_grad_mass:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      rank_corr_q_vs_core_input:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      rank_corr_q_vs_final_logits:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      smqr_blend_lambda_active:
+        status: missing
+exp_S6_1m_fixed05_cqls05_bc30_seed1_bs4096:
+  run_dir: logs/hv-g1-manager/exp_S6_1m_fixed05_cqls05_bc30_seed1_bs4096
+  n_scalar_tags: 245
+  resolved_tags:
+    td_loss: Loss/td_loss
+    critic_loss: Loss/critic_loss
+    critic_grad_norm: Loss/critic_grad_norm
+    cql_penalty: Loss/cql_penalty
+    q_data_mean: Loss/q_data_mean
+    cql_q_rand_mean: Loss/cql_q_rand_mean
+    cql_q_pi_mean: Loss/cql_q_pi_mean
+    q_overestimation_gap: Loss/q_overestimation_gap
+    q_data_q_pi_gap: Loss/q_data_q_pi_gap
+    actor_loss: Loss/actor_loss
+    bc_loss: Loss/bc_loss
+    rl_actor_term: Loss/rl_actor_term
+    action_l2_vs_data: Loss/action_l2_vs_data
+    action_std: Loss/action_std
+    policy_entropy: Loss/policy_entropy
+    actor_grad_norm: Loss/actor_grad_norm
+    near_tau_gradient_amplification_ratio: Loss/smqr/sg/near_tau_grad_mass
+    near_tau_grad_mass: Loss/smqr/sg/near_tau_grad_mass
+    rank_corr_q_vs_core_input: Loss/smqr/sg/rank_corr_q_vs_core_input
+    rank_corr_q_vs_final_logits: Loss/smqr/sg/rank_corr_q_vs_final_logits
+    smqr_blend_lambda_active: Loss/smqr_blend_lambda_active
+  missing_tags: []
+  by_step:
+    100000:
+      td_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      critic_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      critic_grad_norm:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_penalty:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_data_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_q_rand_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_q_pi_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_overestimation_gap:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_data_q_pi_gap:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      actor_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      bc_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      rl_actor_term:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      action_l2_vs_data:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      action_std:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      policy_entropy:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      actor_grad_norm:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      near_tau_gradient_amplification_ratio:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      near_tau_grad_mass:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      rank_corr_q_vs_core_input:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      rank_corr_q_vs_final_logits:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      smqr_blend_lambda_active:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+    200000:
+      td_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      critic_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      critic_grad_norm:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_penalty:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_data_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_q_rand_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      cql_q_pi_mean:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_overestimation_gap:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      q_data_q_pi_gap:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      actor_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      bc_loss:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      rl_actor_term:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      action_l2_vs_data:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      action_std:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      policy_entropy:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      actor_grad_norm:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      near_tau_gradient_amplification_ratio:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      near_tau_grad_mass:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      rank_corr_q_vs_core_input:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      rank_corr_q_vs_final_logits:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+      smqr_blend_lambda_active:
+        final: null
+        window_mean: null
+        window_n: 0
+        closest_step: 300000
+        status: out_of_window
+    300000:
+      td_loss:
+        final: 0.04038827121257782
+        window_mean: 0.043770009980482215
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      critic_loss:
+        final: 0.3491728901863098
+        window_mean: 0.3524407189266354
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      critic_grad_norm:
+        final: 0.29785504937171936
+        window_mean: .nan
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      cql_penalty:
+        final: 77.19615173339844
+        window_mean: 77.1676731483609
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      q_data_mean:
+        final: 7.306624412536621
+        window_mean: 7.2441240011477
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      cql_q_rand_mean:
+        final: -60.75
+        window_mean: -61.09803921568628
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      cql_q_pi_mean:
+        final: 7.3125
+        window_mean: 7.243872549019608
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      q_overestimation_gap:
+        final: 0.0038003921508789062
+        window_mean: 0.003840366743651091
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      q_data_q_pi_gap:
+        final: -0.005875587463378906
+        window_mean: 0.004546935505726758
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      actor_loss:
+        final: -0.5418103933334351
+        window_mean: -0.5383186655886033
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      bc_loss:
+        final: 0.18455544114112854
+        window_mean: 0.18387257643774443
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      rl_actor_term:
+        final: -1.095476746559143
+        window_mean: -1.0899363966549145
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      action_l2_vs_data:
+        final: 5.352108001708984
+        window_mean: 5.332304702085607
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      action_std:
+        final: 0.09426627308130264
+        window_mean: 0.09479635720159493
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      policy_entropy:
+        final: 5.050181865692139
+        window_mean: 4.916203536239325
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      actor_grad_norm:
+        final: 0.7701396346092224
+        window_mean: 0.918070981315538
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      near_tau_gradient_amplification_ratio:
+        final: 0.9842931628227234
+        window_mean: 0.9836326592108783
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      near_tau_grad_mass:
+        final: 0.9842931628227234
+        window_mean: 0.9836326592108783
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      rank_corr_q_vs_core_input:
+        final: 0.9295521974563599
+        window_mean: 0.9218834171108171
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      rank_corr_q_vs_final_logits:
+        final: 0.7996515035629272
+        window_mean: 0.8072962012945437
+        window_n: 51
+        closest_step: 300000
+        status: ok
+      smqr_blend_lambda_active:
+        final: 0.5
+        window_mean: 0.5
+        window_n: 51
+        closest_step: 300000
+        status: ok
+    500000:
+      td_loss:
+        final: 0.04851125180721283
+        window_mean: 0.044995392128677654
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      critic_loss:
+        final: 0.3581712543964386
+        window_mean: 0.35465672966277245
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      critic_grad_norm:
+        final: 0.23408143222332
+        window_mean: .nan
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      cql_penalty:
+        final: 77.41500091552734
+        window_mean: 77.4153306413405
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      q_data_mean:
+        final: 6.951735496520996
+        window_mean: 6.957895543315623
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      cql_q_rand_mean:
+        final: -61.75
+        window_mean: -61.31683168316832
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      cql_q_pi_mean:
+        final: 6.9375
+        window_mean: 6.952970297029703
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      q_overestimation_gap:
+        final: 0.0034542703069746494
+        window_mean: 0.0038431560445466254
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      q_data_q_pi_gap:
+        final: 0.004860787186771631
+        window_mean: 0.004216911773759835
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      actor_loss:
+        final: -0.538695216178894
+        window_mean: -0.5382072589184979
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      bc_loss:
+        final: 0.18237094581127167
+        window_mean: 0.18238094434289648
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      rl_actor_term:
+        final: -1.0858080387115479
+        window_mean: -1.0853500979961734
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      action_l2_vs_data:
+        final: 5.28875732421875
+        window_mean: 5.289047444220817
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      action_std:
+        final: 0.09492067247629166
+        window_mean: 0.09489011491584305
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      policy_entropy:
+        final: 4.885796546936035
+        window_mean: 4.8749947028585
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      actor_grad_norm:
+        final: 0.8148163557052612
+        window_mean: 0.8180587456958128
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      near_tau_gradient_amplification_ratio:
+        final: 0.9835171103477478
+        window_mean: 0.9834728754392945
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      near_tau_grad_mass:
+        final: 0.9835171103477478
+        window_mean: 0.9834728754392945
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      rank_corr_q_vs_core_input:
+        final: 0.8973389267921448
+        window_mean: 0.8977121244562735
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      rank_corr_q_vs_final_logits:
+        final: 0.8161280155181885
+        window_mean: 0.8014728645286938
+        window_n: 101
+        closest_step: 500000
+        status: ok
+      smqr_blend_lambda_active:
+        final: 0.5
+        window_mean: 0.5
+        window_n: 101
+        closest_step: 500000
+        status: ok
+    750000:
+      td_loss:
+        final: 0.05200943723320961
+        window_mean: 0.049248103863827074
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      critic_loss:
+        final: 0.3629786968231201
+        window_mean: 0.3602177111229094
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      critic_grad_norm:
+        final: 0.3112974762916565
+        window_mean: .nan
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      cql_penalty:
+        final: 77.7423095703125
+        window_mean: 77.74239787488881
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      q_data_mean:
+        final: 6.588969707489014
+        window_mean: 6.600391029131295
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      cql_q_rand_mean:
+        final: -62.5
+        window_mean: -62.46287128712871
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      cql_q_pi_mean:
+        final: 6.59375
+        window_mean: 6.599009900990099
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      q_overestimation_gap:
+        final: 0.004161081276834011
+        window_mean: 0.0038493395238967227
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      q_data_q_pi_gap:
+        final: 0.0024066732730716467
+        window_mean: 0.0023713833738883755
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      actor_loss:
+        final: -0.5209039449691772
+        window_mean: -0.5223941000381319
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      bc_loss:
+        final: 0.18180015683174133
+        window_mean: 0.1813746329286311
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      rl_actor_term:
+        final: -1.0663044452667236
+        window_mean: -1.0665180116596789
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      action_l2_vs_data:
+        final: 5.2722039222717285
+        window_mean: 5.259864438878427
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      action_std:
+        final: 0.09480909258127213
+        window_mean: 0.09488501709581602
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      policy_entropy:
+        final: 4.825018405914307
+        window_mean: 4.83598538200454
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      actor_grad_norm:
+        final: 0.7292535901069641
+        window_mean: 0.7117102966450228
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      near_tau_gradient_amplification_ratio:
+        final: 0.980772852897644
+        window_mean: 0.9806645872569321
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      near_tau_grad_mass:
+        final: 0.980772852897644
+        window_mean: 0.9806645872569321
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      rank_corr_q_vs_core_input:
+        final: 0.8194082379341125
+        window_mean: 0.818134080655504
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      rank_corr_q_vs_final_logits:
+        final: 0.8182780146598816
+        window_mean: 0.8210373249384436
+        window_n: 101
+        closest_step: 750000
+        status: ok
+      smqr_blend_lambda_active:
+        final: 0.5
+        window_mean: 0.5
+        window_n: 101
+        closest_step: 750000
+        status: ok
+    1000000:
+      td_loss:
+        final: 0.050631746649742126
+        window_mean: 0.048088530188097674
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      critic_loss:
+        final: 0.36240294575691223
+        window_mean: 0.3597588398877312
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      critic_grad_norm:
+        final: 0.182935431599617
+        window_mean: .nan
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      cql_penalty:
+        final: 77.94279479980469
+        window_mean: 77.91757471421185
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      q_data_mean:
+        final: 6.409739971160889
+        window_mean: 6.412445358201569
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      cql_q_rand_mean:
+        final: -63.5
+        window_mean: -63.48529411764706
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      cql_q_pi_mean:
+        final: 6.40625
+        window_mean: 6.408088235294118
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      q_overestimation_gap:
+        final: 0.0039308927953243256
+        window_mean: 0.0038541221680740514
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      q_data_q_pi_gap:
+        final: 0.0006780957919545472
+        window_mean: 0.0010485140312584025
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      actor_loss:
+        final: -0.5140485167503357
+        window_mean: -0.5119328755958408
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      bc_loss:
+        final: 0.18043337762355804
+        window_mean: 0.18072736789198482
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      rl_actor_term:
+        final: -1.0553487539291382
+        window_mean: -1.0541149845310287
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      action_l2_vs_data:
+        final: 5.232568264007568
+        window_mean: 5.241093654258578
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      action_std:
+        final: 0.09498284757137299
+        window_mean: 0.09489179241891
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      policy_entropy:
+        final: 4.833751201629639
+        window_mean: 4.818969820059982
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      actor_grad_norm:
+        final: 0.6146866083145142
+        window_mean: 0.6296210020196205
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      near_tau_gradient_amplification_ratio:
+        final: 0.9795100688934326
+        window_mean: 0.9794039691195768
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      near_tau_grad_mass:
+        final: 0.9795100688934326
+        window_mean: 0.9794039691195768
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      rank_corr_q_vs_core_input:
+        final: 0.7804237008094788
+        window_mean: 0.779454393714082
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      rank_corr_q_vs_final_logits:
+        final: 0.8441145420074463
+        window_mean: 0.8441768534043256
+        window_n: 51
+        closest_step: 1000000
+        status: ok
+      smqr_blend_lambda_active:
+        final: 0.5
+        window_mean: 0.5
+        window_n: 51
+        closest_step: 1000000
+        status: ok
