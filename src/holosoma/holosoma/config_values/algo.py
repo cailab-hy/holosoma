@@ -1,3 +1,5 @@
+import dataclasses
+
 from holosoma.config_types.algo import (
     FastSACAlgoConfig,
     FastSACConfig,
@@ -182,8 +184,20 @@ offline_cql = OfflineCQLAlgoConfig(
     ),
 )
 
+offline_smqr = dataclasses.replace(
+    offline_cql,
+    _target_="holosoma.agents.offline_rl.algorithms.smqr.agent.SMQRAgent",
+)
+
+offline_smqr_sg = dataclasses.replace(
+    offline_cql,
+    _target_="holosoma.agents.offline_rl.algorithms.smqr_sg.agent.SMQRSGAgent",
+)
+
 DEFAULTS = {
     "ppo": ppo,
     "fast_sac": fast_sac,
     "offline_cql": offline_cql,
+    "offline_smqr": offline_smqr,
+    "offline_smqr_sg": offline_smqr_sg,
 }

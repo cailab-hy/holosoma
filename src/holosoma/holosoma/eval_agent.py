@@ -104,6 +104,9 @@ def _write_eval_results(
     successes = stats["success"]
     reasons = stats["reason"]
     done_flags = stats["done"]
+    episode_reward_sums = stats.get("episode_reward_sum", rewards)
+    episode_discounted_returns = stats.get("episode_discounted_return", rewards)
+    return_gamma = float(stats.get("return_gamma", 0.99))
 
     # ── Paired-analysis tags ───────────────────────────────────
     _algo_name = getattr(eval_run_cfg, "algo_name", "unknown") if eval_run_cfg else "unknown"
@@ -188,6 +191,7 @@ def _write_eval_results(
             "env_id", "episode_id", "checkpoint_step", "algo_name",
             # core episode
             "episode_reward", "episode_length", "success", "done_reason", "episode_completed",
+            "episode_reward_sum", "episode_discounted_return",
             # v1 diagnostics (preserved)
             "min_obj2goal_dist", "max_obj_height",
             "first_grasp_step", "first_lift_step",
@@ -222,6 +226,8 @@ def _write_eval_results(
                 int(bool(successes[i])),
                 reasons[i] if reasons[i] else "unknown",
                 int(bool(done_flags[i])),
+                float(episode_reward_sums[i]),
+                float(episode_discounted_returns[i]),
                 _fmt(min_obj2goal[i]),
                 _fmt(max_obj_height[i]),
                 first_grasp_step[i],
@@ -250,8 +256,13 @@ def _write_eval_results(
             ])
 
     rewards_np = np.asarray(rewards, dtype=np.float64)
+    reward_sums_np = np.asarray(episode_reward_sums, dtype=np.float64)
+    discounted_returns_np = np.asarray(episode_discounted_returns, dtype=np.float64)
+    lengths_np = np.asarray(lengths, dtype=np.float64)
     success_np = np.asarray(successes, dtype=np.bool_)
     success_count = int(success_np.sum())
+    envs_finished = int(sum(1 for d in done_flags if d))
+    envs_unfinished = num_envs - envs_finished
 
     def _percentile(arr, q):
         if arr.size == 0:
@@ -311,10 +322,33 @@ def _write_eval_results(
         "p10_reward": _percentile(rewards_np, 10.0),
         "p50_reward": _percentile(rewards_np, 50.0),
         "p90_reward": _percentile(rewards_np, 90.0),
-        "mean_length": float(np.asarray(lengths, dtype=np.float64).mean()) if num_envs > 0 else 0.0,
+        "mean_length": float(lengths_np.mean()) if num_envs > 0 else 0.0,
+        "episode_reward_sum_mean": float(reward_sums_np.mean()) if num_envs > 0 else 0.0,
+        "episode_reward_sum_std": float(reward_sums_np.std()) if num_envs > 0 else 0.0,
+        "episode_reward_sum_min": float(reward_sums_np.min()) if num_envs > 0 else 0.0,
+        "episode_reward_sum_max": float(reward_sums_np.max()) if num_envs > 0 else 0.0,
+        "episode_discounted_return_mean": float(discounted_returns_np.mean()) if num_envs > 0 else 0.0,
+        "episode_discounted_return_std": float(discounted_returns_np.std()) if num_envs > 0 else 0.0,
+        "episode_discounted_return_min": float(discounted_returns_np.min()) if num_envs > 0 else 0.0,
+        "episode_discounted_return_max": float(discounted_returns_np.max()) if num_envs > 0 else 0.0,
+        "episode_length_mean": float(lengths_np.mean()) if num_envs > 0 else 0.0,
+        "episode_length_std": float(lengths_np.std()) if num_envs > 0 else 0.0,
         "success_count": success_count,
         "success_rate": float(success_count) / num_envs if num_envs > 0 else 0.0,
-        "envs_finished": int(sum(1 for d in done_flags if d)),
+        "success_rate_attempted": float(success_count) / num_envs if num_envs > 0 else 0.0,
+        "success_rate_finished": float(success_count) / envs_finished if envs_finished > 0 else 0.0,
+        "success_std": float(success_np.astype(np.float64).std()) if num_envs > 0 else 0.0,
+        "envs_finished": envs_finished,
+        "envs_unfinished": envs_unfinished,
+        "failure_count": envs_finished - success_count,
+        "timeout_count": sum(1 for r in reasons if r == "timeout"),
+        "bad_tracking_count": sum(1 for r in reasons if "bad_tracking" in r),
+        "max_eval_steps_unfinished_count": sum(1 for r in reasons if r == "max_eval_steps_unfinished"),
+        "failure_reason_counts": dict(__import__("collections").Counter(reasons)),
+        "success_rate_denominator": "num_envs",
+        "success_rate_finished_denominator": "envs_finished",
+        "unfinished_envs_counted_as_failure": True,
+        "return_gamma": return_gamma,
         # ── v1 diagnostics ────────────────────────────────────
         "grasp_rate_v1": grasp_rate_v1,
         "lift_rate_v1": lift_rate_v1,
@@ -441,45 +475,79 @@ def run_eval_with_tyro(
     )
 
     # ── Per-env summary (single-episode-per-env mode) ──────────────
-    if eval_run_cfg is not None and eval_run_cfg.single_episode_per_env:
-        stats = getattr(algo, "_last_per_env_stats", None)
-        if stats is None:
+    # ── Per-env summary — always reported when stats are available ──────────
+    # _last_per_env_stats is populated by run_evaluate_policy() for both
+    # single_episode_per_env=True and single_episode_per_env=False modes.
+    stats = getattr(algo, "_last_per_env_stats", None)
+    if stats is None:
+        if eval_run_cfg is not None and eval_run_cfg.single_episode_per_env:
             logger.warning(
                 "[Eval] single_episode_per_env requested but agent did not "
                 "produce per-env stats. The current algo may not support it."
             )
         else:
-            num_envs = int(stats["num_envs"])
-            import numpy as _np
-
-            rewards_np = _np.asarray(stats["reward"], dtype=_np.float64)
-            success_np = _np.asarray(stats["success"], dtype=_np.bool_)
-            success_count = int(success_np.sum())
-            mean_r = float(rewards_np.mean()) if num_envs else 0.0
-            std_r = float(rewards_np.std()) if num_envs else 0.0
-            success_rate = (success_count / num_envs * 100.0) if num_envs else 0.0
-            summary_line = (
-                f"[Eval Summary] num_envs={num_envs}, "
-                f"mean_reward={mean_r:.3f}, std_reward={std_r:.3f}, "
-                f"success_count={success_count}, success_rate={success_rate:.2f}%"
+            logger.warning(
+                "[Eval] No per-env stats available — the agent's evaluate_policy "
+                "did not populate _last_per_env_stats."
             )
-            logger.info(summary_line)
-            print(summary_line)
+    else:
+        import numpy as _np
 
-            if eval_run_cfg.save_eval_results:
-                out_dir = Path(
-                    eval_run_cfg.eval_results_dir
-                    if eval_run_cfg.eval_results_dir
-                    else eval_log_dir
-                )
-                csv_path, summary_path, summary = _write_eval_results(
-                    stats,
-                    out_dir,
-                    checkpoint_path,
-                    eval_run_cfg=_resolved_run_cfg if _resolved_run_cfg is not None else eval_run_cfg,
-                )
-                logger.info(f"[Eval] Per-env CSV written to: {csv_path}")
-                logger.info(f"[Eval] Summary JSON written to: {summary_path}")
+        num_envs = int(stats["num_envs"])
+        rewards_np = _np.asarray(stats["reward"], dtype=_np.float64)
+        success_count = int(
+            stats.get(
+                "success_count",
+                int(_np.asarray(stats["success"], dtype=_np.bool_).sum()),
+            )
+        )
+        envs_finished = int(stats.get("envs_finished", sum(1 for d in stats["done"] if d)))
+        envs_unfinished = int(stats.get("envs_unfinished", num_envs - envs_finished))
+        success_rate = float(
+            stats.get("success_rate", success_count / num_envs if num_envs else 0.0)
+        )
+        success_rate_finished = float(
+            stats.get(
+                "success_rate_finished",
+                success_count / envs_finished if envs_finished else 0.0,
+            )
+        )
+        bad_tracking_count = int(stats.get("bad_tracking_count", 0))
+        timeout_count = int(stats.get("timeout_count", 0))
+        max_eval_steps_unfinished_count = int(stats.get("max_eval_steps_unfinished_count", 0))
+        mean_r = float(rewards_np.mean()) if num_envs else 0.0
+        std_r = float(rewards_np.std()) if num_envs else 0.0
+        summary_line = (
+            f"[Eval Summary] "
+            f"num_envs={num_envs}  "
+            f"mean_reward={mean_r:.3f}  std_reward={std_r:.3f}  "
+            f"success_count={success_count}  "
+            f"success_rate={success_rate * 100.0:.2f}%  "
+            f"[denominator=num_envs]  "
+            f"envs_finished={envs_finished}  "
+            f"envs_unfinished={envs_unfinished}  "
+            f"success_rate_finished={success_rate_finished * 100.0:.2f}%  "
+            f"bad_tracking={bad_tracking_count}  "
+            f"timeout={timeout_count}  "
+            f"max_eval_steps_unfinished={max_eval_steps_unfinished_count}"
+        )
+        logger.info(summary_line)
+        print(summary_line)
+
+        if eval_run_cfg is not None and eval_run_cfg.save_eval_results:
+            out_dir = Path(
+                eval_run_cfg.eval_results_dir
+                if eval_run_cfg.eval_results_dir
+                else eval_log_dir
+            )
+            csv_path, summary_path, _summary = _write_eval_results(
+                stats,
+                out_dir,
+                checkpoint_path,
+                eval_run_cfg=_resolved_run_cfg if _resolved_run_cfg is not None else eval_run_cfg,
+            )
+            logger.info(f"[Eval] Per-env CSV written to: {csv_path}")
+            logger.info(f"[Eval] Summary JSON written to: {summary_path}")
 
     # Cleanup simulation app
     if simulation_app:

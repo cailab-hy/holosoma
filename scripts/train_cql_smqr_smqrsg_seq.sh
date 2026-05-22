@@ -18,7 +18,7 @@ run_step() {
 run_step "CQL" \
   python src/holosoma/holosoma/train_agent.py \
     exp:g1-29dof-wbt-offline-cql-w-object \
-    logger:wandb \
+    algo:offline-cql \
     --training.seed 1 \
     --training.name exp_cql_seed1 \
     --algo.config.dataset-path offline_data/fastsac_dataset.h5 \
@@ -35,7 +35,7 @@ run_step "CQL" \
 run_step "SMQR" \
   python src/holosoma/holosoma/train_agent.py \
     exp:g1-29dof-wbt-offline-cql-w-object \
-    logger:wandb \
+    algo:offline-smqr \
     --training.seed 1 \
     --training.name exp_smqr_seed1 \
     --algo.config.dataset-path offline_data/fastsac_dataset.h5 \
@@ -56,7 +56,7 @@ run_step "SMQR" \
 run_step "SMQR-SG" \
   python src/holosoma/holosoma/train_agent.py \
     exp:g1-29dof-wbt-offline-cql-w-object \
-    logger:wandb \
+    algo:offline-smqr-sg \
     --training.seed 1 \
     --training.name exp_smqr_sg_seed1 \
     --algo.config.dataset-path offline_data/fastsac_dataset.h5 \
@@ -73,5 +73,5 @@ run_step "SMQR-SG" \
     --algo.config.smqr-blend-lambda-end 0.5 \
     --algo.config.cql-loss-scale 0.5 \
     --algo.config.bc-weight 3.0
-
+    
 echo "[SEQ-TRAIN] ALL DONE"
