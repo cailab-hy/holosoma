@@ -271,6 +271,7 @@ cql = CQLAlgoConfig(
         use_layer_norm=True,
         num_q_networks=2,
         max_grad_norm=0.0,
+        use_gpu_cache = True,
         amp=True,
         amp_dtype="bf16",
         weight_decay=0.001,
