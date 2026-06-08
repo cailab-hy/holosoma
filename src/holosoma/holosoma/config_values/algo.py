@@ -107,6 +107,7 @@ fast_sac = FastSACAlgoConfig(
         weight_decay=0.001,
         save_interval=1000,
         logging_interval=100,
+        offline_dataset_path="offline_data/fastsac_dataset.h5",
         encoder_obs_key="perception_obs",
         encoder_obs_shape=(1, 13, 9),
         use_cnn_encoder=False,

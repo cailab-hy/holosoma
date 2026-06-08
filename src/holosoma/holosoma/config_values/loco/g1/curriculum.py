@@ -82,4 +82,8 @@ g1_29dof_curriculum_fast_sac_data = CurriculumManagerCfg(
     step_terms={},
 )
 
-__all__ = ["g1_29dof_curriculum", "g1_29dof_curriculum_fast_sac"]
+__all__ = [
+    "g1_29dof_curriculum",
+    "g1_29dof_curriculum_fast_sac",
+    "g1_29dof_curriculum_fast_sac_data",
+]

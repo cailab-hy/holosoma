@@ -293,6 +293,9 @@ class FastSACConfig:
     logging_interval: int = 100
     """the interval to log the metrics"""
 
+    offline_dataset_path: str = "offline_data/fastsac_dataset.h5"
+    """path where FastSAC exports transitions for offline RL"""
+
     encoder_obs_key: str = "perception_obs"
     """the key of the encoder observation. only valid if use_cnn_encoder is True"""
 

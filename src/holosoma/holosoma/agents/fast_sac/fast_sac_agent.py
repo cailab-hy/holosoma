@@ -887,7 +887,7 @@ class FastSACAgent(BaseAlgo):
         pbar = tqdm.tqdm(total=args.num_learning_iterations, initial=self.global_step)
         save_h5 = self.is_main_process
         if save_h5:
-            init_transition_saver("offline_data/fastsac_dataset.h5", flush_every=1)
+            init_transition_saver(args.offline_dataset_path, flush_every=1)
         try:
             while self.global_step <= args.num_learning_iterations:
                 # Synchronize curriculum metrics across GPUs before rollout
