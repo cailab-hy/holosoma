@@ -120,7 +120,7 @@ g1_29dof_offline_sac = ExperimentConfig(
     algo=replace(
         algo.cql,
         config=replace(
-            algo.offline_sac.config,
+            algo.cql.config,
             num_learning_iterations=50000,
             use_symmetry=True,
             offline_dataset_path="offline_data/g1_29dof_loco_fastsac_dataset.h5",
