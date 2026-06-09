@@ -213,9 +213,18 @@ def _flatten_transition(prefix: str, value, out: dict[str, Any]) -> None:
 
 
 def _convert_h5_field(name: str, value) -> np.ndarray:
-    if name.endswith(("truncations", "dones", "done_bad_tracking", "done_motion_ends", "done_timeout")):
+    if name.endswith(
+        (
+            "truncations",
+            "dones",
+            "done_bad_tracking",
+            "done_motion_ends",
+            "done_timeout",
+            "episode_data_complete",
+        )
+    ):
         return _as_uint8(value)
-    if name.endswith(("episode_step", "global_step")):
+    if name.endswith(("episode_step", "global_step", "episode_id", "episode_length")):
         return _as_int64(value)
     return _as_float32(value)
 
@@ -855,6 +864,20 @@ class FastSACAgent(BaseAlgo):
         self.global_step = torch_checkpoint["global_step"]
         self._restore_env_state(torch_checkpoint.get("env_state"))
 
+    def _init_transition_exporter(self) -> bool:
+        if not self.is_main_process:
+            return False
+        init_transition_saver(self.config.offline_dataset_path, flush_every=1)
+        return True
+
+    def _export_transition_batch(self, transition_to_save: TensorDict, *, dones: torch.Tensor, infos: dict[str, Any]) -> None:
+        num_to_save = min(64, self.env.num_envs)
+        rand_idx = torch.randperm(self.env.num_envs, device=self.device)[:num_to_save]
+        save_transition(transition_to_save[rand_idx].clone().cpu())
+
+    def _close_transition_exporter(self) -> None:
+        close_transition_saver()
+
     def learn(self) -> None:
         args = self.config
         device = self.device
@@ -885,9 +908,7 @@ class FastSACAgent(BaseAlgo):
         actor_loss = torch.tensor(0.0, device=device)
         actor_grad_norm = torch.tensor(0.0, device=device)
         pbar = tqdm.tqdm(total=args.num_learning_iterations, initial=self.global_step)
-        save_h5 = self.is_main_process
-        if save_h5:
-            init_transition_saver(args.offline_dataset_path, flush_every=1)
+        export_transitions = self._init_transition_exporter()
         try:
             while self.global_step <= args.num_learning_iterations:
                 # Synchronize curriculum metrics across GPUs before rollout
@@ -1002,11 +1023,8 @@ class FastSACAgent(BaseAlgo):
                         batch_size=(env.num_envs,),
                         device=device,
                     )
-                    if save_h5:
-                        # wonwoo: keep the online replay untouched and only sample a random subset for offline export.
-                        num_to_save = min(64, env.num_envs)
-                        rand_idx = torch.randperm(env.num_envs, device=device)[:num_to_save]
-                        save_transition(transition_to_save[rand_idx].clone().cpu())
+                    if export_transitions:
+                        self._export_transition_batch(transition_to_save, dones=dones, infos=infos)
                     obs = next_obs
                     critic_obs = next_critic_obs
 
@@ -1091,8 +1109,8 @@ class FastSACAgent(BaseAlgo):
                 self.global_step += 1
                 pbar.update(1)
         finally:
-            if save_h5:
-                close_transition_saver()
+            if export_transitions:
+                self._close_transition_exporter()
         if self.is_main_process:
             self.save(os.path.join(self.log_dir, f"model_{self.global_step:07d}.pt"))
             self.export(onnx_file_path=os.path.join(self.log_dir, f"model_{self.global_step:07d}.onnx"))

@@ -108,12 +108,19 @@ fast_sac = FastSACAlgoConfig(
         save_interval=1000,
         logging_interval=100,
         offline_dataset_path="offline_data/fastsac_dataset.h5",
+        episode_data_active_envs=64,
+        episode_data_mc_gamma=None,
         encoder_obs_key="perception_obs",
         encoder_obs_shape=(1, 13, 9),
         use_cnn_encoder=False,
         actor_obs_keys=["actor_obs"],
         critic_obs_keys=["critic_obs"],
     ),
+)
+
+fast_sac_episode_data = dataclasses.replace(
+    fast_sac,
+    _target_="holosoma.agents.fast_sac.fast_sac_episode_data.FastSACEpisodeDataAgent",
 )
 
 offline_sac = OfflineSACAlgoConfig(
@@ -425,6 +432,7 @@ td3_bc = TD3BCAlgoConfig(
 DEFAULTS = {
     "ppo": ppo,
     "fast_sac": fast_sac,
+    "fast_sac_episode_data": fast_sac_episode_data,
     "offline_sac": offline_sac,
     "codac": codac,
     "cql": cql,

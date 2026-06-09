@@ -296,6 +296,12 @@ class FastSACConfig:
     offline_dataset_path: str = "offline_data/fastsac_dataset.h5"
     """path where FastSAC exports transitions for offline RL"""
 
+    episode_data_active_envs: int = 64
+    """number of active environments recorded by FastSACEpisodeDataAgent"""
+
+    episode_data_mc_gamma: float | None = None
+    """discount used for exported mc_return; None uses gamma"""
+
     encoder_obs_key: str = "perception_obs"
     """the key of the encoder observation. only valid if use_cnn_encoder is True"""
 
