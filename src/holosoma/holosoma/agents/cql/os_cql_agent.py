@@ -629,12 +629,14 @@ class OS_CQLAgent(BaseAlgo):
 
                 assert lse1.shape == q1.shape, (lse1.shape, q1.shape)
                 assert lse2.shape == q2.shape, (lse2.shape, q2.shape)
+                
+                raw_gap1  = lse1- q1
+                raw_gap2  = lse2- q2
+                
                 with torch.no_grad():
                     active_rate1 = (raw_gap1 > self.cql_gap_margin).float().mean()
                     active_rate2 = (raw_gap2 > self.cql_gap_margin).float().mean()
                     active_rate = 0.5*active_rate1+0.5*active_rate2
-                raw_gap1  = lse1- q1
-                raw_gap2  = lse2- q2
 
                 if self._use_softplus:
                     diff1 = self.cql_gap_softplus_tau * F.softplus(
