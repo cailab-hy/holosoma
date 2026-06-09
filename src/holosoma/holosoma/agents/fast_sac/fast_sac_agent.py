@@ -1004,7 +1004,7 @@ class FastSACAgent(BaseAlgo):
                     )
                     if save_h5:
                         # wonwoo: keep the online replay untouched and only sample a random subset for offline export.
-                        num_to_save = min(12, env.num_envs)
+                        num_to_save = min(64, env.num_envs)
                         rand_idx = torch.randperm(env.num_envs, device=device)[:num_to_save]
                         save_transition(transition_to_save[rand_idx].clone().cpu())
                     obs = next_obs
