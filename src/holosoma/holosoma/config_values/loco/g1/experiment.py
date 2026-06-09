@@ -149,11 +149,11 @@ g1_29dof_cql = ExperimentConfig(
     ),
 )
 
-g1_29dof_offline_sac = ExperimentConfig(
+g1_29dof_os_cql = ExperimentConfig(
     env_class="holosoma.envs.locomotion.locomotion_manager.LeggedRobotLocomotionManager",
     training=TrainingConfig(
         project="hv-g1-manager",
-        name="g1_29dof_offline_sac_manager",
+        name="g1_29dof_os_cql_weight_5_manager",
         num_envs=512,
         eval_num_episodes=1,
     ),
@@ -163,8 +163,9 @@ g1_29dof_offline_sac = ExperimentConfig(
             algo.cql.config,
             num_learning_iterations=50000,
             use_symmetry=True,
+            cql_weight=5.0,
+            cql_num_action_samples=10,
             offline_dataset_path="offline_data/g1_29dof_loco_fastsac_dataset.h5",
-            cql_weight = 0.0,
         ),
     ),
     simulator=simulator.isaacgym,
@@ -189,5 +190,5 @@ __all__ = [
     "g1_29dof_fast_sac_data",
     "g1_29dof_fast_sac_episode_data",
     "g1_29dof_cql",
-    "g1_29dof_offline_sac",
+    "g1_29dof_os_cql",
 ]

@@ -727,6 +727,256 @@ class CQLConfig:
 #============================================================================================
 
 
+#===================================== FOR CQL ===============================================
+@dataclass(frozen=True)
+class OS_CQLConfig:
+    num_learning_iterations: int = 25000
+    """total timesteps of the experiments"""
+
+    critic_learning_rate: float = 3e-4
+    """the learning rate of the critic"""
+
+    actor_learning_rate: float = 1e-4
+    """the learning rate for the actor"""
+
+    alpha_learning_rate: float = 3e-4
+    """the learning rate for the alpha"""
+
+    buffer_size: int = 1024
+    """the replay memory buffer size per environment"""
+
+    num_steps: int = 1
+    """the number of steps to use for the multi-step return"""
+
+    gamma: float = 0.97
+    """the discount factor gamma"""
+
+    tau: float = 0.125
+    """target smoothing coefficient (default: 0.005)"""
+
+    batch_size: int = 2048
+    """the batch size of sample from the replay memory"""
+
+    learning_starts: int = 10
+    """timestep to start learning"""
+
+    policy_frequency: int = 4
+    """the frequency of training policy (delayed)"""
+
+    num_updates: int = 8
+    """the number of updates to perform per step"""
+
+    eval_interval: int = 1000
+    """steps per offline_learn() call when max_steps is not provided"""
+
+    cql_num_action_samples: int = 10
+    """number of repeated action samples per state for conservative regularization"""
+
+    cql_temperature: float = 1.0
+    """temperature used in conservative log-sum-exp aggregation"""
+
+    cql_weight: float = 5.0
+    """weight of conservative quantile regularization"""
+
+    use_lagrange: bool = False
+    """whether to use Lagrange multiplier auto-tuning for CQL conservative loss"""
+
+    cql_target_action_gap: float = 10.0
+    """target CQL gap threshold used by Lagrange mode (higher -> less conservative)"""
+
+    cql_lagrange_learning_rate: float = 3e-4
+    """learning rate for CQL Lagrange multiplier optimizer"""
+
+    cql_lagrange_init: float = 1.0
+    """initial value of CQL Lagrange multiplier"""
+
+    cql_lagrange_max: float = 1e6
+    """maximum clamp value for CQL Lagrange multiplier"""
+
+    use_curr_tail_penalty: bool = False
+    """whether to add an extra top-k tail penalty on (q_curr - curr_logp)"""
+
+    curr_tail_weight: float = 0.0
+    """weight for the additional current-proposal top-k tail penalty"""
+
+    curr_tail_top_frac: float = 0.2
+    """top fraction used for top-k tail extraction from current proposal samples"""
+
+    bc_weight: float = 0.0
+    """optional actor BC regularization weight (actor_loss += bc_weight * MSE(pi(s), a_data))"""
+
+    target_entropy_ratio: float = 0.0
+    """the ratio of the target entropy to the number of actions"""
+
+    risk_mode: str = "neutral"
+    """risk objective for policy/value aggregation: neutral or cvar"""
+
+    cvar_alpha: float = 0.1
+    """CVaR alpha used only when risk_mode == cvar"""
+
+    use_risk_aware_cql: bool = False
+    """whether to train a separate risk critic and penalize risky actor actions"""
+
+    risk_tau : float = 0.01
+
+    risk_learning_rate: float = 3e-4
+    """learning rate for the separate risk critic"""
+
+    risk_lambda: float = 0.05
+    """actor penalty weight for predicted risk Q values"""
+
+    risk_cost_beta: float = 0.7
+    """margin start ratio for dense tracking-risk cost, usually 0.6-0.8"""
+
+    risk_bad_tracking_terminal_cost: float = 1.0
+    """sparse terminal cost added only when done_bad_tracking is true"""
+
+    risk_legacy_terminal_cost: float = 0.0
+    """optional fallback cost for old datasets: cost for done & !truncation with no explicit reason flags"""
+
+    risk_motion_ends_bootstrap: bool = False
+    """whether risk critic bootstraps across motion_ends clip boundaries"""
+
+    risk_root_pos_threshold: float = 0.5
+    """root position error threshold used to scale dense risk cost"""
+
+    risk_root_ori_threshold: float = 0.8
+    """root orientation error threshold used to scale dense risk cost"""
+
+    risk_body_pos_threshold: float = 0.25
+    """tracked body max-position error threshold used to scale dense risk cost"""
+
+    risk_object_pos_threshold: float = 0.25
+    """object position error threshold used to scale dense risk cost"""
+
+    risk_object_ori_threshold: float = 0.8
+    """object orientation error threshold used to scale dense risk cost"""
+
+    risk_root_pos_weight: float = 1.0
+    """dense risk cost weight for root position margin"""
+
+    risk_root_ori_weight: float = 1.0
+    """dense risk cost weight for root orientation margin"""
+
+    risk_body_pos_weight: float = 1.0
+    """dense risk cost weight for max tracked-body position margin"""
+
+    risk_object_pos_weight: float = 1.0
+    """dense risk cost weight for object position margin"""
+
+    risk_object_ori_weight: float = 1.0
+    """dense risk cost weight for object orientation margin"""
+
+    num_atoms: int = 101
+    """number of quantile fractions (kept name for backward compatibility)"""
+
+    v_min: float = -20.0
+    """the minimum value of the support"""
+
+    v_max: float = 20.0
+    """the maximum value of the support"""
+
+    quantile_huber_kappa: float = 1.0
+    """Huber threshold for quantile regression loss"""
+
+    critic_hidden_dim: int = 768
+    """the hidden dimension of the critic network"""
+
+    actor_hidden_dim: int = 512
+    """the hidden dimension of the actor network"""
+
+    use_symmetry: bool = False
+    """whether to use symmetry"""
+
+    alpha_init: float = 0.001
+    """the initial value of the alpha"""
+
+    use_autotune: bool = True
+    """whether to use autotune for the alpha"""
+
+    use_tanh: bool = True
+    """whether to use tanh for the action"""
+
+    log_std_max: float = 0.0
+    """the maximum value of the log std"""
+
+    log_std_min: float = -5.0
+    """the minimum value of the log std"""
+
+    compile: bool = True
+    """whether to use torch.compile."""
+
+    obs_normalization: bool = True
+    """whether to enable observation normalization"""
+
+    use_layer_norm: bool = True
+    """whether to use layer normalization"""
+
+    num_q_networks: int = 2
+    """number of Q-networks to ensemble"""
+
+    max_grad_norm: float = 0.0
+    """the maximum gradient norm"""
+
+    amp: bool = True
+    """whether to use amp"""
+
+    amp_dtype: str = "bf16"
+    """the dtype of the amp"""
+
+    weight_decay: float = 0.001
+    """the weight decay of the optimizer"""
+
+    save_interval: int = 1000
+    """the interval to save the model"""
+
+    logging_interval: int = 100
+    """the interval to log the metrics"""
+
+    offline_dataset_path: str = "offline_data/fastsac_dataset.h5"
+    """path to fixed offline dataset"""
+
+    offline_block_size: int = 65536
+    """number of contiguous transitions to read per HDF5 block refill"""
+
+    offline_buffer_capacity: int = 262144
+    """maximum number of transitions held in CPU RAM shuffle buffer"""
+
+    offline_refill_threshold: int = 65536
+    """refill shuffle buffer when remaining unsampled transitions fall below this threshold"""
+
+    offline_pin_memory: bool = True
+    """pin sampled CPU batches before CPU->GPU transfer"""
+
+    offline_shuffle_block_order: bool = True
+    """shuffle the order of contiguous HDF5 blocks each pass while keeping each block read contiguous"""
+
+    use_gpu_cache: bool = False
+    """whether to load the full offline dataset into GPU memory and sample directly on-device"""
+
+    encoder_obs_key: str = "perception_obs"
+    """the key of the encoder observation. only valid if use_cnn_encoder is True"""
+
+    encoder_obs_shape: tuple[int, int, int] = (1, 13, 9)
+    """the shape of the encoder observation. only valid if use_cnn_encoder is True"""
+
+    use_cnn_encoder: bool = False
+    """whether to use CNN for the encoder"""
+
+    actor_warmup_steps: int = 500
+    """number of initial global steps where actor update is skipped"""
+
+    actor_obs_keys: List[str] = field(default_factory=lambda: ["actor_obs"])
+    critic_obs_keys: List[str] = field(default_factory=lambda: ["critic_obs"])
+
+    cql_gap_margin : int = 5
+    cql_gap_softplus_tau : int = 10
+    use_softplus : bool = False
+    """For One-side Conservative Q-learning"""
+
+#============================================================================================
+
+
 @dataclass(frozen=True)
 class CQLSupportAwareConfig(CQLConfig):
     """CQL config with support-aware Bellman backup selection."""
@@ -1101,6 +1351,20 @@ class CQLAlgoConfig:
     config: CQLConfig
     """Algorithm-specific configuration."""
 
+@dataclass(frozen=True)
+class OS_CQLAlgoConfig:
+    """Configuration for algorithm wrapper."""
+
+    _target_: str
+    """Target algorithm class."""
+
+    _recursive_: bool
+    """Whether to recursively instantiate."""
+
+    config: OS_CQLConfig
+    """Algorithm-specific configuration."""
+
+
 
 @dataclass(frozen=True)
 class CQLSupportAwareAlgoConfig:
@@ -1164,6 +1428,7 @@ AlgoInitConfig = Union[
     OfflineSACConfig,
     CODACConfig,
     CQLConfig,
+    OS_CQLConfig,
     CQLSupportAwareConfig,
     IQLConfig,
     BCConfig,
@@ -1175,6 +1440,7 @@ AlgoConfig = Union[
     FastSACAlgoConfig,
     OfflineSACAlgoConfig,
     CODACAlgoConfig,
+    CQLAlgoConfig,
     CQLAlgoConfig,
     CQLSupportAwareAlgoConfig,
     IQLAlgoConfig,
