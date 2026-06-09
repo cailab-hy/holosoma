@@ -1441,7 +1441,7 @@ AlgoConfig = Union[
     OfflineSACAlgoConfig,
     CODACAlgoConfig,
     CQLAlgoConfig,
-    CQLAlgoConfig,
+    OS_CQLAlgoConfig,
     CQLSupportAwareAlgoConfig,
     IQLAlgoConfig,
     BCAlgoConfig,

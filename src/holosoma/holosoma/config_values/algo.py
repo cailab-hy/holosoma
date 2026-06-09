@@ -298,7 +298,7 @@ cql = CQLAlgoConfig(
 
 # os cql
 
-os_cql = CQLAlgoConfig(
+os_cql = OS_CQLAlgoConfig(
     _target_="holosoma.agents.cql.os_cql_agent.OS_CQLAgent",
     _recursive_=False,
     config=OS_CQLConfig(
