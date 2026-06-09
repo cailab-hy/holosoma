@@ -295,20 +295,34 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
                 "Use an offline algorithm config (e.g., cql, iql, bc, or td3_bc)."
             )
 
+        evaluate_vectorized_episodes_fn = getattr(algo, "evaluate_vectorized_episodes", None)
         evaluate_one_episode_fn = getattr(algo, "evaluate_one_episode", None)
         max_eval_steps = tyro_config.training.max_eval_steps if tyro_config.training.max_eval_steps is not None else 1000
         eval_num_episodes = max(1, int(tyro_config.training.eval_num_episodes))
         while algo.global_step < algo.config.num_learning_iterations:
             offline_learn_fn()
-            if callable(evaluate_one_episode_fn):
+            if callable(evaluate_vectorized_episodes_fn) or callable(evaluate_one_episode_fn):
                 eval_results: list[dict[str, Any]] = []
-                for _ in range(eval_num_episodes):
-                    eval_result = evaluate_one_episode_fn(
-                        max_eval_steps=max_eval_steps,
-                        use_early_termination=False,
-                    )
-                    if isinstance(eval_result, dict):
-                        eval_results.append(eval_result)
+                if callable(evaluate_vectorized_episodes_fn):
+                    for _ in range(eval_num_episodes):
+                        eval_batch_results = evaluate_vectorized_episodes_fn(
+                            max_eval_steps=max_eval_steps,
+                            use_early_termination=False,
+                        )
+                        if isinstance(eval_batch_results, list):
+                            eval_results.extend(
+                                result for result in eval_batch_results if isinstance(result, dict)
+                            )
+                        elif isinstance(eval_batch_results, dict):
+                            eval_results.append(eval_batch_results)
+                elif callable(evaluate_one_episode_fn):
+                    for _ in range(eval_num_episodes):
+                        eval_result = evaluate_one_episode_fn(
+                            max_eval_steps=max_eval_steps,
+                            use_early_termination=False,
+                        )
+                        if isinstance(eval_result, dict):
+                            eval_results.append(eval_result)
 
                 if eval_results:
                     episode_returns = [float(result.get("episode_return", 0.0)) for result in eval_results]

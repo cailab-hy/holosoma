@@ -770,9 +770,9 @@ class OfflineSACAgent(BaseAlgo):
             update_alpha = self._update_alpha
 
         if self.env.num_envs > 1 and self.is_main_process:
-            logger.warning(
-                "Offline SAC does not use vectorized environment rollouts. "
-                f"Current num_envs={self.env.num_envs} only increases simulator memory usage."
+            logger.info(
+                "Offline SAC gradient updates sample only the fixed dataset. "
+                f"Current num_envs={self.env.num_envs} is used for vectorized evaluation."
             )
 
         normalize_obs = self.obs_normalizer.forward
@@ -1080,6 +1080,90 @@ class OfflineSACAgent(BaseAlgo):
             "episode_length": int(episode_length),
             "stop_reason": stop_reason,
         }
+
+    @torch.no_grad()
+    def evaluate_vectorized_episodes(
+        self,
+        max_eval_steps: int | None = None,
+        use_early_termination: bool = False,
+    ) -> list[dict[str, float | int | str | None]]:
+        self.env.set_is_evaluating()
+        was_training = self.actor.training
+
+        self.actor.eval()
+        if self.obs_normalization:
+            self.obs_normalizer.eval()
+
+        obs = self.env.reset()
+        num_envs = int(self.env.num_envs)
+        episode_returns = torch.zeros(num_envs, device=self.device, dtype=torch.float32)
+        episode_lengths = torch.zeros(num_envs, device=self.device, dtype=torch.long)
+        finished = torch.zeros(num_envs, device=self.device, dtype=torch.bool)
+        stop_reasons: list[str | None] = [None] * num_envs
+
+        def _info_bool(name: str, infos: dict[str, Any]) -> torch.Tensor:
+            value = infos.get(name)
+            if isinstance(value, torch.Tensor):
+                return value.to(device=self.device, dtype=torch.bool)
+            return torch.zeros(num_envs, device=self.device, dtype=torch.bool)
+
+        for step_idx in itertools.count():
+            if max_eval_steps is not None and step_idx >= max_eval_steps:
+                unfinished_indices = torch.nonzero(~finished, as_tuple=False).flatten().detach().cpu().tolist()
+                for env_idx in unfinished_indices:
+                    stop_reasons[int(env_idx)] = "max_eval_steps"
+                break
+
+            if self.obs_normalization:
+                normalized_obs = self.obs_normalizer(obs, update=False)
+            else:
+                normalized_obs = obs
+
+            actions = self.actor(normalized_obs)[0]
+            obs, rewards, dones, infos = self.env.step(actions)
+
+            active = ~finished
+            step_rewards = rewards.to(device=self.device, dtype=torch.float32)
+            episode_returns += torch.where(active, step_rewards, torch.zeros_like(episode_returns))
+            episode_lengths += active.to(torch.long)
+
+            timeout_flags = _info_bool("time_outs", infos)
+            early_flags = _info_bool("early_termination", infos) if use_early_termination else torch.zeros_like(finished)
+            done_flags = dones.to(device=self.device, dtype=torch.bool)
+
+            newly_timed_out = active & timeout_flags
+            newly_early_terminated = active & ~newly_timed_out & early_flags
+            newly_done = active & ~newly_timed_out & ~newly_early_terminated & done_flags
+
+            for env_idx in torch.nonzero(newly_timed_out, as_tuple=False).flatten().detach().cpu().tolist():
+                stop_reasons[int(env_idx)] = "time_out"
+            for env_idx in torch.nonzero(newly_early_terminated, as_tuple=False).flatten().detach().cpu().tolist():
+                stop_reasons[int(env_idx)] = "early_termination"
+            for env_idx in torch.nonzero(newly_done, as_tuple=False).flatten().detach().cpu().tolist():
+                stop_reasons[int(env_idx)] = "done"
+
+            finished |= newly_timed_out | newly_early_terminated | newly_done
+            if bool(finished.all().item()):
+                break
+
+        if was_training:
+            self.actor.train()
+            if self.obs_normalization:
+                self.obs_normalizer.train()
+
+        if hasattr(self.env, "set_is_training"):
+            self.env.set_is_training()
+
+        returns = episode_returns.detach().cpu().tolist()
+        lengths = episode_lengths.detach().cpu().tolist()
+        return [
+            {
+                "episode_return": float(returns[env_idx]),
+                "episode_length": int(lengths[env_idx]),
+                "stop_reason": stop_reasons[env_idx],
+            }
+            for env_idx in range(num_envs)
+        ]
 
 
 # Backward compatibility for older configs/checkpoints that referenced previous class names.
