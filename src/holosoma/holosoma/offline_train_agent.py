@@ -171,7 +171,7 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
         distributed_conf: MultGPUConfig | None = configure_multi_gpu()
         device: str = get_device(tyro_config, distributed_conf)
         is_distributed = distributed_conf is not None
-        is_main_process = distributed_conf is None or distributed_conf["local_rank"] == 0
+        is_main_process = distributed_conf is None or distributed_conf["global_rank"] == 0
 
         # Configure logger
         logger_cfg = tyro_config.logger
@@ -290,6 +290,11 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
         )
         algo.setup()
         algo.attach_checkpoint_metadata(tyro_config, wandb_run_path)
+        if is_main_process:
+            logger.info(
+                f"Offline logging status: wandb_enabled={wandb_enabled}, "
+                f"wandb_run={wandb.run is not None}, algo_main_process={algo.is_main_process}"
+            )
         if tyro_config.training.checkpoint is not None:
             loaded_checkpoint = load_checkpoint(tyro_config.training.checkpoint, str(experiment_save_dir))
             tyro_config = dataclasses.replace(
