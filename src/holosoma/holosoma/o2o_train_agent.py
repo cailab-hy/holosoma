@@ -311,8 +311,8 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
         evaluate_one_episode_fn = getattr(algo, "evaluate_one_episode", None)
         max_eval_steps = tyro_config.training.max_eval_steps if tyro_config.training.max_eval_steps is not None else 1000
         eval_num_episodes = max(1, int(tyro_config.training.eval_num_episodes))
-        while algo.global_step < algo.config.offline_pretrain_steps:
-            offline_learn_fn()
+
+        def _run_eval_if_available() -> None:
             if callable(evaluate_vectorized_episodes_fn) or callable(evaluate_one_episode_fn):
                 eval_results: list[dict[str, Any]] = []
                 if callable(evaluate_vectorized_episodes_fn):
@@ -375,6 +375,48 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
                                 writer.add_scalar(key, value, algo.global_step)
                         if wandb.run is not None:
                             wandb.log(dict(eval_metrics, global_step=algo.global_step), step=algo.global_step)
+
+        offline_target_step = int(algo.config.offline_pretrain_steps)
+        if algo.global_step < offline_target_step:
+            logger.info(f"Starting offline pretraining until global_step={offline_target_step}")
+        while algo.global_step < offline_target_step:
+            remaining_steps = offline_target_step - algo.global_step
+            chunk_steps = min(max(1, int(algo.config.eval_interval)), remaining_steps)
+            offline_learn_fn(max_steps=chunk_steps)
+            _run_eval_if_available()
+
+        warmup_target_steps = int(algo.config.online_warmup_steps)
+        if warmup_target_steps > 0:
+            logger.info(f"Collecting online replay warmup: target_env_steps={warmup_target_steps}")
+        while int(getattr(algo, "online_env_steps", 0)) < warmup_target_steps:
+            remaining_warmup = warmup_target_steps - int(getattr(algo, "online_env_steps", 0))
+            collect_steps = min(max(1, int(algo.config.online_collect_steps)), remaining_warmup)
+            collected = collect_online_steps_fn(num_steps=collect_steps)
+            if collected <= 0:
+                raise RuntimeError("collect_online_steps() returned 0 during warmup; cannot fill online replay.")
+
+        online_start_step = int(algo.global_step)
+        online_target_step = online_start_step + int(algo.config.online_total_steps)
+        logger.info(
+            f"Starting online finetuning from global_step={online_start_step} "
+            f"to global_step={online_target_step}"
+        )
+        while algo.global_step < online_target_step:
+            collect_online_steps_fn(num_steps=max(1, int(algo.config.online_collect_steps)))
+            remaining_online_updates = online_target_step - algo.global_step
+            update_steps = min(max(1, int(algo.config.updates_per_collect)), remaining_online_updates)
+            online_learn_fn(max_steps=update_steps)
+
+            if algo.global_step % max(1, int(algo.config.eval_interval)) == 0 or algo.global_step >= online_target_step:
+                _run_eval_if_available()
+
+        if is_main_process:
+            logger.info(f"Saving final O2O model at global step {algo.global_step}")
+            algo.save(os.path.join(experiment_save_dir, f"model_{algo.global_step:07d}.pt"))
+            export_fn = getattr(algo, "export", None)
+            if callable(export_fn):
+                export_fn(onnx_file_path=os.path.join(experiment_save_dir, f"model_{algo.global_step:07d}.onnx"))
+
         # teardown wandb before SimApp closes ungracefully (IsaacLab)
         if is_main_process and wandb_enabled:
             logger.info("Shutting down wandb...")

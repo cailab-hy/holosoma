@@ -4,6 +4,7 @@ from typing_extensions import Annotated
 from holosoma.config_types.experiment import ExperimentConfig
 from holosoma.config_values.loco.g1.experiment import (
     g1_29dof,
+    g1_29dof_cal_ql,
     g1_29dof_cql,
     g1_29dof_fast_sac,
     g1_29dof_fast_sac_data,
@@ -35,6 +36,7 @@ DEFAULTS = {
     "g1_29dof_fast_sac_episode_data": g1_29dof_fast_sac_episode_data,
     "g1_29dof_cql": g1_29dof_cql,
     "g1_29dof_os_cql" : g1_29dof_os_cql,
+    "g1_29dof_cal_ql": g1_29dof_cal_ql,
     "t1_29dof": t1_29dof,
     "t1_29dof_fast_sac": t1_29dof_fast_sac,
     "g1_29dof_wbt": g1_29dof_wbt,
