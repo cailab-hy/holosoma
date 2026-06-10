@@ -7,6 +7,7 @@ import os
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, Sequence
+import wandb
 
 import tqdm
 from loguru import logger
@@ -1104,6 +1105,7 @@ class CQLAgent(BaseAlgo):
                     )
 
             should_log = (self.global_step % args.logging_interval == 0) or (self.global_step <= 10)
+
             if should_log:
                 with torch.no_grad():
                     accumulated_metrics = self.training_metrics.mean_and_clear()
@@ -1112,6 +1114,10 @@ class CQLAgent(BaseAlgo):
                         for key, value in accumulated_metrics.items()
                     }
                 self.logging_helper.post_epoch_logging(it=self.global_step, loss_dict=loss_dict, extra_log_dicts={})
+
+                if self.is_main_process and wandb.run is not None:
+                    print("WANDB RUN ACTIVE:", wandb.run.name)
+                    wandb.log({"debug/test_scalar": self.global_step}, step=self.global_step)
 
             if args.save_interval > 0 and self.global_step % args.save_interval == 0:
                 if self.is_main_process:
