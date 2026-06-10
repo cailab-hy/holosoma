@@ -312,7 +312,26 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
         max_eval_steps = tyro_config.training.max_eval_steps if tyro_config.training.max_eval_steps is not None else 1000
         eval_num_episodes = max(1, int(tyro_config.training.eval_num_episodes))
 
-        def _run_eval_if_available() -> None:
+        def _get_online_replay_size() -> int | None:
+            online_replay_buffer = getattr(algo, "online_replay_buffer", None)
+            if online_replay_buffer is None:
+                return None
+            try:
+                return int(len(online_replay_buffer))
+            except TypeError:
+                return None
+
+        def _log_scalar_dict(metrics: dict[str, float]) -> None:
+            if not is_main_process:
+                return
+            writer = getattr(algo, "writer", None)
+            if writer is not None:
+                for key, value in metrics.items():
+                    writer.add_scalar(key, value, algo.global_step)
+            if wandb.run is not None:
+                wandb.log(dict(metrics, global_step=algo.global_step), step=algo.global_step)
+
+        def _run_eval_if_available(phase: str) -> None:
             if callable(evaluate_vectorized_episodes_fn) or callable(evaluate_one_episode_fn):
                 eval_results: list[dict[str, Any]] = []
                 if callable(evaluate_vectorized_episodes_fn):
@@ -355,12 +374,22 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
                         if len(episode_lengths) > 1
                         else 0.0,
                         "Eval/num_episodes": float(len(eval_results)),
+                        "O2O/online_env_steps": float(getattr(algo, "online_env_steps", 0)),
+                        "O2O/online_update_steps": float(getattr(algo, "online_update_steps", 0)),
+                        "O2O/episode_return_mean": float(statistics.fmean(episode_returns)),
+                        "O2O/episode_length_mean": float(statistics.fmean(episode_lengths)),
+                        "O2O/phase_code": 1.0 if phase == "online" else 0.0,
+                        "O2O/source_code": 0.0,
                     }
+                    online_replay_size = _get_online_replay_size()
+                    if online_replay_size is not None:
+                        eval_metrics["O2O/online_buffer_size"] = float(online_replay_size)
                     for stop_reason, count in stop_reason_counts.items():
                         eval_metrics[f"Eval/stop_reason/{stop_reason}"] = float(count) / float(len(eval_results))
 
                     logger.info(
-                        "[Eval] step={} episodes={} return_mean={:.4f} return_std={:.4f} length_mean={:.2f}",
+                        "[Eval:{}] step={} episodes={} return_mean={:.4f} return_std={:.4f} length_mean={:.2f}",
+                        phase,
                         algo.global_step,
                         len(eval_results),
                         eval_metrics["Eval/episode_return_mean"],
@@ -368,13 +397,7 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
                         eval_metrics["Eval/episode_length_mean"],
                     )
 
-                    if is_main_process:
-                        writer = getattr(algo, "writer", None)
-                        if writer is not None:
-                            for key, value in eval_metrics.items():
-                                writer.add_scalar(key, value, algo.global_step)
-                        if wandb.run is not None:
-                            wandb.log(dict(eval_metrics, global_step=algo.global_step), step=algo.global_step)
+                    _log_scalar_dict(eval_metrics)
 
         offline_target_step = int(algo.config.offline_pretrain_steps)
         if algo.global_step < offline_target_step:
@@ -383,7 +406,7 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
             remaining_steps = offline_target_step - algo.global_step
             chunk_steps = min(max(1, int(algo.config.eval_interval)), remaining_steps)
             offline_learn_fn(max_steps=chunk_steps)
-            _run_eval_if_available()
+            _run_eval_if_available(phase="offline")
 
         warmup_target_steps = int(algo.config.online_warmup_steps)
         if warmup_target_steps > 0:
@@ -394,6 +417,45 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
             collected = collect_online_steps_fn(num_steps=collect_steps)
             if collected <= 0:
                 raise RuntimeError("collect_online_steps() returned 0 during warmup; cannot fill online replay.")
+
+        online_env_steps = int(getattr(algo, "online_env_steps", 0))
+        online_replay_size = _get_online_replay_size()
+        if algo.global_step < offline_target_step:
+            raise RuntimeError(
+                "O2O transition mismatch: online phase requested before offline pretraining target. "
+                f"global_step={algo.global_step}, offline_target_step={offline_target_step}"
+            )
+        if online_env_steps < warmup_target_steps:
+            raise RuntimeError(
+                "O2O transition mismatch: online replay warmup did not finish. "
+                f"online_env_steps={online_env_steps}, warmup_target_steps={warmup_target_steps}"
+            )
+        if warmup_target_steps > 0 and online_replay_size is not None:
+            online_buffer_size = int(getattr(algo.config, "online_buffer_size", online_replay_size))
+            num_envs = int(getattr(algo.env, "num_envs", 1))
+            expected_min_replay_size = min(online_buffer_size, warmup_target_steps * num_envs)
+            if online_replay_size < expected_min_replay_size:
+                raise RuntimeError(
+                    "O2O transition mismatch: online replay contains fewer samples than warmup should produce. "
+                    f"online_replay_size={online_replay_size}, expected_min={expected_min_replay_size}, "
+                    f"warmup_target_steps={warmup_target_steps}, num_envs={num_envs}"
+                )
+
+        transition_metrics = {
+            "O2O/phase_code": 1.0,
+            "O2O/offline_pretrain_done": 1.0,
+            "O2O/online_env_steps": float(online_env_steps),
+            "O2O/online_update_steps": float(getattr(algo, "online_update_steps", 0)),
+        }
+        if online_replay_size is not None:
+            transition_metrics["O2O/online_buffer_size"] = float(online_replay_size)
+        logger.info(
+            "O2O transition check passed: global_step={} online_env_steps={} online_replay_size={}",
+            algo.global_step,
+            online_env_steps,
+            online_replay_size if online_replay_size is not None else "unknown",
+        )
+        _log_scalar_dict(transition_metrics)
 
         online_start_step = int(algo.global_step)
         online_target_step = online_start_step + int(algo.config.online_total_steps)
@@ -406,9 +468,6 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
             remaining_online_updates = online_target_step - algo.global_step
             update_steps = min(max(1, int(algo.config.updates_per_collect)), remaining_online_updates)
             online_learn_fn(max_steps=update_steps)
-
-            if algo.global_step % max(1, int(algo.config.eval_interval)) == 0 or algo.global_step >= online_target_step:
-                _run_eval_if_available()
 
         if is_main_process:
             logger.info(f"Saving final O2O model at global step {algo.global_step}")

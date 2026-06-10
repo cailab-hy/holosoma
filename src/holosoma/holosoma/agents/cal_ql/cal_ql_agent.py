@@ -4,6 +4,7 @@ import copy
 import itertools
 import math
 import os
+import statistics
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, Sequence
@@ -1158,6 +1159,20 @@ class CALQLAgent(BaseAlgo):
             return batches[0], offline_batch_size, online_batch_size, offline_ratio
         return torch.cat(batches, dim=0), offline_batch_size, online_batch_size, offline_ratio
 
+    def _online_o2o_log_dict(self) -> dict[str, dict[str, float]]:
+        o2o_metrics = {
+            "phase_code": 1.0,
+            "source_code": 1.0,
+            "online_env_steps": float(self.online_env_steps),
+            "online_update_steps": float(self.online_update_steps),
+            "online_buffer_size": float(len(self.online_replay_buffer)),
+        }
+        if len(self.logging_helper.rewbuffer) > 0:
+            o2o_metrics["episode_return_mean"] = float(statistics.mean(self.logging_helper.rewbuffer))
+        if len(self.logging_helper.lenbuffer) > 0:
+            o2o_metrics["episode_length_mean"] = float(statistics.mean(self.logging_helper.lenbuffer))
+        return {"O2O": o2o_metrics}
+
     def online_learn(self, max_steps: int | None = None) -> None:
         args = self.config
         if max_steps is None:
@@ -1272,7 +1287,11 @@ class CALQLAgent(BaseAlgo):
                         key: (value.item() if isinstance(value, torch.Tensor) else float(value))
                         for key, value in accumulated_metrics.items()
                     }
-                self.logging_helper.post_epoch_logging(it=self.global_step, loss_dict=loss_dict, extra_log_dicts={})
+                self.logging_helper.post_epoch_logging(
+                    it=self.global_step,
+                    loss_dict=loss_dict,
+                    extra_log_dicts=self._online_o2o_log_dict(),
+                )
 
             if args.save_interval > 0 and self.global_step % args.save_interval == 0:
                 if self.is_main_process:
