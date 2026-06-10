@@ -232,8 +232,6 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
                 wandb_kwargs["resume"] = wandb_cfg.resume
 
             wandb.init(**wandb_kwargs)
-            wandb.define_metric("global_step")
-            wandb.define_metric("*", step_metric="global_step")
             if wandb.run is not None:
                 wandb_run_path = f"{wandb.run.entity}/{wandb.run.project}/{wandb.run.id}"
             wandb.log(
@@ -315,6 +313,15 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
         eval_num_episodes = max(1, int(tyro_config.training.eval_num_episodes))
         while algo.global_step < algo.config.num_learning_iterations:
             offline_learn_fn()
+            if is_main_process and wandb.run is not None:
+                wandb.log(
+                    {
+                        "debug/offline_outer_loop": float(algo.global_step),
+                        "global_step": algo.global_step,
+                    },
+                    step=algo.global_step,
+                )
+                logger.info(f"W&B offline outer-loop heartbeat at step {algo.global_step}")
             if callable(evaluate_vectorized_episodes_fn) or callable(evaluate_one_episode_fn):
                 eval_results: list[dict[str, Any]] = []
                 if callable(evaluate_vectorized_episodes_fn):
@@ -377,21 +384,16 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
                                 writer.add_scalar(key, value, algo.global_step)
                         if wandb.run is not None:
                             wandb.log(dict(eval_metrics, global_step=algo.global_step), step=algo.global_step)
-        # Finish wandb before SimApp closes ungracefully (IsaacLab), so metrics are flushed.
+        # teardown wandb before SimApp closes ungracefully (IsaacLab)
         if is_main_process and wandb_enabled:
             logger.info("Shutting down wandb...")
-            wandb.finish()
+            wandb.teardown()
 
         # shutdown dist before SimApp closes ungracefully (IsaacLab)
         if is_distributed:
             logger.info("Shutting down distributed processes...")
             dist.destroy_process_group()
     except Exception as e:
-        if "wandb" in locals() and getattr(wandb, "run", None) is not None:
-            try:
-                wandb.finish(exit_code=1)
-            except Exception:
-                pass
         tb_str = traceback.format_exc()
         logger.error(f"Exception occurred during training: {e}\n{tb_str}")
         sys.exit(1)  # manually set exit code, not possible via isaacsim app.close()

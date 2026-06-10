@@ -21,6 +21,28 @@ from holosoma.utils.average_meters import TensorAverageMeterDict
 console = Console()
 
 
+def _to_python_scalar(value: Any) -> int | float | None:
+    if isinstance(value, torch.Tensor):
+        if value.numel() == 0:
+            return None
+        value = value.detach()
+        if value.numel() > 1:
+            value = value.float().mean()
+        value = value.cpu().item()
+    elif hasattr(value, "item"):
+        value = value.item()
+
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):
+            return None
+        return value
+    return None
+
+
 class LogDict(TypedDict):
     """Dictionary containing iteration info, timing, and buffers for logging."""
 
@@ -102,6 +124,7 @@ class LoggingHelper:
         self.cur_reward_sum: torch.Tensor = torch.zeros(num_envs, dtype=torch.float, device=self.device)
         self.cur_episode_length: torch.Tensor = torch.zeros(num_envs, dtype=torch.float, device=self.device)
         self.episode_env_tensors: TensorAverageMeterDict = TensorAverageMeterDict()
+        self._wandb_log_calls = 0
 
     @contextmanager
     def record_collection_time(self) -> Generator[None, None, None]:
@@ -335,11 +358,34 @@ class LoggingHelper:
 
         # Add prefix to all keys
         scalars_to_log = {f"{self.prefix}{k}": v for k, v in scalars_to_log.items()}
+        sanitized_scalars: dict[str, int | float] = {}
+        dropped_keys: list[str] = []
+        for key, value in scalars_to_log.items():
+            scalar = _to_python_scalar(value)
+            if scalar is None:
+                dropped_keys.append(key)
+                continue
+            sanitized_scalars[key] = scalar
 
-        for k, v in scalars_to_log.items():
+        for k, v in sanitized_scalars.items():
             self.writer.add_scalar(k, v, global_step=it)
         if wandb.run is not None:
-            wandb.log(dict(scalars_to_log, global_step=it), step=it)
+            self._wandb_log_calls += 1
+            wandb_payload = dict(
+                sanitized_scalars,
+                global_step=it,
+                **{
+                    "debug/wandb_log_calls": self._wandb_log_calls,
+                    "debug/wandb_metric_count": len(sanitized_scalars),
+                    "debug/wandb_dropped_metric_count": len(dropped_keys),
+                },
+            )
+            wandb.log(wandb_payload, step=it)
+            if self._wandb_log_calls <= 5 or it % 1000 == 0:
+                logger.info(
+                    f"W&B scalar log call {self._wandb_log_calls} at step {it}: "
+                    f"metrics={len(sanitized_scalars)}, dropped={len(dropped_keys)}"
+                )
 
     def _create_console_output(
         self,
