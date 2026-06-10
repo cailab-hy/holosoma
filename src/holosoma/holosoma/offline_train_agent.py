@@ -171,7 +171,7 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
         distributed_conf: MultGPUConfig | None = configure_multi_gpu()
         device: str = get_device(tyro_config, distributed_conf)
         is_distributed = distributed_conf is not None
-        is_main_process = distributed_conf is None or distributed_conf["global_rank"] == 0
+        is_main_process = distributed_conf is None or distributed_conf["local_rank"] == 0
 
         # Configure logger
         logger_cfg = tyro_config.logger
@@ -288,11 +288,6 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
         )
         algo.setup()
         algo.attach_checkpoint_metadata(tyro_config, wandb_run_path)
-        if is_main_process:
-            logger.info(
-                f"Offline logging status: wandb_enabled={wandb_enabled}, "
-                f"wandb_run={wandb.run is not None}, algo_main_process={algo.is_main_process}"
-            )
         if tyro_config.training.checkpoint is not None:
             loaded_checkpoint = load_checkpoint(tyro_config.training.checkpoint, str(experiment_save_dir))
             tyro_config = dataclasses.replace(
@@ -313,15 +308,6 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
         eval_num_episodes = max(1, int(tyro_config.training.eval_num_episodes))
         while algo.global_step < algo.config.num_learning_iterations:
             offline_learn_fn()
-            if is_main_process and wandb.run is not None:
-                wandb.log(
-                    {
-                        "debug/offline_outer_loop": float(algo.global_step),
-                        "global_step": algo.global_step,
-                    },
-                    step=algo.global_step,
-                )
-                logger.info(f"W&B offline outer-loop heartbeat at step {algo.global_step}")
             if callable(evaluate_vectorized_episodes_fn) or callable(evaluate_one_episode_fn):
                 eval_results: list[dict[str, Any]] = []
                 if callable(evaluate_vectorized_episodes_fn):
