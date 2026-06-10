@@ -234,6 +234,13 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
             wandb.init(**wandb_kwargs)
             if wandb.run is not None:
                 wandb_run_path = f"{wandb.run.entity}/{wandb.run.project}/{wandb.run.id}"
+            wandb.log(
+                {
+                    "debug/init_test": 1,
+                    "global_step": 0,
+                },
+                step=0,
+            )
 
         # Distribute environments across GPUs for proper multi-GPU training
         if distributed_conf is not None:
