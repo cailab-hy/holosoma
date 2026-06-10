@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, TypedDict, cast
 
+import tqdm
 import tyro
 from loguru import logger
 
@@ -463,11 +464,23 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
             f"Starting online finetuning from global_step={online_start_step} "
             f"to global_step={online_target_step}"
         )
-        while algo.global_step < online_target_step:
-            collect_online_steps_fn(num_steps=max(1, int(algo.config.online_collect_steps)))
-            remaining_online_updates = online_target_step - algo.global_step
-            update_steps = min(max(1, int(algo.config.updates_per_collect)), remaining_online_updates)
-            online_learn_fn(max_steps=update_steps)
+        online_pbar = tqdm.tqdm(
+            total=online_target_step,
+            initial=online_start_step,
+            desc="O2O online",
+            dynamic_ncols=True,
+            disable=not is_main_process,
+        )
+        try:
+            while algo.global_step < online_target_step:
+                step_before_update = int(algo.global_step)
+                collect_online_steps_fn(num_steps=max(1, int(algo.config.online_collect_steps)))
+                remaining_online_updates = online_target_step - algo.global_step
+                update_steps = min(max(1, int(algo.config.updates_per_collect)), remaining_online_updates)
+                online_learn_fn(max_steps=update_steps)
+                online_pbar.update(max(0, int(algo.global_step) - step_before_update))
+        finally:
+            online_pbar.close()
 
         if is_main_process:
             logger.info(f"Saving final O2O model at global step {algo.global_step}")
