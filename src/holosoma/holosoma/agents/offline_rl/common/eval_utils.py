@@ -217,6 +217,11 @@ def run_evaluate_policy(
     # These are counted as failures in success_rate (denominator = num_envs).
     # Their reason is set to "max_eval_steps_unfinished" so downstream
     # analysis can distinguish them from bad_tracking / timeout failures.
+    # In locomotion tasks there is no motion_command clip to wrap around, so
+    # "survived the full evaluation horizon without falling" IS the success
+    # criterion.  We detect locomotion mode by the absence of _motion_cmd.
+    _locomotion_mode = _motion_cmd is None
+
     unfinished_mask = ~per_env_first_done
     if unfinished_mask.any():
         unfinished_idxs = unfinished_mask.nonzero(as_tuple=False).squeeze(-1)
@@ -230,7 +235,8 @@ def run_evaluate_policy(
             per_env_reward[i] = first_ep_reward_sums[idx].item()
             per_env_discounted_return[i] = first_ep_discounted_returns[idx].item()
             per_env_length[i] = first_ep_lengths[idx].item()
-            per_env_success[i] = False
+            # Locomotion success = survived the full eval horizon without falling.
+            per_env_success[i] = _locomotion_mode
             # per_env_first_done[i] intentionally left False so `envs_finished`
             # reflects only truly completed episodes.
 

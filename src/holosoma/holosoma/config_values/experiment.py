@@ -22,6 +22,7 @@ DEFAULTS = {
     "g1_29dof_wbt_w_object": g1_29dof_wbt_w_object,
     "g1_29dof_wbt_fast_sac": g1_29dof_wbt_fast_sac,
     "g1_29dof_wbt_fast_sac_w_object": g1_29dof_wbt_fast_sac_w_object,
+    "g1_29dof_offline_rl": g1_29dof_wbt_offline_cql_w_object,
     "g1_29dof_wbt_offline_cql_w_object": g1_29dof_wbt_offline_cql_w_object,
 }
 

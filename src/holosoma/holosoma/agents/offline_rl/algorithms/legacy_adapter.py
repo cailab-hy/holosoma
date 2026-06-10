@@ -47,7 +47,7 @@ _LEGACY_FAMILIES: frozenset[str] = frozenset({"cql", "smqr", "smqr_sg"})
 
 # Canonical preset string for the WBT-object dataset (matches
 # scripts/train_replication/_common.sh ``PRESET``).
-_WBT_OBJECT_PRESET = "exp:g1-29dof-wbt-offline-cql-w-object"
+_WBT_OBJECT_PRESET = "exp:g1-29dof-offline-rl"
 
 # Mapping from dataset key → preset string.  Extensible later; for
 # now there is only one dataset family that the legacy agent supports.
@@ -88,7 +88,7 @@ class LegacyAlgorithmAdapter:
         The :class:`DatasetEntry` looked up from the registry.
     preset
         ``train_agent.py`` positional preset string (e.g.
-        ``"exp:g1-29dof-wbt-offline-cql-w-object"``).
+        ``"exp:g1-29dof-offline-rl"``).
     legacy_agent_class_path
         Historical dotted path kept as metadata only; identical to
         :data:`holosoma.agents.offline_rl.common.target_compat.LEGACY_TARGET`.

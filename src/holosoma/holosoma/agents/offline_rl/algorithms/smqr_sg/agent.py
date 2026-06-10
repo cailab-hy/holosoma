@@ -27,7 +27,8 @@ Out-of-scope (rejected at config-validation)
 * ``algo_mode='smqr_learned'``           → unsupported in canonical agents
 * F1 / G1 / H1 / B2 / P1 / P1b sub-flags → not planned
 * Phase-E stabilised anchor objective    → not planned
-* Learned-τ residual (``sc_tau_res_scale != 0.0``) → unsupported in canonical agents
+* Learned-τ residual is available for ablation when
+    ``sc_tau_res_scale > 0.0``.
 
 Inheritance
 -----------
@@ -88,7 +89,7 @@ class _SMQRSGAlgoMode:
     mode = "smqr_anchor"
     tau_source = "anchor"
     legacy_critic_penalty_mode = "smqr_cont_self"
-    tau_res_scale = 0.0
+    tau_res_scale = "config"
     learned_variant = "none"
     explicit = True
     logging_prefix = "smqranc"
@@ -161,7 +162,7 @@ class SMQRSGAgent(SMQRAgent):
             * ``algo_mode``           ∈ {``'smqr_anchor'``, ``'auto'``}
             * ``critic_penalty_mode`` == ``'smqr_cont_self'``
             * ``smqr_anchor_objective`` == ``'vanilla'``
-            * ``sc_tau_res_scale``    == 0.0
+            * ``sc_tau_res_scale``    >= 0.0
             * ``smqr_lse_mode``       ∈ {``'sg_weighted_lse'``, ``'sg_blend'``}
 
         Plus, for ``sg_blend`` mode:
@@ -204,7 +205,7 @@ class SMQRSGAgent(SMQRAgent):
                 f"{{'sg_weighted_lse','sg_blend'}}, got {lse_mode!r}."
             )
 
-        # ── 4. anchor-only invariant (SG family is anchor-only) ───
+        # ── 4. Anchor objective invariant + tau residual range check ─
         anchor_obj = str(
             getattr(args, "smqr_anchor_objective", "vanilla")
         ).strip().lower()
@@ -215,11 +216,10 @@ class SMQRSGAgent(SMQRAgent):
                 "out of scope for Step 7-D."
             )
         tau_res_scale = float(getattr(args, "sc_tau_res_scale", 0.0))
-        if tau_res_scale != 0.0:
+        if tau_res_scale < 0.0:
             raise RuntimeError(
-                f"SMQRSGAgent requires sc_tau_res_scale=0.0 (anchor-only "
-                f"invariant), got {tau_res_scale}.  Learned residual is "
-                "out of scope for the canonical SMQRSGAgent."
+                f"SMQRSGAgent requires sc_tau_res_scale >= 0.0, "
+                f"got {tau_res_scale}."
             )
 
         # ── 5. F1/G1/H1/B2/Phase-E sub-flags must be off ──────────
@@ -337,7 +337,7 @@ class SMQRSGAgent(SMQRAgent):
             critic_penalty_mode    == 'smqr_cont_self'
             algo_mode              == 'smqr_anchor'
             smqr_anchor_objective  == 'vanilla'
-            sc_tau_res_scale       == 0.0
+            sc_tau_res_scale       >= 0.0
             smqr_lse_mode          ∈ {'sg_weighted_lse', 'sg_blend'}
 
         The shared post-dispatch tail (clamp-min(-10) on ``cql_penalty_per_q``
@@ -422,7 +422,7 @@ class SMQRSGAgent(SMQRAgent):
             # ── q_data (raw Q on dataset actions) ─────────────────
             q_data = q_pred_all.float()
 
-            # ── SMQR anchor τ (sc_tau_res_scale==0.0 invariant) ───
+            # ── SMQR anchor τ (+ optional learned residual via sc_tau_res_scale) ───
             _tau_res_scale = float(getattr(args, "sc_tau_res_scale", 0.0))
             _tau_anchor = q_data.detach().min(dim=0).values  # [B]
             _tau_raw_residual = qnet.tau_from_processed(critic_obs_processed)

@@ -12,7 +12,7 @@ algorithm: smqr
 dataset: wbt_object
 
 legacy_config_reference: |
-  Preset:  exp:g1-29dof-wbt-offline-cql-w-object
+  Preset:  exp:g1-29dof-offline-rl
   Launch:  bash scripts/train_replication/train_smqr_seed2.sh
   Active code path:
     holosoma/agents/offline_cql/offline_cql_agent.py

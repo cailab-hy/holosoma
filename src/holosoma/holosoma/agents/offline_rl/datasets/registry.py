@@ -51,7 +51,7 @@ _register(DatasetEntry(
         "Loaded via ``OfflineDataset`` (re-exported under "
         "``holosoma.agents.offline_rl.common.datasets.OfflineDataset``). "
         "Activated through the legacy preset "
-        "``exp:g1-29dof-wbt-offline-cql-w-object``."
+        "``exp:g1-29dof-offline-rl``."
     ),
 ))
 

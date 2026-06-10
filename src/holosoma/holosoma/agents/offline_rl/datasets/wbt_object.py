@@ -16,7 +16,7 @@ WBT_OBJECT_METADATA = {
     "name": "wbt_object",
     "legacy_path": "offline_data/fastsac_dataset.h5",
     "format": "HDF5",
-    "preset": "exp:g1-29dof-wbt-offline-cql-w-object",
+    "preset": "exp:g1-29dof-offline-rl",
     "robot": "G1 29-DOF",
     "task": "Whole-body tracking with object manipulation",
     "loader_class": "OfflineDataset",

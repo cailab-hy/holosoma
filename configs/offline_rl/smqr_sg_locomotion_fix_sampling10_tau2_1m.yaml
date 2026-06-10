@@ -1,0 +1,46 @@
+experiment:
+  name: exp_smqr_sg_seed1_locomotion_fix_sampling10_tau2_1m
+  purpose: 1M extension after same-protocol re-evaluation validated combined fix behavior
+  kind: ablation_extension
+  short_run: false
+  base_run_dir: logs/hv-g1-manager/exp_smqr_sg_seed1-locomotion
+  base_config: logs/hv-g1-manager/exp_smqr_sg_seed1-locomotion/holosoma_config.yaml
+
+training:
+  project: hv-g1-manager
+  seed: 1
+  max_iterations: 1000000
+  save_interval: 50000
+
+launch:
+  script: scripts/train_replication/train_smqr_sg_locomotion_fix_sampling10_tau2_1m.sh
+  preset: exp:g1-29dof-fast-sac
+  simulator: isaacsim
+  logger: disabled
+  dataset_path: offline_data/fastsac_dataset_LOCO.h5
+
+changed_parameters:
+  cql_num_policy_actions:
+    from: 40
+    to: 10
+  cql_num_random_actions:
+    from: 40
+    to: 10
+  sc_tau_res_scale:
+    from: 0.0
+    to: 2.0
+
+unchanged_parameters:
+  bc_weight: 3.0
+  actor_learning_rate: 0.0003
+  critic_learning_rate: 0.0003
+  batch_size: 4096
+  gamma: 0.99
+  tau: 0.005
+  critic_penalty_mode: smqr_cont_self
+  smqr_lse_mode: sg_blend
+  dataset_path: offline_data/fastsac_dataset_LOCO.h5
+  seed: 1
+  cql_loss_scale: 0.5
+  algo_mode: smqr_anchor
+  smqr_anchor_objective: vanilla

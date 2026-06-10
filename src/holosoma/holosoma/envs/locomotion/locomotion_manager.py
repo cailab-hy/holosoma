@@ -285,15 +285,27 @@ class LeggedRobotLocomotionManager(BaseTask):
             env_ids (List[int]): Environemnt ids
             target_root_states (Tensor): Target root states
         """
+        n_envs = len(env_ids)
+
         if target_root_states is not None:
-            self.simulator.robot_root_states[env_ids] = target_root_states
+            reset_states = target_root_states
+            if reset_states.ndim == 1:
+                reset_states = reset_states.unsqueeze(0).expand(n_envs, -1)
+            elif reset_states.shape[0] == 1:
+                reset_states = reset_states.expand(n_envs, -1)
+            self.simulator.robot_root_states[env_ids] = reset_states.contiguous()
             self.simulator.robot_root_states[env_ids, :3] += self.terrain_manager.get_state(
                 "locomotion_terrain"
             ).env_origins[env_ids]
 
         else:
             # base position
-            self.simulator.robot_root_states[env_ids] = self.base_init_state
+            base_init_state = self.base_init_state
+            if base_init_state.ndim == 1:
+                base_init_state = base_init_state.unsqueeze(0).expand(n_envs, -1)
+            elif base_init_state.shape[0] == 1:
+                base_init_state = base_init_state.expand(n_envs, -1)
+            self.simulator.robot_root_states[env_ids] = base_init_state.contiguous()
             self.simulator.robot_root_states[env_ids, :3] += self.terrain_manager.get_state(
                 "locomotion_terrain"
             ).env_origins[env_ids]
