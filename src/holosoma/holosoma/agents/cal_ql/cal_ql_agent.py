@@ -1196,7 +1196,9 @@ class CALQLAgent(BaseAlgo):
         normalize_obs = self.obs_normalizer.forward
         normalize_critic_obs = self.critic_obs_normalizer.forward
 
-        pbar = tqdm.tqdm(total=max(target_step - self.global_step, 0), initial=0, leave=False)
+        progress_total = max(target_step - self.global_step, 0)
+        show_progress = self.is_main_process and progress_total >= max(10, int(args.logging_interval))
+        pbar = tqdm.tqdm(total=progress_total, initial=0, leave=False, disable=not show_progress)
         while self.global_step < target_step:
             self.global_step += 1
             self.online_update_steps += 1
