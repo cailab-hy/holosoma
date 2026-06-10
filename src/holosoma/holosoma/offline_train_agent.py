@@ -232,6 +232,8 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
                 wandb_kwargs["resume"] = wandb_cfg.resume
 
             wandb.init(**wandb_kwargs)
+            wandb.define_metric("global_step")
+            wandb.define_metric("*", step_metric="global_step")
             if wandb.run is not None:
                 wandb_run_path = f"{wandb.run.entity}/{wandb.run.project}/{wandb.run.id}"
             wandb.log(
@@ -370,16 +372,21 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
                                 writer.add_scalar(key, value, algo.global_step)
                         if wandb.run is not None:
                             wandb.log(dict(eval_metrics, global_step=algo.global_step), step=algo.global_step)
-        # teardown wandb before SimApp closes ungracefully (IsaacLab)
+        # Finish wandb before SimApp closes ungracefully (IsaacLab), so metrics are flushed.
         if is_main_process and wandb_enabled:
             logger.info("Shutting down wandb...")
-            wandb.teardown()
+            wandb.finish()
 
         # shutdown dist before SimApp closes ungracefully (IsaacLab)
         if is_distributed:
             logger.info("Shutting down distributed processes...")
             dist.destroy_process_group()
     except Exception as e:
+        if "wandb" in locals() and getattr(wandb, "run", None) is not None:
+            try:
+                wandb.finish(exit_code=1)
+            except Exception:
+                pass
         tb_str = traceback.format_exc()
         logger.error(f"Exception occurred during training: {e}\n{tb_str}")
         sys.exit(1)  # manually set exit code, not possible via isaacsim app.close()
