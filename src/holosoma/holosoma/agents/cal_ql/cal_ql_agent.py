@@ -695,7 +695,8 @@ class CALQLAgent(BaseAlgo):
             q_data_min = torch.minimum(q1, q2)
             q_data_minus_mc_return = (q_data_min.detach() - mc_returns).mean()
             mc_return_mean = mc_returns.mean()
-            calibration_active_rate = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            curr_bound_rate = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            next_bound_rate = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             rand_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             curr_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             next_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
@@ -751,29 +752,29 @@ class CALQLAgent(BaseAlgo):
                 if args.calql_use_mc_return:
                     calibration_floor = mc_returns[:, None].to(dtype=q1_rand.dtype)
                     with torch.no_grad():
-                        calibration_active_rate = torch.stack(
+                        curr_bound_rate = torch.stack(
                             [
-                                (q1_rand < calibration_floor).float().mean(),
-                                (q2_rand < calibration_floor).float().mean(),
                                 (q1_curr < calibration_floor).float().mean(),
                                 (q2_curr < calibration_floor).float().mean(),
+                            ]
+                        ).mean()
+                        next_bound_rate = torch.stack(
+                            [
                                 (q1_next < calibration_floor).float().mean(),
                                 (q2_next < calibration_floor).float().mean(),
                             ]
                         ).mean()
-                    q1_rand_lse = torch.maximum(q1_rand, calibration_floor)
-                    q2_rand_lse = torch.maximum(q2_rand, calibration_floor)
                     q1_curr_lse = torch.maximum(q1_curr, calibration_floor)
                     q2_curr_lse = torch.maximum(q2_curr, calibration_floor)
                     q1_next_lse = torch.maximum(q1_next, calibration_floor)
                     q2_next_lse = torch.maximum(q2_next, calibration_floor)
                 else:
-                    q1_rand_lse = q1_rand
-                    q2_rand_lse = q2_rand
                     q1_curr_lse = q1_curr
                     q2_curr_lse = q2_curr
                     q1_next_lse = q1_next
                     q2_next_lse = q2_next
+                q1_rand_lse = q1_rand
+                q2_rand_lse = q2_rand
 
                 if self.config.use_tanh:
                     random_density = (
@@ -866,7 +867,8 @@ class CALQLAgent(BaseAlgo):
             q_pi_minus_q_data.detach(),
             mc_return_mean.detach(),
             q_data_minus_mc_return.detach(),
-            calibration_active_rate.detach(),
+            curr_bound_rate.detach(),
+            next_bound_rate.detach(),
             rand_q_mean.detach(),
             curr_q_mean.detach(),
             next_q_mean.detach(),
@@ -1380,7 +1382,8 @@ class CALQLAgent(BaseAlgo):
                         q_pi_minus_q_data,
                         mc_return_mean,
                         q_data_minus_mc_return,
-                        calibration_active_rate,
+                        current_boundrate,
+                        next_boundrate,
                         rand_q,
                         curr_q,
                         next_q,
@@ -1422,7 +1425,8 @@ class CALQLAgent(BaseAlgo):
                             "q_pi_minus_q_data": q_pi_minus_q_data,
                             "calql_mc_return_mean": mc_return_mean,
                             "calql_q_data_minus_mc_return": q_data_minus_mc_return,
-                            "calql_calibration_active_rate": calibration_active_rate,
+                            "current_boundrate": current_boundrate,
+                            "next_boundrate": next_boundrate,
                             "cql_alpha_value": cql_alpha_value,
                             "cql_lagrange_loss": cql_lagrange_loss,
                             "cql_target_action_gap": torch.tensor(
@@ -1620,7 +1624,8 @@ class CALQLAgent(BaseAlgo):
                         q_pi_minus_q_data,
                         mc_return_mean,
                         q_data_minus_mc_return,
-                        calibration_active_rate,
+                        current_boundrate,
+                        next_boundrate,
                         rand_q,
                         curr_q,
                         next_q,
@@ -1668,7 +1673,8 @@ class CALQLAgent(BaseAlgo):
                             "q_pi_minus_q_data": q_pi_minus_q_data,
                             "calql_mc_return_mean": mc_return_mean,
                             "calql_q_data_minus_mc_return": q_data_minus_mc_return,
-                            "calql_calibration_active_rate": calibration_active_rate,
+                            "current_boundrate": current_boundrate,
+                            "next_boundrate" : next_boundrate,
                             "cql_alpha_value": cql_alpha_value,
                             "cql_lagrange_loss": cql_lagrange_loss,
                             "cql_target_action_gap": torch.tensor(
