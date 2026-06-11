@@ -434,7 +434,11 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
         if warmup_target_steps > 0 and online_replay_size is not None:
             online_buffer_size = int(getattr(algo.config, "online_buffer_size", online_replay_size))
             num_envs = int(getattr(algo.env, "num_envs", 1))
-            expected_min_replay_size = min(online_buffer_size, warmup_target_steps * num_envs)
+            requires_complete_episodes = bool(getattr(algo, "online_replay_requires_complete_episodes", False))
+            expected_min_replay_size = 1 if requires_complete_episodes else min(
+                online_buffer_size,
+                warmup_target_steps * num_envs,
+            )
             if online_replay_size < expected_min_replay_size:
                 raise RuntimeError(
                     "O2O transition mismatch: online replay contains fewer samples than warmup should produce. "

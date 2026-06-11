@@ -21,6 +21,14 @@ REQUIRED_HDF5_KEYS: tuple[str, ...] = (
     "dones",
 )
 
+OPTIONAL_HDF5_KEYS: tuple[str, ...] = (
+    "mc_return",
+    "episode_id",
+    "episode_return",
+    "episode_length",
+    "episode_data_complete",
+)
+
 OPTIONAL_HDF5_NEXT_KEYS: tuple[str, ...] = (
     "next_done_bad_tracking",
     "next_done_motion_ends",
@@ -247,7 +255,7 @@ class HDF5ReplayReader:
             self._file = h5py.File(self.path, "r")
         self._datasets = {
             key: self._file[key]
-            for key in (*REQUIRED_HDF5_KEYS, *OPTIONAL_HDF5_NEXT_KEYS)
+            for key in (*REQUIRED_HDF5_KEYS, *OPTIONAL_HDF5_KEYS, *OPTIONAL_HDF5_NEXT_KEYS)
             if key in self._file
         }
 
@@ -273,7 +281,9 @@ class HDF5ReplayReader:
     @staticmethod
     def _compute_bytes_per_transition(h5_file: h5py.File) -> int:
         total = 0
-        for key in REQUIRED_HDF5_KEYS:
+        for key in (*REQUIRED_HDF5_KEYS, *OPTIONAL_HDF5_KEYS, *OPTIONAL_HDF5_NEXT_KEYS):
+            if key not in h5_file:
+                continue
             dataset = h5_file[key]
             trailing_shape = dataset.shape[1:] if dataset.ndim > 1 else ()
             num_values = int(np.prod(trailing_shape, dtype=np.int64)) if trailing_shape else 1
@@ -388,11 +398,31 @@ class HDF5ReplayReader:
         err_object_ori = torch.from_numpy(
             self._read_optional_rows("next_err_object_ori", row_indices, dtype=np.float32)
         ).to(torch.float32)
+        mc_return = torch.from_numpy(self._read_optional_rows("mc_return", row_indices, dtype=np.float32)).to(
+            torch.float32
+        )
+        episode_id = torch.from_numpy(self._read_optional_rows("episode_id", row_indices, dtype=np.int64)).to(
+            torch.long
+        )
+        episode_return = torch.from_numpy(
+            self._read_optional_rows("episode_return", row_indices, dtype=np.float32)
+        ).to(torch.float32)
+        episode_length = torch.from_numpy(self._read_optional_rows("episode_length", row_indices, dtype=np.int64)).to(
+            torch.long
+        )
+        episode_data_complete = torch.from_numpy(
+            self._read_optional_rows("episode_data_complete", row_indices, dtype=np.uint8)
+        ).to(torch.bool)
 
         batch = {
             "observations": _pin_if_possible(observations.contiguous(), enabled=self.pin_memory),
             "actions": _pin_if_possible(actions.contiguous(), enabled=self.pin_memory),
             "critic_observations": _pin_if_possible(critic_observations.contiguous(), enabled=self.pin_memory),
+            "mc_return": _pin_if_possible(mc_return.contiguous(), enabled=self.pin_memory),
+            "episode_id": _pin_if_possible(episode_id.contiguous(), enabled=self.pin_memory),
+            "episode_return": _pin_if_possible(episode_return.contiguous(), enabled=self.pin_memory),
+            "episode_length": _pin_if_possible(episode_length.contiguous(), enabled=self.pin_memory),
+            "episode_data_complete": _pin_if_possible(episode_data_complete.contiguous(), enabled=self.pin_memory),
             "next": {
                 "observations": _pin_if_possible(next_observations.contiguous(), enabled=self.pin_memory),
                 "critic_observations": _pin_if_possible(next_critic_observations.contiguous(), enabled=self.pin_memory),
@@ -482,6 +512,11 @@ class HDF5BlockReader(HDF5ReplayReader):
             "observations": observations.contiguous(),
             "actions": actions.contiguous(),
             "critic_observations": critic_observations.contiguous(),
+            "mc_return": _optional_block("mc_return", torch.float32).contiguous(),
+            "episode_id": _optional_block("episode_id", torch.long).contiguous(),
+            "episode_return": _optional_block("episode_return", torch.float32).contiguous(),
+            "episode_length": _optional_block("episode_length", torch.long).contiguous(),
+            "episode_data_complete": _optional_block("episode_data_complete", torch.bool).contiguous(),
             "next": {
                 "observations": next_observations.contiguous(),
                 "critic_observations": next_critic_observations.contiguous(),
@@ -819,6 +854,15 @@ class GPUTransitionCache:
                 "observations": _load_feature_tensor("observations", observation_dim, torch.float32),
                 "actions": _load_feature_tensor("actions", action_dim, torch.float32),
                 "critic_observations": _load_feature_tensor("critic_observations", critic_observation_dim, torch.float32),
+                "mc_return": _load_scalar_tensor("mc_return", torch.float32, optional=True),
+                "episode_id": _load_scalar_tensor("episode_id", torch.long, optional=True),
+                "episode_return": _load_scalar_tensor("episode_return", torch.float32, optional=True),
+                "episode_length": _load_scalar_tensor("episode_length", torch.long, optional=True),
+                "episode_data_complete": _load_scalar_tensor(
+                    "episode_data_complete",
+                    torch.bool,
+                    optional=True,
+                ),
                 "next": {
                     "observations": _load_feature_tensor("next_observations", observation_dim, torch.float32),
                     "critic_observations": _load_feature_tensor(

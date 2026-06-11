@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, Sequence
 
+import h5py
 import tqdm
 from loguru import logger
 
@@ -76,6 +77,7 @@ class OnlineReplayBuffer:
         self.dones = torch.zeros(capacity, device=device, dtype=torch.long)
         self.truncations = torch.zeros(capacity, device=device, dtype=torch.long)
         self.effective_n_steps = torch.ones(capacity, device=device, dtype=torch.long)
+        self.mc_returns = torch.zeros(capacity, device=device, dtype=torch.float32)
 
     def __len__(self) -> int:
         return self.size
@@ -105,6 +107,7 @@ class OnlineReplayBuffer:
             device=self.device,
             dtype=torch.long,
         ).reshape(-1)
+        self.mc_returns[indices] = transition["mc_return"].to(device=self.device, dtype=torch.float32).reshape(-1)
 
         self.ptr = int((self.ptr + batch_size) % self.capacity)
         self.size = min(self.size + batch_size, self.capacity)
@@ -120,6 +123,7 @@ class OnlineReplayBuffer:
             "observations": self.observations.index_select(0, indices),
             "actions": self.actions.index_select(0, indices),
             "critic_observations": self.critic_observations.index_select(0, indices),
+            "mc_return": self.mc_returns.index_select(0, indices),
             "next": {
                 "observations": self.next_observations.index_select(0, indices),
                 "critic_observations": self.next_critic_observations.index_select(0, indices),
@@ -303,6 +307,42 @@ class OS_CALQLAgent(BaseAlgo):
                     f"got threshold={config.offline_refill_threshold}, capacity={config.offline_buffer_capacity}"
                 )
 
+    def _validate_calql_offline_dataset(self) -> None:
+        if not self.config.calql_use_mc_return:
+            logger.warning("OS-CAL-QL mc_return calibration is disabled; agent will behave like OS-CQL/O2O.")
+            return
+
+        if not self._offline_dataset_path.exists():
+            return
+
+        with h5py.File(self._offline_dataset_path, "r") as h5_file:
+            if "mc_return" not in h5_file:
+                message = (
+                    "OS-CAL-QL requires offline dataset key 'mc_return'. "
+                    "Collect the dataset with fast_sac_episode_data or disable calql_require_mc_return."
+                )
+                if self.config.calql_require_mc_return:
+                    raise KeyError(message)
+                logger.warning(message)
+                return
+
+            num_samples = int(h5_file.attrs.get("num_samples", h5_file["mc_return"].shape[0]))
+            if int(h5_file["mc_return"].shape[0]) < num_samples:
+                raise ValueError(
+                    f"Dataset key 'mc_return' is shorter than num_samples={num_samples}: "
+                    f"shape={h5_file['mc_return'].shape}"
+                )
+
+            if self.config.calql_validate_complete_episodes:
+                if "episode_data_complete" not in h5_file:
+                    raise KeyError(
+                        "OS-CAL-QL complete-episode validation requires key 'episode_data_complete'. "
+                        "Collect the dataset with fast_sac_episode_data or set calql_validate_complete_episodes=False."
+                    )
+                complete = h5_file["episode_data_complete"][:num_samples]
+                if not bool(complete.astype(bool).all()):
+                    raise ValueError("Offline dataset contains incomplete episode rows; mc_return is not reliable.")
+
     def setup(self) -> None:
         logger.info("Setting up standalone CAL-QL/O2O agent")
 
@@ -345,6 +385,7 @@ class OS_CALQLAgent(BaseAlgo):
             }
             critic_obs_dim += obs_size
         self.critic_obs_dim = critic_obs_dim
+        self._validate_calql_offline_dataset()
         logger.info(f"Offline dataset sampling backend: use_gpu_cache={args.use_gpu_cache}")
         if args.use_gpu_cache:
             if not torch.cuda.is_available():
@@ -505,10 +546,14 @@ class OS_CALQLAgent(BaseAlgo):
             action_dim=n_act,
             device=self.device,
         )
+        self.online_replay_requires_complete_episodes = True
         self.online_env_steps = 0
         self.online_update_steps = 0
         self._online_obs: torch.Tensor | None = None
         self._online_critic_obs: torch.Tensor | None = None
+        self._online_episode_buffers: list[list[TensorDict]] = [[] for _ in range(self.env.num_envs)]
+        self._online_next_episode_id = 0
+        self._online_completed_episode_count = 0
         logger.info(
             "Standalone CAL-QL/O2O baseline enabled: "
             f"offline_pretrain_steps={args.offline_pretrain_steps}, "
@@ -618,6 +663,9 @@ class OS_CALQLAgent(BaseAlgo):
             torch.Tensor,
             torch.Tensor,
             torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
         ]:
             args = self.config
             scaler = self.scaler
@@ -629,6 +677,7 @@ class OS_CALQLAgent(BaseAlgo):
                 next_critic_observations = data["next"]["critic_observations"]
                 dataset_actions = data["actions"]
                 rewards = data["next"]["rewards"]
+                mc_returns = data["mc_return"].to(dtype=dataset_actions.dtype)
                 dones = data["next"]["dones"].bool()
                 truncations = data["next"]["truncations"].bool()
                 bootstrap = (truncations | ~dones).float()
@@ -648,6 +697,11 @@ class OS_CALQLAgent(BaseAlgo):
                 bellman_loss = F.mse_loss(q1, q_target) + F.mse_loss(q2, q_target)
 
                 q_data_mean = 0.5 * (q1.mean() + q2.mean())
+                q_data_min = torch.minimum(q1, q2)
+                q_data_minus_mc_return = (q_data_min.detach() - mc_returns).mean()
+                mc_return_mean = mc_returns.mean()
+                calibration_active_rate = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+                active_rate = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 rand_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 curr_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 next_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
@@ -700,6 +754,33 @@ class OS_CALQLAgent(BaseAlgo):
                     curr_logp = curr_logp.view(batch_size, num_repeat)
                     next_logp = next_logp.view(batch_size, num_repeat)
 
+                    if args.calql_use_mc_return:
+                        calibration_floor = mc_returns[:, None].to(dtype=q1_rand.dtype)
+                        with torch.no_grad():
+                            calibration_active_rate = torch.stack(
+                                [
+                                    (q1_rand < calibration_floor).float().mean(),
+                                    (q2_rand < calibration_floor).float().mean(),
+                                    (q1_curr < calibration_floor).float().mean(),
+                                    (q2_curr < calibration_floor).float().mean(),
+                                    (q1_next < calibration_floor).float().mean(),
+                                    (q2_next < calibration_floor).float().mean(),
+                                ]
+                            ).mean()
+                        q1_rand_lse = torch.maximum(q1_rand, calibration_floor)
+                        q2_rand_lse = torch.maximum(q2_rand, calibration_floor)
+                        q1_curr_lse = torch.maximum(q1_curr, calibration_floor)
+                        q2_curr_lse = torch.maximum(q2_curr, calibration_floor)
+                        q1_next_lse = torch.maximum(q1_next, calibration_floor)
+                        q2_next_lse = torch.maximum(q2_next, calibration_floor)
+                    else:
+                        q1_rand_lse = q1_rand
+                        q2_rand_lse = q2_rand
+                        q1_curr_lse = q1_curr
+                        q2_curr_lse = q2_curr
+                        q1_next_lse = q1_next
+                        q2_next_lse = q2_next
+
                     if self.config.use_tanh:
                         random_density = (
                             math.log(0.5) * dataset_actions.shape[-1]
@@ -710,17 +791,17 @@ class OS_CALQLAgent(BaseAlgo):
 
                     cat_q1 = torch.cat(
                         [
-                            q1_rand - random_density,
-                            q1_curr - curr_logp,
-                            q1_next - next_logp,
+                            q1_rand_lse - random_density,
+                            q1_curr_lse - curr_logp,
+                            q1_next_lse - next_logp,
                         ],
                         dim=1,
                     )
                     cat_q2 = torch.cat(
                         [
-                            q2_rand - random_density,
-                            q2_curr - curr_logp,
-                            q2_next - next_logp,
+                            q2_rand_lse - random_density,
+                            q2_curr_lse - curr_logp,
+                            q2_next_lse - next_logp,
                         ],
                         dim=1,
                     )
@@ -819,6 +900,9 @@ class OS_CALQLAgent(BaseAlgo):
                 curr_q_mean.detach(),
                 next_q_mean.detach(),
                 active_rate.detach(),
+                mc_return_mean.detach(),
+                q_data_minus_mc_return.detach(),
+                calibration_active_rate.detach(),
             )
 
     def _update_cql_lagrange(self, cql_gap: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -951,6 +1035,7 @@ class OS_CALQLAgent(BaseAlgo):
             augmented_batch["next"]["effective_n_steps"] = batch["next"]["effective_n_steps"].repeat(
                 num_aug
             )  # type: ignore[index]
+            augmented_batch["mc_return"] = batch["mc_return"].repeat(num_aug)
             batch = augmented_batch
 
         batch = apply_observation_normalization(batch, normalize_obs, normalize_critic_obs)
@@ -968,6 +1053,7 @@ class OS_CALQLAgent(BaseAlgo):
                 "observations": batch["observations"],
                 "actions": batch["actions"],
                 "critic_observations": batch["critic_observations"],
+                "mc_return": batch["mc_return"],
                 "next": next_batch,
             },
             batch_size=effective_batch_size,
@@ -978,6 +1064,8 @@ class OS_CALQLAgent(BaseAlgo):
     def reset_online_rollout_state(self) -> None:
         self._online_obs = None
         self._online_critic_obs = None
+        if hasattr(self, "_online_episode_buffers"):
+            self._online_episode_buffers = [[] for _ in range(self.env.num_envs)]
 
     def _ensure_online_rollout_state(self) -> None:
         if self._online_obs is not None and self._online_critic_obs is not None:
@@ -1017,6 +1105,65 @@ class OS_CALQLAgent(BaseAlgo):
             else:
                 normalized_obs = obs
             return self.actor.explore(normalized_obs, deterministic=False).float()
+
+    def _compute_online_mc_returns(self, rewards: torch.Tensor) -> torch.Tensor:
+        gamma = self.config.calql_mc_gamma
+        discount = float(self.config.gamma if gamma is None else gamma)
+        mc_returns = torch.empty_like(rewards)
+        running_return = torch.zeros((), dtype=rewards.dtype, device=rewards.device)
+        for step_idx in range(rewards.numel() - 1, -1, -1):
+            running_return = rewards[step_idx] + discount * running_return
+            mc_returns[step_idx] = running_return
+        return mc_returns
+
+    def _append_online_episode_transitions(
+        self,
+        transition: TensorDict,
+        *,
+        dones: torch.Tensor,
+        truncations: torch.Tensor,
+    ) -> None:
+        for env_id in range(self.env.num_envs):
+            self._online_episode_buffers[env_id].append(transition[env_id : env_id + 1].clone())
+
+        finished_mask = dones.to(device=self.device, dtype=torch.bool).flatten() | truncations.to(
+            device=self.device,
+            dtype=torch.bool,
+        ).flatten()
+        finished_envs = finished_mask.nonzero(as_tuple=False).flatten()
+        for env_id_tensor in finished_envs:
+            self._flush_online_episode(int(env_id_tensor.item()))
+
+    def _flush_online_episode(self, env_id: int) -> None:
+        episode_steps = self._online_episode_buffers[env_id]
+        if not episode_steps:
+            return
+
+        episode = torch.cat(episode_steps, dim=0)
+        rewards = episode["next"]["rewards"].to(device=self.device, dtype=torch.float32).reshape(-1)
+        num_steps = int(rewards.numel())
+        mc_returns = self._compute_online_mc_returns(rewards)
+
+        episode["mc_return"] = mc_returns
+        episode["episode_id"] = torch.full(
+            (num_steps,),
+            self._online_next_episode_id,
+            device=self.device,
+            dtype=torch.long,
+        )
+        episode["episode_return"] = torch.full(
+            (num_steps,),
+            float(rewards.sum().detach().item()),
+            device=self.device,
+            dtype=torch.float32,
+        )
+        episode["episode_length"] = torch.full((num_steps,), num_steps, device=self.device, dtype=torch.long)
+        episode["episode_data_complete"] = torch.ones((num_steps,), device=self.device, dtype=torch.bool)
+
+        self.online_replay_buffer.add(episode)
+        self._online_episode_buffers[env_id] = []
+        self._online_next_episode_id += 1
+        self._online_completed_episode_count += 1
 
     def collect_online_steps(self, num_steps: int | None = None) -> int:
         steps_to_collect = int(num_steps if num_steps is not None else self.config.online_collect_steps)
@@ -1073,7 +1220,11 @@ class OS_CALQLAgent(BaseAlgo):
                 batch_size=(self.env.num_envs,),
                 device=self.device,
             )
-            self.online_replay_buffer.add(transition)
+            self._append_online_episode_transitions(
+                transition,
+                dones=dones,
+                truncations=truncations,
+            )
             self._online_obs = next_obs
             self._online_critic_obs = next_critic_obs
             self.online_env_steps += 1
@@ -1120,6 +1271,7 @@ class OS_CALQLAgent(BaseAlgo):
             augmented_batch["next"]["effective_n_steps"] = batch["next"]["effective_n_steps"].repeat(
                 num_aug
             )  # type: ignore[index]
+            augmented_batch["mc_return"] = batch["mc_return"].repeat(num_aug)
             batch = augmented_batch  # type: ignore[assignment]
 
         batch = apply_observation_normalization(batch, normalize_obs, normalize_critic_obs)
@@ -1137,6 +1289,7 @@ class OS_CALQLAgent(BaseAlgo):
                 "observations": batch["observations"],
                 "actions": batch["actions"],
                 "critic_observations": batch["critic_observations"],
+                "mc_return": batch["mc_return"],
                 "next": next_batch,
             },
             batch_size=effective_batch_size,
@@ -1240,7 +1393,7 @@ class OS_CALQLAgent(BaseAlgo):
 
             batch_size = max(args.batch_size // self.gpu_world_size, 1)
             with self.logging_helper.record_learn_time():
-                for _ in range(args.num_updates):
+                for _ in range(1): #range(args.num_updates):
                     data, offline_bs, online_bs, offline_ratio = self._sample_mixed_batch(
                         batch_size=batch_size,
                         normalize_obs=normalize_obs,
@@ -1262,6 +1415,9 @@ class OS_CALQLAgent(BaseAlgo):
                         curr_q,
                         next_q,
                         active_rate,
+                        mc_return_mean,
+                        q_data_minus_mc_return,
+                        calibration_active_rate,
                     ) = update_q(data)
                     cql_alpha_value, cql_lagrange_loss = self._update_cql_lagrange(cql_gap)
 
@@ -1299,6 +1455,9 @@ class OS_CALQLAgent(BaseAlgo):
                             "cql_gap": cql_gap,
                             "q_data_mean": q_data_mean,
                             "q_pi_minus_q_data": q_pi_minus_q_data,
+                            "calql_mc_return_mean": mc_return_mean,
+                            "calql_q_data_minus_mc_return": q_data_minus_mc_return,
+                            "calql_calibration_active_rate": calibration_active_rate,
                             "cql_alpha_value": cql_alpha_value,
                             "cql_lagrange_loss": cql_lagrange_loss,
                             "cql_target_action_gap": torch.tensor(
@@ -1498,6 +1657,9 @@ class OS_CALQLAgent(BaseAlgo):
                         curr_q,
                         next_q,
                         active_rate,
+                        mc_return_mean,
+                        q_data_minus_mc_return,
+                        calibration_active_rate,
                     ) = update_q(data)
                     cql_alpha_value, cql_lagrange_loss = self._update_cql_lagrange(cql_gap)
 
@@ -1541,6 +1703,9 @@ class OS_CALQLAgent(BaseAlgo):
                             "cql_gap": cql_gap,
                             "q_data_mean": q_data_mean,
                             "q_pi_minus_q_data": q_pi_minus_q_data,
+                            "calql_mc_return_mean": mc_return_mean,
+                            "calql_q_data_minus_mc_return": q_data_minus_mc_return,
+                            "calql_calibration_active_rate": calibration_active_rate,
                             "cql_alpha_value": cql_alpha_value,
                             "cql_lagrange_loss": cql_lagrange_loss,
                             "cql_target_action_gap": torch.tensor(

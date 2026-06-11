@@ -775,6 +775,18 @@ class CALQLConfig:
     cql_weight: float = 5.0
     """weight of conservative quantile regularization"""
 
+    calql_use_mc_return: bool = True
+    """whether to calibrate sampled CQL Q-values with dataset/online Monte-Carlo returns"""
+
+    calql_require_mc_return: bool = True
+    """whether CAL-QL setup should fail if the offline dataset has no mc_return key"""
+
+    calql_validate_complete_episodes: bool = True
+    """whether CAL-QL setup should validate episode_data_complete when present"""
+
+    calql_mc_gamma: float | None = None
+    """discount used for online MC return calculation; None uses gamma"""
+
     use_lagrange: bool = False
     """whether to use Lagrange multiplier auto-tuning for CQL conservative loss"""
 
@@ -1308,6 +1320,18 @@ class OS_CALQLConfig:
 
     cql_weight: float = 5.0
     """weight of conservative quantile regularization"""
+
+    calql_use_mc_return: bool = True
+    """whether to calibrate sampled CQL Q-values with dataset/online Monte-Carlo returns"""
+
+    calql_require_mc_return: bool = True
+    """whether OS-CAL-QL setup should fail if the offline dataset has no mc_return key"""
+
+    calql_validate_complete_episodes: bool = True
+    """whether OS-CAL-QL setup should validate episode_data_complete when present"""
+
+    calql_mc_gamma: float | None = None
+    """discount used for online MC return calculation; None uses gamma"""
 
     use_lagrange: bool = False
     """whether to use Lagrange multiplier auto-tuning for CQL conservative loss"""

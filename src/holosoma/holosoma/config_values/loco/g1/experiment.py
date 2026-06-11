@@ -242,6 +242,7 @@ g1_29dof_os_cal_ql = ExperimentConfig(
             num_learning_iterations=50000,
             offline_pretrain_steps=10000,
             online_total_steps=40000,
+            online_eval_interval=1000,
             online_warmup_steps=1000,
             online_collect_steps=1,
             updates_per_collect=1,
