@@ -447,7 +447,7 @@ os_cql = OS_CQLAlgoConfig(
 )
 
 os_cal_ql = OS_CALQLAlgoConfig(
-    _target_="holosoma.agents.cal_ql.cal_ql_agent.CALQLAgent",
+    _target_="holosoma.agents.cal_ql.os_cal_ql_agent.OS_CALQLAgent",
     _recursive_=False,
     config=OS_CALQLConfig(
         num_learning_iterations=50000,
