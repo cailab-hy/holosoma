@@ -17,7 +17,7 @@ from holosoma.agents.cal_ql.cal_ql import Actor, CNNActor, DoubleQCritic
 from holosoma.agents.cal_ql.cal_ql_utils import EmpiricalNormalization, save_params
 from holosoma.agents.modules.augmentation_utils import SymmetryUtils
 from holosoma.agents.modules.logging_utils import LoggingHelper
-from holosoma.config_types.algo import CALQLConfig
+from holosoma.config_types.algo import OS_CALQLConfig
 from holosoma.data.hdf5_offline_dataset import (
     GPUTransitionCache,
     HDF5BlockReader,
@@ -246,6 +246,11 @@ class OS_CALQLAgent(BaseAlgo):
         self._num_repeat_actions = config.cql_num_action_samples
         self._temperature = config.cql_temperature
         self._cql_weight = config.cql_weight
+
+        ## os-cql
+        self.cql_gap_margin = config.cql_gap_margin
+        self.cql_gap_softplus_tau = config.cql_gap_softplus_tau
+        self._use_softplus = config.use_softplus
 
         self._offline_dataset_path = Path(config.offline_dataset_path)
         self._offline_dataset_reader: HDF5BlockReader | None = None
@@ -616,7 +621,7 @@ class OS_CALQLAgent(BaseAlgo):
         ]:
             args = self.config
             scaler = self.scaler
-
+            
             with self._maybe_amp():
                 observations = data["observations"]
                 next_observations = data["next"]["observations"]
