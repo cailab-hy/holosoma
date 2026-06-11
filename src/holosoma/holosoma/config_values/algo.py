@@ -355,6 +355,7 @@ cal_ql = CALQLAlgoConfig(
         critic_obs_keys=["critic_obs"],
         offline_pretrain_steps=30000,
         online_total_steps=50000,
+        online_eval_interval=0,
         online_warmup_steps=1000,
         online_collect_steps=1,
         updates_per_collect=1,

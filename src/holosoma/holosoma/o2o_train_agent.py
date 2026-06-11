@@ -460,9 +460,16 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
 
         online_start_step = int(algo.global_step)
         online_target_step = online_start_step + int(algo.config.online_total_steps)
+        online_eval_interval = max(0, int(getattr(algo.config, "online_eval_interval", 0)))
+        next_online_eval_step = (
+            online_start_step + online_eval_interval
+            if online_eval_interval > 0
+            else online_target_step + 1
+        )
         logger.info(
             f"Starting online finetuning from global_step={online_start_step} "
-            f"to global_step={online_target_step}"
+            f"to global_step={online_target_step} "
+            f"with online_eval_interval={online_eval_interval}"
         )
         online_pbar = tqdm.tqdm(
             total=online_target_step,
@@ -479,6 +486,10 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
                 update_steps = min(max(1, int(algo.config.updates_per_collect)), remaining_online_updates)
                 online_learn_fn(max_steps=update_steps)
                 online_pbar.update(max(0, int(algo.global_step) - step_before_update))
+                if algo.global_step >= next_online_eval_step:
+                    _run_eval_if_available(phase="online")
+                    while next_online_eval_step <= algo.global_step:
+                        next_online_eval_step += online_eval_interval
         finally:
             online_pbar.close()
 

@@ -973,6 +973,9 @@ class CALQLConfig:
     online_total_steps: int = 40000
     """number of online finetuning gradient steps after offline pretraining"""
 
+    online_eval_interval: int = 0
+    """online phase evaluation interval. 0 disables online eval during finetuning"""
+
     online_warmup_steps: int = 1000
     """environment steps collected into online replay before online updates start"""
 
