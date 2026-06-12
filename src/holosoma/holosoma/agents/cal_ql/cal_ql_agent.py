@@ -865,13 +865,13 @@ class CALQLAgent(BaseAlgo):
             cql_gap.detach(),
             q_data_mean.detach(),
             q_pi_minus_q_data.detach(),
+            rand_q_mean.detach(),
+            curr_q_mean.detach(),
+            next_q_mean.detach(),
             mc_return_mean.detach(),
             q_data_minus_mc_return.detach(),
             curr_bound_rate.detach(),
             next_bound_rate.detach(),
-            rand_q_mean.detach(),
-            curr_q_mean.detach(),
-            next_q_mean.detach(),
         )
 
     def _update_cql_lagrange(self, cql_gap: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -879,11 +879,14 @@ class CALQLAgent(BaseAlgo):
         if (
             not self.config.use_lagrange
             or self._cql_weight <= 0.0
-            or self.log_cql_alpha is None
-            or self.cql_alpha_optimizer is None
         ):
             zero = torch.tensor(0.0, device=self.device)
             return zero, zero
+        if self.log_cql_alpha is None or self.cql_alpha_optimizer is None:
+            raise RuntimeError(
+                "CAL-QL Lagrange is enabled but log_cql_alpha/cql_alpha_optimizer is not initialized. "
+                "Check setup() and config.use_lagrange."
+            )
 
         target_gap = torch.tensor(
             self.config.cql_target_action_gap,
@@ -906,8 +909,8 @@ class CALQLAgent(BaseAlgo):
         self.cql_alpha_optimizer.step()
         with torch.no_grad():
             self.log_cql_alpha.data.clamp_(max=math.log(self.config.cql_lagrange_max))
-            cql_alpha_value = self.log_cql_alpha.exp().clamp(max=self.config.cql_lagrange_max)
-        return cql_alpha_value.detach(), cql_alpha_loss.detach()
+            cql_alpha_value = self.log_cql_alpha.exp().clamp(max=self.config.cql_lagrange_max).mean()
+        return cql_alpha_value.detach(), cql_alpha_loss.detach().mean()
 
     def _update_actor(
         self,
@@ -1380,13 +1383,13 @@ class CALQLAgent(BaseAlgo):
                         cql_gap,
                         q_data_mean,
                         q_pi_minus_q_data,
+                        rand_q,
+                        curr_q,
+                        next_q,
                         mc_return_mean,
                         q_data_minus_mc_return,
                         current_boundrate,
                         next_boundrate,
-                        rand_q,
-                        curr_q,
-                        next_q,
                     ) = update_q(data)
                     cql_alpha_value, cql_lagrange_loss = self._update_cql_lagrange(cql_gap)
 
@@ -1622,13 +1625,13 @@ class CALQLAgent(BaseAlgo):
                         cql_gap,
                         q_data_mean,
                         q_pi_minus_q_data,
+                        rand_q,
+                        curr_q,
+                        next_q,
                         mc_return_mean,
                         q_data_minus_mc_return,
                         current_boundrate,
                         next_boundrate,
-                        rand_q,
-                        curr_q,
-                        next_q,
                     ) = update_q(data)
                     cql_alpha_value, cql_lagrange_loss = self._update_cql_lagrange(cql_gap)
 
