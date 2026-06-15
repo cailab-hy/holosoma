@@ -414,7 +414,7 @@ g1_29dof_wbt_cql = ExperimentConfig(
             use_lagrange=False,
             batch_size=1024,
             cql_target_action_gap=10,
-            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_dataset.h5",
+            offline_dataset_path="g1_29dof_wbt_fastsac_episode_env_1024_dataset.h5",
             use_gpu_cache=True,
         ),
     ),
