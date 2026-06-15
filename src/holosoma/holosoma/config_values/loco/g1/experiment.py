@@ -188,7 +188,7 @@ g1_29dof_cal_ql = ExperimentConfig(
     env_class="holosoma.envs.locomotion.locomotion_manager.LeggedRobotLocomotionManager",
     training=TrainingConfig(
         project="hv-g1-manager",
-        name="g1_29dof_cal_ql_lagrange5_o2o_manager",
+        name="g1_29dof_cql_lagrange0.5_o2o_manager",
         num_envs=512,
         eval_num_episodes=1,
     ),
@@ -196,6 +196,7 @@ g1_29dof_cal_ql = ExperimentConfig(
         algo.cal_ql,
         config=replace(
             algo.cal_ql.config,
+            calql_use_mc_return = False,
             num_learning_iterations=50000,
             offline_pretrain_steps=10000,
             online_total_steps=40000,
@@ -207,7 +208,7 @@ g1_29dof_cal_ql = ExperimentConfig(
             offline_mixing_ratio=0.5,
             use_symmetry=True,
             use_lagrange = True,
-            cql_weight=5.0,
+            cql_weight=0.5,
             cql_num_action_samples=10,
             offline_dataset_path="offline_data/g1_29dof_loco_fastsac_episode_dataset_Replay64.h5",
         ),

@@ -77,7 +77,7 @@ g1_29dof_wbt_fast_sac = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
         name="g1_29dof_wbt_fast_sac_manager",
-        num_envs=4096,
+        num_envs=1024,
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
     algo=replace(
@@ -95,6 +95,7 @@ g1_29dof_wbt_fast_sac = ExperimentConfig(
             target_entropy_ratio=0.5,
             tau=0.05,
             use_symmetry=False,
+            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_dataset_env1024_.h5",
         ),
     ),
     simulator=replace(
@@ -138,7 +139,7 @@ g1_29dof_wbt_fast_sac_data = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
         name="g1_29dof_wbt_fast_sac_data_collect_manager",
-        num_envs=4096,
+        num_envs=1024,
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
     algo=replace(
@@ -156,7 +157,7 @@ g1_29dof_wbt_fast_sac_data = ExperimentConfig(
             target_entropy_ratio=0.5,
             tau=0.05,
             use_symmetry=False,
-            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_dataset.h5",
+            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_env_1024_dataset.h5",
         ),
     ),
     simulator=replace(
@@ -218,7 +219,8 @@ g1_29dof_wbt_fast_sac_episode_data = ExperimentConfig(
             target_entropy_ratio=0.5,
             tau=0.05,
             use_symmetry=False,
-            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_episode_dataset.h5",
+            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_episode_env_1024_dataset.h5",
+            episode_data_active_envs=24,
         ),
     ),
     simulator=replace(
