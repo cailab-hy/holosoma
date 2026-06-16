@@ -10,6 +10,7 @@ from holosoma.config_values.loco.g1.experiment import (
     g1_29dof_fast_sac,
     g1_29dof_fast_sac_data,
     g1_29dof_fast_sac_episode_data,
+    g1_29dof_fixed_fast_sac_data,
     g1_29dof_os_cql,
 
 )
@@ -20,6 +21,7 @@ from holosoma.config_values.wbt.g1.experiment import (
     g1_29dof_wbt_bc_w_object,
     g1_29dof_wbt_iql,
     g1_29dof_wbt_cql,
+    g1_29dof_wbt_fixed_fast_sac_data,
     g1_29dof_wbt_fast_sac,
     g1_29dof_wbt_fast_sac_episode_data,
     g1_29dof_wbt_fast_sac_w_object,
@@ -36,6 +38,7 @@ DEFAULTS = {
     "g1_29dof_fast_sac": g1_29dof_fast_sac,
     "g1_29dof_fast_sac_data": g1_29dof_fast_sac_data,
     "g1_29dof_fast_sac_episode_data": g1_29dof_fast_sac_episode_data,
+    "g1_29dof_fixed_fast_sac_data": g1_29dof_fixed_fast_sac_data,
     "g1_29dof_cql": g1_29dof_cql,
     "g1_29dof_os_cql" : g1_29dof_os_cql,
     "g1_29dof_cal_ql": g1_29dof_cal_ql,
@@ -45,6 +48,7 @@ DEFAULTS = {
     "g1_29dof_wbt": g1_29dof_wbt,
     "g1_29dof_wbt_w_object": g1_29dof_wbt_w_object,
     "g1_29dof_wbt_fast_sac": g1_29dof_wbt_fast_sac,
+    "g1_29dof_wbt_fixed_fast_sac_data": g1_29dof_wbt_fixed_fast_sac_data,
     "g1_29dof_wbt_fast_sac_episode_data": g1_29dof_wbt_fast_sac_episode_data,
     "g1_29dof_wbt_iql": g1_29dof_wbt_iql,
     "g1_29dof_wbt_cql": g1_29dof_wbt_cql,

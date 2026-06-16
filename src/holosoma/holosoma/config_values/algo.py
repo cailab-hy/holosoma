@@ -129,6 +129,11 @@ fast_sac_episode_data = dataclasses.replace(
     _target_="holosoma.agents.fast_sac.fast_sac_episode_data.FastSACEpisodeDataAgent",
 )
 
+fixed_fast_sac = dataclasses.replace(
+    fast_sac,
+    _target_="holosoma.agents.fixed_fast_sac.fast_sac_agent.FastSACAgent",
+)
+
 offline_sac = OfflineSACAlgoConfig(
     _target_="holosoma.agents.offline_sac.offline_sac_agent.OfflineSACAgent",
     _recursive_=False,
@@ -668,6 +673,7 @@ DEFAULTS = {
     "ppo": ppo,
     "fast_sac": fast_sac,
     "fast_sac_episode_data": fast_sac_episode_data,
+    "fixed_fast_sac": fixed_fast_sac,
     "offline_sac": offline_sac,
     "codac": codac,
     "cql": cql,

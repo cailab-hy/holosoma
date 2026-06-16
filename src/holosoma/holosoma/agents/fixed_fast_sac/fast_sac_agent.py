@@ -875,7 +875,12 @@ class FastSACAgent(BaseAlgo):
 
         save_h5 = self.is_main_process
         if save_h5:
-            init_transition_saver("offline_data/fastsac_dataset.h5", flush_every=1)
+            init_transition_saver(args.offline_dataset_path, flush_every=1)
+            logger.info(
+                "Fixed FastSAC transition export enabled: "
+                f"sample_envs={min(max(int(args.episode_data_active_envs), 0), env.num_envs)}, "
+                f"path={args.offline_dataset_path}"
+            )
 
         self.global_step = 0   # checkpoint step과 분리해서 수집 step으로 사용
 
@@ -902,6 +907,34 @@ class FastSACAgent(BaseAlgo):
                         next_critic_obs,
                     )
 
+                    termination_reasons = infos.get("termination_reasons", {})
+                    tracking_metrics = infos.get("tracking_metrics", {})
+
+                    def _reason_tensor(name: str) -> torch.Tensor:
+                        value = termination_reasons.get(name)
+                        if isinstance(value, torch.Tensor):
+                            return value.to(device=device, dtype=torch.uint8)
+                        return torch.zeros(env.num_envs, device=device, dtype=torch.uint8)
+
+                    def _metric_tensor(name: str) -> torch.Tensor:
+                        value = tracking_metrics.get(name)
+                        if isinstance(value, torch.Tensor):
+                            return value.to(device=device, dtype=torch.float32)
+                        return torch.zeros(env.num_envs, device=device, dtype=torch.float32)
+
+                    episode_step = infos.get("episode_step")
+                    if isinstance(episode_step, torch.Tensor):
+                        episode_step_tensor = episode_step.to(device=device, dtype=torch.long)
+                    else:
+                        episode_step_tensor = torch.zeros(env.num_envs, device=device, dtype=torch.long)
+
+                    global_step_tensor = torch.full(
+                        (env.num_envs,),
+                        int(self.global_step),
+                        device=device,
+                        dtype=torch.long,
+                    )
+
                     transition_to_save = TensorDict(
                         {
                             "observations": obs,
@@ -913,6 +946,17 @@ class FastSACAgent(BaseAlgo):
                                 "rewards": torch.as_tensor(rewards, device=device, dtype=torch.float),
                                 "truncations": truncations.to(torch.uint8),
                                 "dones": dones.to(torch.uint8),
+                                "done_bad_tracking": _reason_tensor("bad_tracking"),
+                                "done_motion_ends": _reason_tensor("motion_ends"),
+                                "done_timeout": _reason_tensor("timeout"),
+                                "episode_step": episode_step_tensor,
+                                "global_step": global_step_tensor,
+                                "err_root_pos": _metric_tensor("err_root_pos"),
+                                "err_root_ori": _metric_tensor("err_root_ori"),
+                                "err_body_pos_max": _metric_tensor("err_body_pos_max"),
+                                "err_body_pos_mean": _metric_tensor("err_body_pos_mean"),
+                                "err_object_pos": _metric_tensor("err_object_pos"),
+                                "err_object_ori": _metric_tensor("err_object_ori"),
                             },
                         },
                         batch_size=(env.num_envs,),
@@ -920,9 +964,10 @@ class FastSACAgent(BaseAlgo):
                     )
 
                     if save_h5:
-                        num_to_save = min(64, env.num_envs)
-                        rand_idx = torch.randperm(env.num_envs, device=device)[:num_to_save]
-                        save_transition(transition_to_save[rand_idx].clone().cpu())
+                        num_to_save = min(max(int(args.episode_data_active_envs), 0), env.num_envs)
+                        if num_to_save > 0:
+                            rand_idx = torch.randperm(env.num_envs, device=device)[:num_to_save]
+                            save_transition(transition_to_save[rand_idx].clone().cpu())
 
                     obs = next_obs
                     critic_obs = next_critic_obs
