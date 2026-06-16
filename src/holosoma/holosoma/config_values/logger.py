@@ -9,10 +9,10 @@ wandb_wide = WandbLoggerConfig(
     mode="online",
     video=VideoConfig(
         camera=FixedCameraConfig(
-            position=[35.0, -35.0, 24.0],
-            target=[10.0, 10.0, 0.8],
+            position=[7.0, -7.0, 5.5],
+            target=[3.0, 3.0, 0.8],
         ),
-        vertical_fov=70.0,
+        vertical_fov=60.0,
         show_command_overlay=False,
     ),
 )

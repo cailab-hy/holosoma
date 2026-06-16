@@ -40,6 +40,10 @@ g1_29dof_wbt = ExperimentConfig(
         simulator.isaacsim,
         config=replace(
             simulator.isaacsim.config,
+            scene=replace(
+                simulator.isaacsim.config.scene,
+                env_spacing=2.5,
+            ),
             sim=replace(
                 simulator.isaacsim.config.sim,
                 max_episode_length_s=10.0,
@@ -102,6 +106,10 @@ g1_29dof_wbt_fast_sac = ExperimentConfig(
         simulator.isaacsim,
         config=replace(
             simulator.isaacsim.config,
+            scene=replace(
+                simulator.isaacsim.config.scene,
+                env_spacing=2.5,
+            ),
             sim=replace(
                 simulator.isaacsim.config.sim,
                 max_episode_length_s=10.0,
@@ -164,6 +172,10 @@ g1_29dof_wbt_fast_sac_data = ExperimentConfig(
         simulator.isaacsim,
         config=replace(
             simulator.isaacsim.config,
+            scene=replace(
+                simulator.isaacsim.config.scene,
+                env_spacing=2.5,
+            ),
             sim=replace(
                 simulator.isaacsim.config.sim,
                 max_episode_length_s=10.0,
@@ -227,6 +239,10 @@ g1_29dof_wbt_fast_sac_episode_data = ExperimentConfig(
         simulator.isaacsim,
         config=replace(
             simulator.isaacsim.config,
+            scene=replace(
+                simulator.isaacsim.config.scene,
+                env_spacing=2.5,
+            ),
             sim=replace(
                 simulator.isaacsim.config.sim,
                 max_episode_length_s=10.0,
@@ -291,6 +307,10 @@ g1_29dof_wbt_fixed_fast_sac_data = ExperimentConfig(
         simulator.isaacsim,
         config=replace(
             simulator.isaacsim.config,
+            scene=replace(
+                simulator.isaacsim.config.scene,
+                env_spacing=2.5,
+            ),
             sim=replace(
                 simulator.isaacsim.config.sim,
                 max_episode_length_s=10.0,
