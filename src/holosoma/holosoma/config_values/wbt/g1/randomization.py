@@ -128,6 +128,7 @@ g1_29dof_wbt_randomization = RandomizationManagerCfg(
     step_terms={**base_step_terms},
 )
 
+
 g1_29dof_wbt_randomization_w_object = RandomizationManagerCfg(
     setup_terms={
         **base_setup_terms,
