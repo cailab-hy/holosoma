@@ -871,7 +871,7 @@ class FastSACAgent(BaseAlgo):
         return True
 
     def _export_transition_batch(self, transition_to_save: TensorDict, *, dones: torch.Tensor, infos: dict[str, Any]) -> None:
-        num_to_save = min(64, self.env.num_envs)
+        num_to_save = min(128, self.env.num_envs)
         rand_idx = torch.randperm(self.env.num_envs, device=self.device)[:num_to_save]
         save_transition(transition_to_save[rand_idx].clone().cpu())
 

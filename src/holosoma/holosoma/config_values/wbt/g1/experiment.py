@@ -77,14 +77,14 @@ g1_29dof_wbt_fast_sac = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
         name="g1_29dof_wbt_fast_sac_no_dr_manager",
-        num_envs=1024,
+        num_envs=4096,
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
     algo=replace(
         algo.fast_sac,
         config=replace(
             algo.fast_sac.config,
-            num_learning_iterations=400000,
+            num_learning_iterations=50000,
             v_max=20.0,
             v_min=-20.0,
             gamma=0.99,  # For motion tracking, high gamma + high num_steps is better
