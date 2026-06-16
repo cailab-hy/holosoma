@@ -92,8 +92,7 @@ class IsaacSimVideoRecorder(VideoRecorderInterface):
         import omni.usd
         from pxr import UsdGeom
 
-        # Create camera prim path for recording environment
-        self._camera_prim_path = f"/World/envs/env_{self.config.record_env_id}/VideoCamera"
+        self._camera_prim_path = f"/World/VideoCamera_{self.config.record_env_id}"
 
         # Create camera prim directly in USD stage
         stage = omni.usd.get_context().get_stage()
@@ -212,11 +211,7 @@ class IsaacSimVideoRecorder(VideoRecorderInterface):
                 create_rotation_matrix_from_view(position, target, up_axis, device=self.simulator.device)
             )
 
-            self._view.set_world_poses(
-                position,
-                orientations,
-                torch.tensor([self.config.record_env_id], device=self.simulator.device, dtype=torch.int32),
-            )
+            self._view.set_world_poses(position, orientations)
 
         except Exception as e:
             logger.warning(f"Failed to update camera position: {e}")
