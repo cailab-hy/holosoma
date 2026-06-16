@@ -261,22 +261,22 @@ class CQLAgent(BaseAlgo):
         if args.use_gpu_cache:
             if not torch.cuda.is_available():
                 raise RuntimeError("use_gpu_cache=True requires CUDA, but no CUDA device is available.")
-            self._offline_dataset_reader = None
-            self._offline_shuffle_buffer = None
-            self._offline_gpu_cache = GPUTransitionCache(
-                self._offline_dataset_path,
-                device=self.device,
-                expected_observation_dim=self.actor_obs_dim,
-                expected_action_dim=self.env.robot_config.actions_dim,
-                expected_critic_observation_dim=self.critic_obs_dim,
-            )
-            self._offline_num_samples = self._offline_gpu_cache.num_samples
-            estimated_vram_gib = self._offline_gpu_cache.total_bytes / float(1024**3)
-            logger.info(
-                f"Configured offline GPU transition cache with {self._offline_num_samples} samples."
-            )
-            logger.info(f"Offline GPU cache keys: {list(self._offline_gpu_cache.key_names)}")
-            logger.info(f"Estimated offline GPU cache VRAM footprint: {estimated_vram_gib:.2f} GiB")
+            # self._offline_dataset_reader = None
+            # self._offline_shuffle_buffer = None
+            # self._offline_gpu_cache = GPUTransitionCache(
+            #     self._offline_dataset_path,
+            #     device=self.device,
+            #     expected_observation_dim=self.actor_obs_dim,
+            #     expected_action_dim=self.env.robot_config.actions_dim,
+            #     expected_critic_observation_dim=self.critic_obs_dim,
+            # )
+            # self._offline_num_samples = self._offline_gpu_cache.num_samples
+            # estimated_vram_gib = self._offline_gpu_cache.total_bytes / float(1024**3)
+            # logger.info(
+            #     f"Configured offline GPU transition cache with {self._offline_num_samples} samples."
+            # )
+            # logger.info(f"Offline GPU cache keys: {list(self._offline_gpu_cache.key_names)}")
+            # logger.info(f"Estimated offline GPU cache VRAM footprint: {estimated_vram_gib:.2f} GiB")
         else:
             self._offline_gpu_cache = None
             self._offline_dataset_reader = HDF5BlockReader(
