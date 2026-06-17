@@ -63,7 +63,7 @@ g1_29dof_wbt_termination_collect = TerminationManagerCfg(
             func="holosoma.managers.termination.terms.wbt:BadTracking",
             params={
                 # robot tracking
-                "bad_ref_pos_threshold": 0.8,
+                "bad_ref_pos_threshold": 1.0,
                 "bad_ref_ori_threshold": 1.2,
                 "bad_motion_body_pos_threshold": 0.5,
                 # NOTE: body_names_to_track is shared with command_manager
