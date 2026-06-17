@@ -18,6 +18,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--bad-key", default="next_done_bad_tracking", help="HDF5 key for bad-tracking done flags.")
     parser.add_argument("--motion-key", default="next_done_motion_ends", help="HDF5 key for motion-end done flags.")
     parser.add_argument("--timeout-key", default="next_done_timeout", help="HDF5 key for timeout flags.")
+    parser.add_argument("--reward-key", default="rewards", help="HDF5 key containing rewards.")
     return parser.parse_args()
 
 
@@ -32,6 +33,13 @@ def _read_bool(h5_file: h5py.File, key: str, num_samples: int, *, required: bool
 def _fmt_ratio(count: int, denom: int) -> str:
     ratio = 0.0 if denom == 0 else 100.0 * count / denom
     return f"{count:,} / {denom:,} ({ratio:.3f}%)"
+
+
+def _fmt_reward_mean(rewards: np.ndarray, mask: np.ndarray) -> str:
+    count = int(mask.sum())
+    if count == 0:
+        return "n/a"
+    return f"{float(rewards[mask].mean()):.6f} over {count:,} rows"
 
 
 def main() -> None:
@@ -52,6 +60,9 @@ def main() -> None:
         bad = _read_bool(h5_file, args.bad_key, num_samples)
         motion = _read_bool(h5_file, args.motion_key, num_samples)
         timeout = _read_bool(h5_file, args.timeout_key, num_samples)
+        if args.reward_key not in h5_file:
+            raise KeyError(f"Required reward key missing: {args.reward_key}")
+        rewards = np.asarray(h5_file[args.reward_key][:num_samples]).reshape(num_samples, -1).mean(axis=1)
 
     done_count = int(done.sum())
     trunc_count = int(trunc.sum())
@@ -90,6 +101,13 @@ def main() -> None:
     print("Reason ratios among all transitions")
     for name, mask in masks.items():
         print(f"  {name:<14} {_fmt_ratio(int(mask.sum()), num_samples)}")
+    print()
+    print("Reward means")
+    print(f"  all_transitions      {float(rewards.mean()):.6f} over {num_samples:,} rows")
+    print(f"  done_or_truncated    {_fmt_reward_mean(rewards, terminal_or_trunc)}")
+    for name, mask in masks.items():
+        print(f"  {name:<18} {_fmt_reward_mean(rewards, mask & terminal_or_trunc)}")
+    print(f"  no_reason_terminal   {_fmt_reward_mean(rewards, done_without_reason)}")
     print()
     print("Sanity")
     print(f"  overlapping_reasons:        {_fmt_ratio(int(overlap.sum()), num_samples)}")
