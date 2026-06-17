@@ -895,6 +895,8 @@ class FastSACAgent(BaseAlgo):
                     truncations = infos["time_outs"]
                     next_critic_obs = infos["observations"]["critic"]
 
+                    self.logging_helper.update_episode_stats(rewards, dones, infos)
+
                     done_mask = dones.bool()
                     transition_to_save_next_obs = torch.where(
                         done_mask[:, None],
@@ -974,6 +976,13 @@ class FastSACAgent(BaseAlgo):
 
                 self.global_step += 1
                 pbar.update(1)
+                if self.global_step % args.logging_interval == 0:
+                    loss_dict = {"env_rewards": float(torch.as_tensor(rewards).mean().item())}
+                    self.logging_helper.post_epoch_logging(
+                        it=self.global_step,
+                        loss_dict=loss_dict,
+                        extra_log_dicts={},
+                    )
 
         finally:
             if save_h5:

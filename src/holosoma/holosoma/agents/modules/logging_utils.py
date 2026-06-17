@@ -102,6 +102,13 @@ class LoggingHelper:
         self.cur_reward_sum: torch.Tensor = torch.zeros(num_envs, dtype=torch.float, device=self.device)
         self.cur_episode_length: torch.Tensor = torch.zeros(num_envs, dtype=torch.float, device=self.device)
         self.episode_env_tensors: TensorAverageMeterDict = TensorAverageMeterDict()
+        self.termination_reason_names: tuple[str, ...] = ("bad_tracking", "motion_ends", "timeout")
+        self.termination_finished_count: int = 0
+        self.termination_no_reason_count: int = 0
+        self.termination_overlap_count: int = 0
+        self.termination_reason_counts: dict[str, int] = {
+            name: 0 for name in self.termination_reason_names
+        }
 
     @contextmanager
     def record_collection_time(self) -> Generator[None, None, None]:
@@ -145,8 +152,41 @@ class LoggingHelper:
             self.cur_reward_sum[new_ids] = 0
             self.cur_episode_length[new_ids] = 0
 
+        self._update_termination_reason_stats(dones=dones, infos=infos)
+
         # Update episode environment tensors
         self.episode_env_tensors.add(infos["to_log"])
+
+    def _update_termination_reason_stats(self, dones: torch.Tensor, infos: dict[str, Any]) -> None:
+        finished_mask = dones.to(device=self.device, dtype=torch.bool).reshape(-1)
+        time_outs = infos.get("time_outs")
+        if isinstance(time_outs, torch.Tensor):
+            finished_mask |= time_outs.to(device=self.device, dtype=torch.bool).reshape(-1)
+
+        finished_count = int(finished_mask.sum().item())
+        if finished_count == 0:
+            return
+
+        termination_reasons = infos.get("termination_reasons", {})
+        reason_union = torch.zeros_like(finished_mask)
+        reason_count_per_env = torch.zeros_like(finished_mask, dtype=torch.long)
+
+        self.termination_finished_count += finished_count
+        for name in self.termination_reason_names:
+            value = termination_reasons.get(name) if isinstance(termination_reasons, dict) else None
+            if value is None and name == "timeout":
+                value = time_outs
+            if isinstance(value, torch.Tensor):
+                reason_mask = value.to(device=self.device, dtype=torch.bool).reshape(-1) & finished_mask
+            else:
+                reason_mask = torch.zeros_like(finished_mask)
+
+            self.termination_reason_counts[name] += int(reason_mask.sum().item())
+            reason_union |= reason_mask
+            reason_count_per_env += reason_mask.to(dtype=torch.long)
+
+        self.termination_no_reason_count += int((finished_mask & ~reason_union).sum().item())
+        self.termination_overlap_count += int((finished_mask & (reason_count_per_env > 1)).sum().item())
 
     def post_epoch_logging(
         self,
@@ -184,6 +224,7 @@ class LoggingHelper:
 
         # Log episode info
         ep_string, ep_scalars_to_log = self._log_episode_info()
+        termination_string, termination_scalars_to_log = self._log_termination_reason_info()
 
         env_log_dict = self.episode_env_tensors.mean_and_clear()
         env_log_dict = {f"Env/{k}": v for k, v in env_log_dict.items()}
@@ -200,6 +241,7 @@ class LoggingHelper:
             env_log_dict=env_log_dict,
             fps=fps,
             ep_scalars_to_log=ep_scalars_to_log,
+            termination_scalars_to_log=termination_scalars_to_log,
         )
 
         # Create console output
@@ -208,7 +250,7 @@ class LoggingHelper:
             loss_dict=loss_dict,
             env_log_dict=env_log_dict,
             extra_log_dicts=extra_log_dicts,
-            ep_string=ep_string,
+            ep_string=ep_string + termination_string,
             width=width,
             pad=pad,
             iteration_time=iteration_time,
@@ -277,6 +319,35 @@ class LoggingHelper:
 
         return ep_string, scalars_to_log
 
+    def _log_termination_reason_info(self) -> tuple[str, dict[str, float]]:
+        if not self.is_main_process or self.termination_finished_count == 0:
+            return "", {}
+
+        denom = float(self.termination_finished_count)
+        termination_string = ""
+        scalars_to_log: dict[str, float] = {
+            "DoneReason/episode_count": float(self.termination_finished_count),
+            "DoneReason/no_reason_count": float(self.termination_no_reason_count),
+            "DoneReason/no_reason_ratio": self.termination_no_reason_count / denom,
+            "DoneReason/overlap_count": float(self.termination_overlap_count),
+            "DoneReason/overlap_ratio": self.termination_overlap_count / denom,
+        }
+
+        termination_string += f"{'Done reason episodes:':>35} {self.termination_finished_count:.0f}\n"
+        for name in self.termination_reason_names:
+            count = self.termination_reason_counts[name]
+            ratio = count / denom
+            scalars_to_log[f"DoneReason/{name}_count"] = float(count)
+            scalars_to_log[f"DoneReason/{name}_ratio"] = ratio
+            termination_string += f"{f'Done reason {name}:':>35} {ratio:.4f}\n"
+
+        self.termination_finished_count = 0
+        self.termination_no_reason_count = 0
+        self.termination_overlap_count = 0
+        self.termination_reason_counts = {name: 0 for name in self.termination_reason_names}
+
+        return termination_string, scalars_to_log
+
     def _logging_to_writer(
         self,
         it: int,
@@ -285,6 +356,7 @@ class LoggingHelper:
         extra_log_dicts: dict[str, dict[str, float]],
         fps: int,
         ep_scalars_to_log: dict[str, float],
+        termination_scalars_to_log: dict[str, float],
     ) -> None:
         """Log metrics to tensorboard writer.
 
@@ -312,6 +384,7 @@ class LoggingHelper:
 
         scalars_to_log.update(env_log_dict)
         scalars_to_log.update(ep_scalars_to_log)
+        scalars_to_log.update(termination_scalars_to_log)
 
         # Log extra metrics
         for section_name, section_dict in extra_log_dicts.items():
