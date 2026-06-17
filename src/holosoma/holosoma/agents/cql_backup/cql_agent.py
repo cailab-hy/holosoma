@@ -512,8 +512,8 @@ class CQLAgent(BaseAlgo):
             rewards = data["next"]["rewards"]  # [B]
             dones = data["next"]["dones"].bool()  # [B]
             truncations = data["next"]["truncations"].bool()  # [B]
-            bootstrap = (truncations | ~dones).float()  # [B]
-
+            #bootstrap = (truncations | ~dones).float()  # [B]
+            bootstrap = (~dones).float()
             alpha = self.log_alpha.exp().detach()
 
             with torch.no_grad():
