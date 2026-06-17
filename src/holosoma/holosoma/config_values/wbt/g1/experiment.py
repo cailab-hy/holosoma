@@ -80,7 +80,7 @@ g1_29dof_wbt = ExperimentConfig(
 g1_29dof_wbt_fast_sac = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
-        name="g1_29dof_wbt_fast_sac_no_dr_manager",
+        name="g1_29dof_wbt_fast_sac_reward_terminate_manager",
         num_envs=4096,
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
@@ -99,7 +99,7 @@ g1_29dof_wbt_fast_sac = ExperimentConfig(
             target_entropy_ratio=0.5,
             tau=0.05,
             use_symmetry=False,
-            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_no_dr_env1024_dataset.h5",
+            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_env4096_128_rew_dataset.h5",
         ),
     ),
     simulator=replace(
