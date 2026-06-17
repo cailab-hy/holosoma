@@ -90,6 +90,40 @@ def motion_relative_body_position_error_exp(env: WholeBodyTrackingManager, sigma
     return torch.exp(-error.mean(-1) / sigma**2)
 
 
+def motion_global_ref_position_error_hinge(env: WholeBodyTrackingManager, threshold: float) -> torch.Tensor:
+    motion_command = _get_motion_command_and_assert_type(env)
+    error = torch.norm(motion_command.ref_pos_w - motion_command.robot_ref_pos_w, dim=-1)
+    return torch.relu(error - threshold)
+
+
+def motion_relative_body_position_error_hinge(
+    env: WholeBodyTrackingManager,
+    threshold: float,
+    body_names: list[str] | tuple[str, ...] | None = None,
+    aggregation: str = "max",
+) -> torch.Tensor:
+    motion_command = _get_motion_command_and_assert_type(env)
+    body_error = torch.norm(motion_command.body_pos_relative_w - motion_command.robot_body_pos_w, dim=-1)
+    if body_names is not None:
+        body_indexes = [
+            motion_command.motion_cfg.body_names_to_track.index(body_name)
+            for body_name in body_names
+            if body_name in motion_command.motion_cfg.body_names_to_track
+        ]
+        if not body_indexes:
+            raise ValueError(f"None of the configured body_names were found: {body_names}")
+        body_error = body_error[:, torch.tensor(body_indexes, dtype=torch.long, device=body_error.device)]
+
+    violation = torch.relu(body_error - threshold)
+    if aggregation == "max":
+        return violation.max(dim=-1).values
+    if aggregation == "mean":
+        return violation.mean(dim=-1)
+    if aggregation == "sum":
+        return violation.sum(dim=-1)
+    raise ValueError(f"Unsupported aggregation: {aggregation}")
+
+
 def motion_relative_body_orientation_error_exp(env: WholeBodyTrackingManager, sigma: float) -> torch.Tensor:
     motion_command = _get_motion_command_and_assert_type(env)
     error = quat_error_magnitude(motion_command.body_quat_relative_w, motion_command.robot_body_quat_w) ** 2
