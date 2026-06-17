@@ -358,7 +358,8 @@ class IQLAgent(BaseAlgo):
             rewards = data["next"]["rewards"]  # [B]
             dones = data["next"]["dones"].bool()  # [B]
             truncations = data["next"]["truncations"].bool()  # [B]
-            bootstrap = (truncations | ~dones).float()  # [B]
+            #bootstrap = (truncations | ~dones).float()  # [B]
+            bootstrap = (~dones).float()
             discount = args.discount ** data["next"]["effective_n_steps"]  # [B]
 
             with torch.no_grad():
