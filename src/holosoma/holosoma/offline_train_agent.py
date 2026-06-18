@@ -345,22 +345,32 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
                         "Eval/episode_return_std": float(statistics.pstdev(episode_returns))
                         if len(episode_returns) > 1
                         else 0.0,
+                        "Eval/episode_return_min": float(min(episode_returns)),
+                        "Eval/episode_return_max": float(max(episode_returns)),
                         "Eval/episode_length_mean": float(statistics.fmean(episode_lengths)),
                         "Eval/episode_length_std": float(statistics.pstdev(episode_lengths))
                         if len(episode_lengths) > 1
                         else 0.0,
+                        "Eval/episode_length_min": float(min(episode_lengths)),
+                        "Eval/episode_length_max": float(max(episode_lengths)),
                         "Eval/num_episodes": float(len(eval_results)),
                     }
                     for stop_reason, count in stop_reason_counts.items():
                         eval_metrics[f"Eval/stop_reason/{stop_reason}"] = float(count) / float(len(eval_results))
 
                     logger.info(
-                        "[Eval] step={} episodes={} return_mean={:.4f} return_std={:.4f} length_mean={:.2f}",
+                        "[Eval] step={} episodes={} return_mean={:.4f} return_std={:.4f} "
+                        "return_min={:.4f} return_max={:.4f} length_mean={:.2f} "
+                        "length_min={:.2f} length_max={:.2f}",
                         algo.global_step,
                         len(eval_results),
                         eval_metrics["Eval/episode_return_mean"],
                         eval_metrics["Eval/episode_return_std"],
+                        eval_metrics["Eval/episode_return_min"],
+                        eval_metrics["Eval/episode_return_max"],
                         eval_metrics["Eval/episode_length_mean"],
+                        eval_metrics["Eval/episode_length_min"],
+                        eval_metrics["Eval/episode_length_max"],
                     )
 
                     if is_main_process:

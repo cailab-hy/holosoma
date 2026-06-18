@@ -166,6 +166,7 @@ g1_29dof_wbt_fast_sac_data = ExperimentConfig(
             tau=0.05,
             use_symmetry=False,
             offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_REW_5m_dataset.h5",
+            save_env_num = 32,
         ),
     ),
     simulator=replace(

@@ -370,15 +370,23 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
                         "Eval/episode_return_std": float(statistics.pstdev(episode_returns))
                         if len(episode_returns) > 1
                         else 0.0,
+                        "Eval/episode_return_min": float(min(episode_returns)),
+                        "Eval/episode_return_max": float(max(episode_returns)),
                         "Eval/episode_length_mean": float(statistics.fmean(episode_lengths)),
                         "Eval/episode_length_std": float(statistics.pstdev(episode_lengths))
                         if len(episode_lengths) > 1
                         else 0.0,
+                        "Eval/episode_length_min": float(min(episode_lengths)),
+                        "Eval/episode_length_max": float(max(episode_lengths)),
                         "Eval/num_episodes": float(len(eval_results)),
                         "O2O/online_env_steps": float(getattr(algo, "online_env_steps", 0)),
                         "O2O/online_update_steps": float(getattr(algo, "online_update_steps", 0)),
                         "O2O/episode_return_mean": float(statistics.fmean(episode_returns)),
+                        "O2O/episode_return_min": float(min(episode_returns)),
+                        "O2O/episode_return_max": float(max(episode_returns)),
                         "O2O/episode_length_mean": float(statistics.fmean(episode_lengths)),
+                        "O2O/episode_length_min": float(min(episode_lengths)),
+                        "O2O/episode_length_max": float(max(episode_lengths)),
                         "O2O/phase_code": 1.0 if phase == "online" else 0.0,
                         "O2O/source_code": 0.0,
                     }
@@ -389,13 +397,19 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
                         eval_metrics[f"Eval/stop_reason/{stop_reason}"] = float(count) / float(len(eval_results))
 
                     logger.info(
-                        "[Eval:{}] step={} episodes={} return_mean={:.4f} return_std={:.4f} length_mean={:.2f}",
+                        "[Eval:{}] step={} episodes={} return_mean={:.4f} return_std={:.4f} "
+                        "return_min={:.4f} return_max={:.4f} length_mean={:.2f} "
+                        "length_min={:.2f} length_max={:.2f}",
                         phase,
                         algo.global_step,
                         len(eval_results),
                         eval_metrics["Eval/episode_return_mean"],
                         eval_metrics["Eval/episode_return_std"],
+                        eval_metrics["Eval/episode_return_min"],
+                        eval_metrics["Eval/episode_return_max"],
                         eval_metrics["Eval/episode_length_mean"],
+                        eval_metrics["Eval/episode_length_min"],
+                        eval_metrics["Eval/episode_length_max"],
                     )
 
                     _log_scalar_dict(eval_metrics)
