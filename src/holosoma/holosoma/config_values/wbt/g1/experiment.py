@@ -489,19 +489,20 @@ g1_29dof_wbt_cql = ExperimentConfig(
             algo.cql.config,
             num_learning_iterations=400000,
             gamma=0.99,  # For motion tracking, high gamma + high num_steps is better
-            num_updates=4,
+            num_updates=2,
             policy_frequency=2,
             target_entropy_ratio=0.5,
             tau=0.05,
             cql_weight = 0.2,
             cql_num_action_samples=32,
             use_symmetry=False,
-            use_lagrange=False,
+            use_lagrange=True,
             batch_size=1024,
-            cql_target_action_gap=10,
+            cql_target_action_gap=0.0,
             offline_dataset_path="offline_data/g1_29dof_wbt_fixed_fastsac_env_4096_dataset.h5",
             use_gpu_cache=True,
             reward_scale = 5.0,
+
         ),
     ),
     simulator=replace(
@@ -548,7 +549,7 @@ g1_29dof_wbt_iql = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
         name="g1_29dof_wbt_iql_manager",
-        num_envs=1,
+        num_envs=512,
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
     algo=replace(
@@ -563,6 +564,7 @@ g1_29dof_wbt_iql = ExperimentConfig(
             beta=3.0,
             max_weight=100.0,
             use_symmetry=False,
+            offline_dataset_path="offline_data/g1_29dof_wbt_fixed_fastsac_env_4096_dataset.h5",
         ),
     ),
     simulator=replace(
