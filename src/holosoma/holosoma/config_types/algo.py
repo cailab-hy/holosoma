@@ -724,6 +724,8 @@ class CQLConfig:
     actor_obs_keys: List[str] = field(default_factory=lambda: ["actor_obs"])
     critic_obs_keys: List[str] = field(default_factory=lambda: ["critic_obs"])
 
+    reward_scale: int = 5
+
 
 @dataclass(frozen=True)
 class CALQLConfig:

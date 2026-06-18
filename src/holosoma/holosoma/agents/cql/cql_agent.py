@@ -305,6 +305,8 @@ class CQLAgent(BaseAlgo):
             )
 
         self.scaler = GradScaler(enabled=args.amp)
+        #reward_scale 
+        self.reward_scale = args.reward_scale
 
         self.obs_normalization = args.obs_normalization
         if self.obs_normalization:
@@ -513,7 +515,7 @@ class CQLAgent(BaseAlgo):
     ]:
         args = self.config
         scaler = self.scaler
-
+        reward_scale = self.reward_scale
         with self._maybe_amp():
             observations = data["observations"]
             next_observations = data["next"]["observations"]
@@ -521,6 +523,7 @@ class CQLAgent(BaseAlgo):
             next_critic_observations = data["next"]["critic_observations"]
             dataset_actions = data["actions"]
             rewards = data["next"]["rewards"]
+            rewards = reward_scale *rewards
             dones = data["next"]["dones"].bool()
             truncations = data["next"]["truncations"].bool()
             # bootstrap = (truncations | ~dones).float()
