@@ -112,7 +112,7 @@ g1_29dof_wbt_fast_sac = ExperimentConfig(
             ),
             sim=replace(
                 simulator.isaacsim.config.sim,
-                max_episode_length_s=10.0,
+                max_episode_length_s=12.0,
             ),
         ),
     ),
@@ -125,11 +125,11 @@ g1_29dof_wbt_fast_sac = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
-    termination=termination.g1_29dof_wbt_termination_collect,
+    termination=termination.g1_29dof_wbt_termination_offline_collect,
     randomization=randomization.g1_29dof_wbt_randomization,
-    command=command.g1_29dof_wbt_command,
+    command=command.g1_29dof_wbt_command_cql_collect,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward_collect,
+    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
@@ -191,11 +191,11 @@ g1_29dof_wbt_fast_sac_data = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
-    termination=termination.g1_29dof_wbt_termination_collect,
+    termination=termination.g1_29dof_wbt_termination_offline_collect,
     randomization=randomization.g1_29dof_wbt_randomization,
     command=command.g1_29dof_wbt_command_cql_collect,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward_collect,
+    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
@@ -258,11 +258,11 @@ g1_29dof_wbt_fast_sac_episode_data = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
-    termination=termination.g1_29dof_wbt_termination_collect,
+    termination=termination.g1_29dof_wbt_termination_offline_collect,
     randomization=randomization.g1_29dof_wbt_randomization,
     command=command.g1_29dof_wbt_command_cql_collect,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward_collect,
+    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
@@ -326,11 +326,11 @@ g1_29dof_wbt_fixed_fast_sac_data = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
-    termination=termination.g1_29dof_wbt_termination_collect,
+    termination=termination.g1_29dof_wbt_termination_offline_collect,
     randomization=randomization.g1_29dof_wbt_randomization,
     command=command.g1_29dof_wbt_command_cql_collect,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward_collect,
+    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
@@ -524,11 +524,11 @@ g1_29dof_wbt_cql = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
-    termination=termination.g1_29dof_wbt_termination_collect,
+    termination=termination.g1_29dof_wbt_termination_offline_collect,
     randomization=randomization.g1_29dof_wbt_randomization,
     command=command.g1_29dof_wbt_command_cql_collect,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward,
+    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
@@ -573,7 +573,7 @@ g1_29dof_wbt_iql = ExperimentConfig(
             simulator.isaacsim.config,
             sim=replace(
                 simulator.isaacsim.config.sim,
-                max_episode_length_s=10.0,
+                max_episode_length_s=12.0,
             ),
         ),
     ),
@@ -586,11 +586,11 @@ g1_29dof_wbt_iql = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
-    termination=termination.g1_29dof_wbt_termination,
+    termination=termination.g1_29dof_wbt_termination_offline_collect,
     randomization=randomization.g1_29dof_wbt_randomization,
-    command=command.g1_29dof_wbt_command,
+    command=command.g1_29dof_wbt_command_cql_collect,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward,
+    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
