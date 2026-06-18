@@ -147,7 +147,7 @@ g1_29dof_wbt_fast_sac_data = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
         name="g1_29dof_wbt_fast_sac_data_collect_manager",
-        num_envs=1024,
+        num_envs=4096,
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
     algo=replace(
@@ -165,7 +165,7 @@ g1_29dof_wbt_fast_sac_data = ExperimentConfig(
             target_entropy_ratio=0.5,
             tau=0.05,
             use_symmetry=False,
-            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_env_1024_dataset.h5",
+            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_env_5m_dataset.h5",
         ),
     ),
     simulator=replace(
@@ -178,7 +178,7 @@ g1_29dof_wbt_fast_sac_data = ExperimentConfig(
             ),
             sim=replace(
                 simulator.isaacsim.config.sim,
-                max_episode_length_s=10.0,
+                max_episode_length_s=12.0,
             ),
         ),
     ),
@@ -193,7 +193,7 @@ g1_29dof_wbt_fast_sac_data = ExperimentConfig(
     action=action.g1_29dof_joint_pos,
     termination=termination.g1_29dof_wbt_termination_collect,
     randomization=randomization.g1_29dof_wbt_randomization,
-    command=command.g1_29dof_wbt_command,
+    command=command.g1_29dof_wbt_command_cql_collect,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
     reward=reward.g1_29dof_wbt_fast_sac_reward_collect,
     nightly=NightlyConfig(
@@ -245,7 +245,7 @@ g1_29dof_wbt_fast_sac_episode_data = ExperimentConfig(
             ),
             sim=replace(
                 simulator.isaacsim.config.sim,
-                max_episode_length_s=10.0,
+                max_episode_length_s=12.0,
             ),
         ),
     ),
@@ -260,7 +260,7 @@ g1_29dof_wbt_fast_sac_episode_data = ExperimentConfig(
     action=action.g1_29dof_joint_pos,
     termination=termination.g1_29dof_wbt_termination_collect,
     randomization=randomization.g1_29dof_wbt_randomization,
-    command=command.g1_29dof_wbt_command,
+    command=command.g1_29dof_wbt_command_cql_collect,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
     reward=reward.g1_29dof_wbt_fast_sac_reward_collect,
     nightly=NightlyConfig(
@@ -313,7 +313,7 @@ g1_29dof_wbt_fixed_fast_sac_data = ExperimentConfig(
             ),
             sim=replace(
                 simulator.isaacsim.config.sim,
-                max_episode_length_s=10.0,
+                max_episode_length_s=12.0,
             ),
         ),
     ),
@@ -328,7 +328,7 @@ g1_29dof_wbt_fixed_fast_sac_data = ExperimentConfig(
     action=action.g1_29dof_joint_pos,
     termination=termination.g1_29dof_wbt_termination_collect,
     randomization=randomization.g1_29dof_wbt_randomization,
-    command=command.g1_29dof_wbt_command,
+    command=command.g1_29dof_wbt_command_cql_collect,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
     reward=reward.g1_29dof_wbt_fast_sac_reward_collect,
     nightly=NightlyConfig(
@@ -508,7 +508,7 @@ g1_29dof_wbt_cql = ExperimentConfig(
             simulator.isaacsim.config,
             sim=replace(
                 simulator.isaacsim.config.sim,
-                max_episode_length_s=10.0,
+                max_episode_length_s=12.0,
             ),
         ),
     ),
@@ -523,7 +523,7 @@ g1_29dof_wbt_cql = ExperimentConfig(
     action=action.g1_29dof_joint_pos,
     termination=termination.g1_29dof_wbt_termination,
     randomization=randomization.g1_29dof_wbt_randomization,
-    command=command.g1_29dof_wbt_command,
+    command=command.g1_29dof_wbt_command_cql_collect,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
     reward=reward.g1_29dof_wbt_fast_sac_reward,
     nightly=NightlyConfig(
