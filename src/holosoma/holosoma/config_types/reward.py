@@ -9,7 +9,7 @@ from pydantic.dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class motion_global_ref_position_error_hingeRewardTermCfg:
+class RewardTermCfg:
     """Configuration for a single reward term."""
 
     func: str
