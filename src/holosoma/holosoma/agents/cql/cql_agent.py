@@ -1005,7 +1005,10 @@ class CQLAgent(BaseAlgo):
                     cql_alpha_value, cql_lagrange_loss = self._update_cql_lagrange(cql_gap)
 
                     self._critic_update_step += 1
-                    is_actor_update_step = self._critic_update_step % args.policy_frequency == 0
+                    is_actor_warmup = self.global_step <= args.actor_warmup_steps
+                    is_actor_update_step = (not is_actor_warmup) and (
+                        self._critic_update_step % args.policy_frequency == 0
+                    )
                     if is_actor_update_step:
                         (
                             actor_grad_norm,
@@ -1049,6 +1052,7 @@ class CQLAgent(BaseAlgo):
                                 args.cql_target_action_gap if args.use_lagrange else 0.0,
                                 device=self.device,
                             ),
+                            "is_actor_warmup": float(is_actor_warmup),
                             "is_actor_update_step": float(is_actor_update_step),
                             **action_ood_stats,
                         }
