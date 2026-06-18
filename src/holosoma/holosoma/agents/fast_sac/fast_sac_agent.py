@@ -514,6 +514,8 @@ class FastSACAgent(BaseAlgo):
         print(self.actor)
         print("SELF.QMET")
         print(self.qnet)
+        self.save_env_num=args.save_env_num
+        print(f"SAVE_ENV{self.save_env_num}/STEP")
         self.log_alpha = torch.tensor([math.log(args.alpha_init)], requires_grad=True, device=device)
         self.policy = self.actor.explore
 
@@ -871,7 +873,7 @@ class FastSACAgent(BaseAlgo):
         return True
 
     def _export_transition_batch(self, transition_to_save: TensorDict, *, dones: torch.Tensor, infos: dict[str, Any]) -> None:
-        num_to_save = min(128, self.env.num_envs)
+        num_to_save = min(self.save_env_num, self.env.num_envs)
         rand_idx = torch.randperm(self.env.num_envs, device=self.device)[:num_to_save]
         save_transition(transition_to_save[rand_idx].clone().cpu())
 

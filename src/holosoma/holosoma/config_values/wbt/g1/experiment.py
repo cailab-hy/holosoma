@@ -154,7 +154,7 @@ g1_29dof_wbt_fast_sac_data = ExperimentConfig(
         algo.fast_sac,
         config=replace(
             algo.fast_sac.config,
-            num_learning_iterations=400000,
+            num_learning_iterations=50000,
             v_max=20.0,
             v_min=-20.0,
             gamma=0.99,  # For motion tracking, high gamma + high num_steps is better
@@ -165,7 +165,7 @@ g1_29dof_wbt_fast_sac_data = ExperimentConfig(
             target_entropy_ratio=0.5,
             tau=0.05,
             use_symmetry=False,
-            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_env_5m_dataset.h5",
+            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_REW_5m_dataset.h5",
         ),
     ),
     simulator=replace(
