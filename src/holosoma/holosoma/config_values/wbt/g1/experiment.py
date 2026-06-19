@@ -503,6 +503,10 @@ g1_29dof_wbt_cql = ExperimentConfig(
             offline_dataset_path="offline_data/g1_29dof_wbt_fixed_fastsac_env_4096_dataset.h5",
             use_gpu_cache=True,
             reward_scale = 5.0,
+            q_min=-100.0,
+            q_max=100.0,
+            bellman_loss_type="huber",
+            huber_beta=5.0,
 
         ),
     ),

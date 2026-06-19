@@ -723,6 +723,18 @@ class CQLConfig:
     actor_warmup_steps: int = 500
     """number of initial global steps where actor update is skipped"""
 
+    q_min: float | None = None
+    """minimum Bellman target Q value; None disables lower clipping"""
+
+    q_max: float | None = None
+    """maximum Bellman target Q value; None disables upper clipping"""
+
+    bellman_loss_type: Literal["mse", "huber"] = "huber"
+    """Bellman regression loss type for critic targets"""
+
+    huber_beta: float = 10.0
+    """Smooth L1 beta used when bellman_loss_type='huber'"""
+
     actor_obs_keys: List[str] = field(default_factory=lambda: ["actor_obs"])
     critic_obs_keys: List[str] = field(default_factory=lambda: ["critic_obs"])
 

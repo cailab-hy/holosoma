@@ -193,6 +193,10 @@ class CQLAgent(BaseAlgo):
                 raise ValueError(f"cql_lagrange_max must be > 0, got {config.cql_lagrange_max}")
         if config.gamma <= 0.0 or config.gamma > 1.0:
             raise ValueError(f"gamma must be in (0, 1], got {config.gamma}")
+        if config.q_min is not None and config.q_max is not None and config.q_min > config.q_max:
+            raise ValueError(f"q_min must be <= q_max, got q_min={config.q_min}, q_max={config.q_max}")
+        if config.huber_beta <= 0.0:
+            raise ValueError(f"huber_beta must be > 0, got {config.huber_beta}")
         if config.tau <= 0.0 or config.tau > 1.0:
             raise ValueError(f"tau must be in (0, 1], got {config.tau}")
         if config.alpha_init <= 0.0:
@@ -536,11 +540,20 @@ class CQLAgent(BaseAlgo):
                 next_q1_target, next_q2_target = self.qnet_target(next_critic_observations, next_actions)
                 next_target_min_q = torch.minimum(next_q1_target, next_q2_target)
                 q_target = rewards + discount * bootstrap * (next_target_min_q - alpha * next_log_probs)
+                if args.q_min is not None or args.q_max is not None:
+                    q_target = q_target.clamp(min=args.q_min, max=args.q_max)
                 target_value_max = q_target.max()
                 target_value_min = q_target.min()
 
             q1, q2 = self.qnet(critic_observations, dataset_actions)
-            bellman_loss = F.mse_loss(q1, q_target) + F.mse_loss(q2, q_target)
+            if args.bellman_loss_type == "huber":
+                bellman_loss = F.smooth_l1_loss(q1, q_target, beta=args.huber_beta) + F.smooth_l1_loss(
+                    q2,
+                    q_target,
+                    beta=args.huber_beta,
+                )
+            else:
+                bellman_loss = F.mse_loss(q1, q_target) + F.mse_loss(q2, q_target)
 
             q_data_mean = 0.5 * (q1.mean() + q2.mean())
             rand_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
