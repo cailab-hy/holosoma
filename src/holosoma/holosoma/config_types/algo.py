@@ -735,6 +735,12 @@ class CQLConfig:
     huber_beta: float = 10.0
     """Smooth L1 beta used when bellman_loss_type='huber'"""
 
+    normalized_action_training: bool = False
+    """train actor and critic in normalized action space and scale only when stepping the env"""
+
+    dataset_actions_are_normalized: bool = False
+    """whether offline dataset actions are already in normalized [-1, 1] action space"""
+
     actor_obs_keys: List[str] = field(default_factory=lambda: ["actor_obs"])
     critic_obs_keys: List[str] = field(default_factory=lambda: ["critic_obs"])
 
