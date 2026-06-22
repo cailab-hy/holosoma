@@ -165,8 +165,8 @@ g1_29dof_wbt_fast_sac_data = ExperimentConfig(
             target_entropy_ratio=0.5,
             tau=0.05,
             use_symmetry=False,
-            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_REW_5m_dataset.h5",
-            save_env_num = 32,
+            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_strict_5m_dataset.h5",
+            save_env_num = 128,
         ),
     ),
     simulator=replace(
@@ -192,11 +192,11 @@ g1_29dof_wbt_fast_sac_data = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
-    termination=termination.g1_29dof_wbt_termination_offline_collect,
+    termination=termination.g1_29dof_wbt_termination,
     randomization=randomization.g1_29dof_wbt_randomization,
-    command=command.g1_29dof_wbt_command_cql_collect,
+    command=command.g1_29dof_wbt_command,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
+    reward=reward.g1_29dof_wbt_fast_sac_reward,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
