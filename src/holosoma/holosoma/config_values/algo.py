@@ -548,11 +548,6 @@ cql_support_aware = CQLSupportAwareAlgoConfig(
 )
 
 
-cql_rho = dataclasses.replace(
-    cql,
-    _target_="holosoma.agents.cql.cql_rho_agent.CQL_RHO_Agent",
-)
-
 iql = IQLAlgoConfig(
     _target_="holosoma.agents.iql.iql_agent.IQLAgent",
     _recursive_=False,
@@ -679,7 +674,6 @@ DEFAULTS = {
     "cql": cql,
     "cal_ql": cal_ql,
     "cql_support_aware": cql_support_aware,
-    "cql_rho": cql_rho,
     "iql": iql,
     "bc": bc,
     "td3_bc": td3_bc,

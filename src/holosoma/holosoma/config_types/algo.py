@@ -565,65 +565,6 @@ class CQLConfig:
     target_entropy_ratio: float = 0.0
     """the ratio of the target entropy to the number of actions"""
 
-    risk_mode: str = "neutral"
-    """risk objective for policy/value aggregation: neutral or cvar"""
-
-    cvar_alpha: float = 0.1
-    """CVaR alpha used only when risk_mode == cvar"""
-
-    use_risk_aware_cql: bool = False
-    """whether to train a separate risk critic and penalize risky actor actions"""
-
-    risk_tau : float = 0.01
-
-    risk_learning_rate: float = 3e-4
-    """learning rate for the separate risk critic"""
-
-    risk_lambda: float = 0.05
-    """actor penalty weight for predicted risk Q values"""
-
-    risk_cost_beta: float = 0.7
-    """margin start ratio for dense tracking-risk cost, usually 0.6-0.8"""
-
-    risk_bad_tracking_terminal_cost: float = 1.0
-    """sparse terminal cost added only when done_bad_tracking is true"""
-
-    risk_legacy_terminal_cost: float = 0.0
-    """optional fallback cost for old datasets: cost for done & !truncation with no explicit reason flags"""
-
-    risk_motion_ends_bootstrap: bool = False
-    """whether risk critic bootstraps across motion_ends clip boundaries"""
-
-    risk_root_pos_threshold: float = 0.5
-    """root position error threshold used to scale dense risk cost"""
-
-    risk_root_ori_threshold: float = 0.8
-    """root orientation error threshold used to scale dense risk cost"""
-
-    risk_body_pos_threshold: float = 0.25
-    """tracked body max-position error threshold used to scale dense risk cost"""
-
-    risk_object_pos_threshold: float = 0.25
-    """object position error threshold used to scale dense risk cost"""
-
-    risk_object_ori_threshold: float = 0.8
-    """object orientation error threshold used to scale dense risk cost"""
-
-    risk_root_pos_weight: float = 1.0
-    """dense risk cost weight for root position margin"""
-
-    risk_root_ori_weight: float = 1.0
-    """dense risk cost weight for root orientation margin"""
-
-    risk_body_pos_weight: float = 1.0
-    """dense risk cost weight for max tracked-body position margin"""
-
-    risk_object_pos_weight: float = 1.0
-    """dense risk cost weight for object position margin"""
-
-    risk_object_ori_weight: float = 1.0
-    """dense risk cost weight for object orientation margin"""
-
     num_atoms: int = 101
     """number of quantile fractions (kept name for backward compatibility)"""
 
@@ -735,12 +676,6 @@ class CQLConfig:
     huber_beta: float = 10.0
     """Smooth L1 beta used when bellman_loss_type='huber'"""
 
-    normalized_action_training: bool = False
-    """train actor and critic in normalized action space and scale only when stepping the env"""
-
-    dataset_actions_are_normalized: bool = False
-    """whether offline dataset actions are already in normalized [-1, 1] action space"""
-
     actor_obs_keys: List[str] = field(default_factory=lambda: ["actor_obs"])
     critic_obs_keys: List[str] = field(default_factory=lambda: ["critic_obs"])
 
@@ -838,65 +773,6 @@ class CALQLConfig:
 
     target_entropy_ratio: float = 0.0
     """the ratio of the target entropy to the number of actions"""
-
-    risk_mode: str = "neutral"
-    """risk objective for policy/value aggregation: neutral or cvar"""
-
-    cvar_alpha: float = 0.1
-    """CVaR alpha used only when risk_mode == cvar"""
-
-    use_risk_aware_cql: bool = False
-    """whether to train a separate risk critic and penalize risky actor actions"""
-
-    risk_tau : float = 0.01
-
-    risk_learning_rate: float = 3e-4
-    """learning rate for the separate risk critic"""
-
-    risk_lambda: float = 0.05
-    """actor penalty weight for predicted risk Q values"""
-
-    risk_cost_beta: float = 0.7
-    """margin start ratio for dense tracking-risk cost, usually 0.6-0.8"""
-
-    risk_bad_tracking_terminal_cost: float = 1.0
-    """sparse terminal cost added only when done_bad_tracking is true"""
-
-    risk_legacy_terminal_cost: float = 0.0
-    """optional fallback cost for old datasets: cost for done & !truncation with no explicit reason flags"""
-
-    risk_motion_ends_bootstrap: bool = False
-    """whether risk critic bootstraps across motion_ends clip boundaries"""
-
-    risk_root_pos_threshold: float = 0.5
-    """root position error threshold used to scale dense risk cost"""
-
-    risk_root_ori_threshold: float = 0.8
-    """root orientation error threshold used to scale dense risk cost"""
-
-    risk_body_pos_threshold: float = 0.25
-    """tracked body max-position error threshold used to scale dense risk cost"""
-
-    risk_object_pos_threshold: float = 0.25
-    """object position error threshold used to scale dense risk cost"""
-
-    risk_object_ori_threshold: float = 0.8
-    """object orientation error threshold used to scale dense risk cost"""
-
-    risk_root_pos_weight: float = 1.0
-    """dense risk cost weight for root position margin"""
-
-    risk_root_ori_weight: float = 1.0
-    """dense risk cost weight for root orientation margin"""
-
-    risk_body_pos_weight: float = 1.0
-    """dense risk cost weight for max tracked-body position margin"""
-
-    risk_object_pos_weight: float = 1.0
-    """dense risk cost weight for object position margin"""
-
-    risk_object_ori_weight: float = 1.0
-    """dense risk cost weight for object orientation margin"""
 
     num_atoms: int = 101
     """number of quantile fractions (kept name for backward compatibility)"""
@@ -1124,65 +1000,6 @@ class OS_CQLConfig:
     target_entropy_ratio: float = 0.0
     """the ratio of the target entropy to the number of actions"""
 
-    risk_mode: str = "neutral"
-    """risk objective for policy/value aggregation: neutral or cvar"""
-
-    cvar_alpha: float = 0.1
-    """CVaR alpha used only when risk_mode == cvar"""
-
-    use_risk_aware_cql: bool = False
-    """whether to train a separate risk critic and penalize risky actor actions"""
-
-    risk_tau : float = 0.01
-
-    risk_learning_rate: float = 3e-4
-    """learning rate for the separate risk critic"""
-
-    risk_lambda: float = 0.05
-    """actor penalty weight for predicted risk Q values"""
-
-    risk_cost_beta: float = 0.7
-    """margin start ratio for dense tracking-risk cost, usually 0.6-0.8"""
-
-    risk_bad_tracking_terminal_cost: float = 1.0
-    """sparse terminal cost added only when done_bad_tracking is true"""
-
-    risk_legacy_terminal_cost: float = 0.0
-    """optional fallback cost for old datasets: cost for done & !truncation with no explicit reason flags"""
-
-    risk_motion_ends_bootstrap: bool = False
-    """whether risk critic bootstraps across motion_ends clip boundaries"""
-
-    risk_root_pos_threshold: float = 0.5
-    """root position error threshold used to scale dense risk cost"""
-
-    risk_root_ori_threshold: float = 0.8
-    """root orientation error threshold used to scale dense risk cost"""
-
-    risk_body_pos_threshold: float = 0.25
-    """tracked body max-position error threshold used to scale dense risk cost"""
-
-    risk_object_pos_threshold: float = 0.25
-    """object position error threshold used to scale dense risk cost"""
-
-    risk_object_ori_threshold: float = 0.8
-    """object orientation error threshold used to scale dense risk cost"""
-
-    risk_root_pos_weight: float = 1.0
-    """dense risk cost weight for root position margin"""
-
-    risk_root_ori_weight: float = 1.0
-    """dense risk cost weight for root orientation margin"""
-
-    risk_body_pos_weight: float = 1.0
-    """dense risk cost weight for max tracked-body position margin"""
-
-    risk_object_pos_weight: float = 1.0
-    """dense risk cost weight for object position margin"""
-
-    risk_object_ori_weight: float = 1.0
-    """dense risk cost weight for object orientation margin"""
-
     num_atoms: int = 101
     """number of quantile fractions (kept name for backward compatibility)"""
 
@@ -1384,65 +1201,6 @@ class OS_CALQLConfig:
 
     target_entropy_ratio: float = 0.0
     """the ratio of the target entropy to the number of actions"""
-
-    risk_mode: str = "neutral"
-    """risk objective for policy/value aggregation: neutral or cvar"""
-
-    cvar_alpha: float = 0.1
-    """CVaR alpha used only when risk_mode == cvar"""
-
-    use_risk_aware_cql: bool = False
-    """whether to train a separate risk critic and penalize risky actor actions"""
-
-    risk_tau : float = 0.01
-
-    risk_learning_rate: float = 3e-4
-    """learning rate for the separate risk critic"""
-
-    risk_lambda: float = 0.05
-    """actor penalty weight for predicted risk Q values"""
-
-    risk_cost_beta: float = 0.7
-    """margin start ratio for dense tracking-risk cost, usually 0.6-0.8"""
-
-    risk_bad_tracking_terminal_cost: float = 1.0
-    """sparse terminal cost added only when done_bad_tracking is true"""
-
-    risk_legacy_terminal_cost: float = 0.0
-    """optional fallback cost for old datasets: cost for done & !truncation with no explicit reason flags"""
-
-    risk_motion_ends_bootstrap: bool = False
-    """whether risk critic bootstraps across motion_ends clip boundaries"""
-
-    risk_root_pos_threshold: float = 0.5
-    """root position error threshold used to scale dense risk cost"""
-
-    risk_root_ori_threshold: float = 0.8
-    """root orientation error threshold used to scale dense risk cost"""
-
-    risk_body_pos_threshold: float = 0.25
-    """tracked body max-position error threshold used to scale dense risk cost"""
-
-    risk_object_pos_threshold: float = 0.25
-    """object position error threshold used to scale dense risk cost"""
-
-    risk_object_ori_threshold: float = 0.8
-    """object orientation error threshold used to scale dense risk cost"""
-
-    risk_root_pos_weight: float = 1.0
-    """dense risk cost weight for root position margin"""
-
-    risk_root_ori_weight: float = 1.0
-    """dense risk cost weight for root orientation margin"""
-
-    risk_body_pos_weight: float = 1.0
-    """dense risk cost weight for max tracked-body position margin"""
-
-    risk_object_pos_weight: float = 1.0
-    """dense risk cost weight for object position margin"""
-
-    risk_object_ori_weight: float = 1.0
-    """dense risk cost weight for object orientation margin"""
 
     num_atoms: int = 101
     """number of quantile fractions (kept name for backward compatibility)"""

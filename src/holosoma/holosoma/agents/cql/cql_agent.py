@@ -321,19 +321,15 @@ class CQLAgent(BaseAlgo):
             self.critic_obs_normalizer = nn.Identity()
 
         n_act = self.env.robot_config.actions_dim
-        if args.normalized_action_training and not args.use_tanh:
-            raise ValueError("normalized_action_training=True requires use_tanh=True to keep actions in [-1, 1].")
-        env_action_scale = env._action_boundaries if args.use_tanh else torch.ones(n_act, device=device)
+        if not args.use_tanh:
+            raise ValueError("CQL requires use_tanh=True because actor/critic training is fixed to normalized actions.")
+        env_action_scale = env._action_boundaries
         env_action_bias = torch.zeros(n_act, device=device)
         self.env_action_scale = env_action_scale
         self.env_action_bias = env_action_bias
-        if args.normalized_action_training:
-            action_scale = torch.ones(n_act, device=device)
-            action_bias = torch.zeros(n_act, device=device)
-            logger.info("CQL normalized-action training enabled: critic/actor use u-space [-1, 1].")
-        else:
-            action_scale = env_action_scale
-            action_bias = env_action_bias
+        action_scale = torch.ones(n_act, device=device)
+        action_bias = torch.zeros(n_act, device=device)
+        logger.info("CQL action semantics: actor/critic always use normalized u-space [-1, 1].")
 
         actor_obs_keys = list(args.actor_obs_keys)
         if args.use_cnn_encoder:
@@ -352,7 +348,6 @@ class CQLAgent(BaseAlgo):
             device=device,
             action_scale=action_scale,
             action_bias=action_bias,
-            normalized_action_output=args.normalized_action_training,
             encoder_obs_key=args.encoder_obs_key,
             encoder_obs_shape=args.encoder_obs_shape,
         )
@@ -468,17 +463,11 @@ class CQLAgent(BaseAlgo):
             torch._foreach_add_(tgt_ps, src_ps, alpha=self.config.tau)
 
     def _to_normalized_actions(self, actions: torch.Tensor) -> torch.Tensor:
-        if not self.config.normalized_action_training:
-            return actions
-        if self.config.dataset_actions_are_normalized:
-            return actions.clamp(-1.0, 1.0)
         action_scale = self.env_action_scale.to(device=actions.device, dtype=actions.dtype)
         action_bias = self.env_action_bias.to(device=actions.device, dtype=actions.dtype)
         return ((actions - action_bias) / (action_scale + 1e-6)).clamp(-1.0, 1.0)
 
     def _to_env_actions(self, actions: torch.Tensor) -> torch.Tensor:
-        if not self.config.normalized_action_training:
-            return actions
         action_scale = self.env_action_scale.to(device=actions.device, dtype=actions.dtype)
         action_bias = self.env_action_bias.to(device=actions.device, dtype=actions.dtype)
         return actions * action_scale + action_bias
@@ -612,16 +601,12 @@ class CQLAgent(BaseAlgo):
                     curr_actions, curr_logp = self.actor.get_actions_and_log_probs(expanded_obs)
                     next_actions_rep, next_logp = self.actor.get_actions_and_log_probs(expanded_next_obs)
 
-                action_scale = self.actor.action_scale.to(device=self.device, dtype=dataset_actions.dtype)
-                action_bias = self.actor.action_bias.to(device=self.device, dtype=dataset_actions.dtype)
                 rand_actions = torch.empty(
                     batch_size * num_repeat,
                     dataset_actions.shape[-1],
                     device=self.device,
                     dtype=dataset_actions.dtype,
                 ).uniform_(-1.0, 1.0)
-                if self.config.use_tanh and not args.normalized_action_training:
-                    rand_actions = rand_actions * action_scale + action_bias
 
                 q1_rand, q2_rand = self.qnet(expanded_critic_obs, rand_actions)
                 q1_curr, q2_curr = self.qnet(expanded_critic_obs, curr_actions)
@@ -636,13 +621,7 @@ class CQLAgent(BaseAlgo):
                 curr_logp = curr_logp.view(batch_size, num_repeat)
                 next_logp = next_logp.view(batch_size, num_repeat)
 
-                if self.config.use_tanh and not args.normalized_action_training:
-                    random_density = (
-                        math.log(0.5) * dataset_actions.shape[-1]
-                        - torch.log(action_scale + 1e-6).sum()
-                    )
-                else:
-                    random_density = math.log(0.5) * dataset_actions.shape[-1]
+                random_density = math.log(0.5) * dataset_actions.shape[-1]
 
                 cat_q1 = torch.cat(
                     [
@@ -671,11 +650,11 @@ class CQLAgent(BaseAlgo):
                 if args.use_lagrange and self.log_cql_alpha is not None:
                     cql_alpha = self.log_cql_alpha.exp().detach().clamp(max=args.cql_lagrange_max)
                     target_gap = torch.tensor(args.cql_target_action_gap, device=self.device, dtype=bellman_loss.dtype)
-                    conservative_loss = cql_alpha * self._cql_weight * (
+                    conservative_loss = cql_alpha * self._cql_weight * 0.5*(
                         (cql1_loss - target_gap) + (cql2_loss - target_gap)
                     )
                 else:
-                    conservative_loss = self._cql_weight * (cql1_loss + cql2_loss)
+                    conservative_loss = self._cql_weight *0.5* (cql1_loss + cql2_loss)
             else:
                 conservative_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 cql_gap = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
@@ -889,7 +868,7 @@ class CQLAgent(BaseAlgo):
 
         torch_checkpoint = torch.load(ckpt_path, map_location=self.device, weights_only=False)
         checkpoint_action_mode = torch_checkpoint.get("action_space_mode", "legacy")
-        if checkpoint_action_mode != "env_scaled_action_training_v1":
+        if checkpoint_action_mode != "normalized_action_training_v1":
             logger.warning(
                 "Loading a legacy checkpoint with different CQL action semantics "
                 f"(action_space_mode={checkpoint_action_mode})."
@@ -1043,6 +1022,7 @@ class CQLAgent(BaseAlgo):
                         curr_q,
                         next_q,
                     ) = update_q(data)
+                    
                     cql_alpha_value, cql_lagrange_loss = self._update_cql_lagrange(cql_gap)
 
                     self._critic_update_step += 1
@@ -1097,6 +1077,7 @@ class CQLAgent(BaseAlgo):
                             "is_actor_update_step": float(is_actor_update_step),
                             **action_ood_stats,
                         }
+                        
                     )
 
             should_log = (self.global_step % args.logging_interval == 0) or (self.global_step <= 10)
@@ -1125,7 +1106,7 @@ class CQLAgent(BaseAlgo):
     def save(self, path: str) -> None:  # type: ignore[override]
         env_state = self._collect_env_state()
         metadata = self._checkpoint_metadata(iteration=self.global_step)
-        metadata["action_space_mode"] = "env_scaled_action_training_v1"
+        metadata["action_space_mode"] = "normalized_action_training_v1"
         save_params(
             self.global_step,
             self.actor,
@@ -1173,13 +1154,48 @@ class CQLAgent(BaseAlgo):
 
         return policy_fn
 
+    def _eval_termination_reason_flags(self, infos: dict[str, Any], num_envs: int) -> dict[str, torch.Tensor]:
+        raw_reasons = infos.get("termination_reasons", {})
+        if not isinstance(raw_reasons, dict):
+            raw_reasons = {}
+
+        reason_flags: dict[str, torch.Tensor] = {}
+        for reason, value in raw_reasons.items():
+            if isinstance(value, torch.Tensor):
+                reason_flags[str(reason)] = value.to(device=self.device, dtype=torch.bool)
+
+        if "timeout" not in reason_flags:
+            time_outs = infos.get("time_outs")
+            if isinstance(time_outs, torch.Tensor):
+                reason_flags["timeout"] = time_outs.to(device=self.device, dtype=torch.bool)
+            else:
+                reason_flags["timeout"] = torch.zeros(num_envs, device=self.device, dtype=torch.bool)
+
+        return reason_flags
+
+    def _eval_stop_reason_for_env(
+        self,
+        reason_flags: dict[str, torch.Tensor],
+        env_idx: int,
+        fallback: str | None = None,
+    ) -> str | None:
+        for reason in ("bad_tracking", "motion_ends", "timeout"):
+            flags = reason_flags.get(reason)
+            if flags is not None and bool(flags[env_idx].item()):
+                return reason
+        for reason, flags in reason_flags.items():
+            if reason in {"bad_tracking", "motion_ends", "timeout"}:
+                continue
+            if bool(flags[env_idx].item()):
+                return reason
+        return fallback
+
     @property
     def actor_onnx_wrapper(self):
         actor = copy.deepcopy(self.actor).to("cpu")
         obs_normalizer = copy.deepcopy(self.obs_normalizer).to("cpu")
         env_action_scale = copy.deepcopy(self.env_action_scale).to("cpu")
         env_action_bias = copy.deepcopy(self.env_action_bias).to("cpu")
-        normalized_action_training = self.config.normalized_action_training
 
         class ActorWrapper(nn.Module):
             def __init__(
@@ -1188,14 +1204,12 @@ class CQLAgent(BaseAlgo):
                 obs_normalizer,
                 env_action_scale,
                 env_action_bias,
-                normalized_action_training,
             ):
                 super().__init__()
                 self.actor = actor
                 self.obs_normalizer = obs_normalizer
                 self.register_buffer("env_action_scale", env_action_scale)
                 self.register_buffer("env_action_bias", env_action_bias)
-                self.normalized_action_training = normalized_action_training
 
             def forward(self, actor_obs):
                 if self.obs_normalizer is not None:
@@ -1203,16 +1217,13 @@ class CQLAgent(BaseAlgo):
                 else:
                     normalized_obs = actor_obs
                 actions = self.actor(normalized_obs)[0]
-                if self.normalized_action_training:
-                    actions = actions * self.env_action_scale + self.env_action_bias
-                return actions
+                return actions * self.env_action_scale + self.env_action_bias
 
         return ActorWrapper(
             actor,
             obs_normalizer if self.obs_normalization else None,
             env_action_scale,
             env_action_bias,
-            normalized_action_training,
         )
 
     def export(self, onnx_file_path: str) -> None:
@@ -1250,11 +1261,7 @@ class CQLAgent(BaseAlgo):
             "command_ranges": cmd_ranges,
             "robot_urdf": urdf_str,
             "robot_urdf_path": urdf_file_path,
-            "action_space_mode": (
-                "normalized_training_env_output"
-                if self.config.normalized_action_training
-                else "env_action_training"
-            ),
+            "action_space_mode": "normalized_action_training_v1",
         }
         metadata.update(self._checkpoint_metadata(iteration=self.global_step))
 
@@ -1317,18 +1324,20 @@ class CQLAgent(BaseAlgo):
             episode_return += float(rewards[eval_env_idx].item())
             episode_length += 1
 
-            if bool(dones[eval_env_idx].item()):
-                stop_reason = "done"
-                break
-
-            if "time_outs" in infos and bool(infos["time_outs"][eval_env_idx].item()):
-                stop_reason = "time_out"
+            reason_flags = self._eval_termination_reason_flags(infos, int(self.env.num_envs))
+            specific_stop_reason = self._eval_stop_reason_for_env(reason_flags, eval_env_idx)
+            if specific_stop_reason is not None:
+                stop_reason = specific_stop_reason
                 break
 
             if use_early_termination and "early_termination" in infos:
                 if bool(infos["early_termination"][eval_env_idx].item()):
                     stop_reason = "early_termination"
                     break
+
+            if bool(dones[eval_env_idx].item()):
+                stop_reason = "done"
+                break
 
         if was_training:
             self.actor.train()
@@ -1390,7 +1399,8 @@ class CQLAgent(BaseAlgo):
             episode_returns += torch.where(active, step_rewards, torch.zeros_like(episode_returns))
             episode_lengths += active.to(torch.long)
 
-            timeout_flags = _info_bool("time_outs", infos)
+            reason_flags = self._eval_termination_reason_flags(infos, num_envs)
+            timeout_flags = reason_flags.get("timeout", _info_bool("time_outs", infos))
             early_flags = _info_bool("early_termination", infos) if use_early_termination else torch.zeros_like(finished)
             done_flags = dones.to(device=self.device, dtype=torch.bool)
 
@@ -1399,11 +1409,11 @@ class CQLAgent(BaseAlgo):
             newly_done = active & ~newly_timed_out & ~newly_early_terminated & done_flags
 
             for env_idx in torch.nonzero(newly_timed_out, as_tuple=False).flatten().detach().cpu().tolist():
-                stop_reasons[int(env_idx)] = "time_out"
+                stop_reasons[int(env_idx)] = self._eval_stop_reason_for_env(reason_flags, int(env_idx), "timeout")
             for env_idx in torch.nonzero(newly_early_terminated, as_tuple=False).flatten().detach().cpu().tolist():
                 stop_reasons[int(env_idx)] = "early_termination"
             for env_idx in torch.nonzero(newly_done, as_tuple=False).flatten().detach().cpu().tolist():
-                stop_reasons[int(env_idx)] = "done"
+                stop_reasons[int(env_idx)] = self._eval_stop_reason_for_env(reason_flags, int(env_idx), "done")
 
             finished |= newly_timed_out | newly_early_terminated | newly_done
             if bool(finished.all().item()):

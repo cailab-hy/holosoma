@@ -394,7 +394,9 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
                     if online_replay_size is not None:
                         eval_metrics["O2O/online_buffer_size"] = float(online_replay_size)
                     for stop_reason, count in stop_reason_counts.items():
-                        eval_metrics[f"Eval/stop_reason/{stop_reason}"] = float(count) / float(len(eval_results))
+                        stop_reason_ratio = float(count) / float(len(eval_results))
+                        eval_metrics[f"Eval/stop_reason/{stop_reason}"] = stop_reason_ratio
+                        eval_metrics[f"Eval/stop_reason_percent/{stop_reason}"] = 100.0 * stop_reason_ratio
 
                     logger.info(
                         "[Eval:{}] step={} episodes={} return_mean={:.4f} return_std={:.4f} "

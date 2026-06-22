@@ -507,8 +507,6 @@ g1_29dof_wbt_cql = ExperimentConfig(
             q_max=100.0,
             bellman_loss_type="huber",
             huber_beta=5.0,
-            normalized_action_training=True,
-            dataset_actions_are_normalized=False,
 
         ),
     ),

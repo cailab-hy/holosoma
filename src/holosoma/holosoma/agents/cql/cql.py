@@ -20,7 +20,6 @@ class Actor(nn.Module):
         device: torch.device | str | None = None,
         action_scale: torch.Tensor | None = None,
         action_bias: torch.Tensor | None = None,
-        normalized_action_output: bool = False,
         encoder_obs_key: str | None = None,
         encoder_obs_shape: tuple[int, int, int] | None = None,
     ):
@@ -37,7 +36,6 @@ class Actor(nn.Module):
         self.use_layer_norm = use_layer_norm
         self.encoder_obs_key = encoder_obs_key
         self.encoder_obs_shape = encoder_obs_shape
-        self.normalized_action_output = normalized_action_output
 
         self.setup_network()
 
@@ -50,11 +48,6 @@ class Actor(nn.Module):
             self.register_buffer("action_bias", action_bias.to(device))
         else:
             self.register_buffer("action_bias", torch.zeros(n_act, device=device))
-
-    def _maybe_scale_action(self, u_action: torch.Tensor) -> torch.Tensor:
-        if self.normalized_action_output:
-            return u_action
-        return u_action * self.action_scale + self.action_bias
 
     def setup_network(self) -> None:
         n_obs = sum(self.obs_indices[obs_key]["size"] for obs_key in self.obs_keys)
@@ -90,8 +83,7 @@ class Actor(nn.Module):
         log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (log_std + 1)
 
         if self.use_tanh:
-            tanh_mean = torch.tanh(mean)
-            action = self._maybe_scale_action(tanh_mean)
+            action = torch.tanh(mean)
         else:
             action = mean
 
@@ -104,13 +96,10 @@ class Actor(nn.Module):
         raw_action = dist.rsample()
 
         if self.use_tanh:
-            tanh_action = torch.tanh(raw_action)
-            action = self._maybe_scale_action(tanh_action)
+            action = torch.tanh(raw_action)
 
             log_prob = dist.log_prob(raw_action)
-            log_prob -= torch.log(1 - tanh_action.pow(2) + 1e-6)
-            if not self.normalized_action_output:
-                log_prob -= torch.log(self.action_scale + 1e-6)
+            log_prob -= torch.log(1 - action.pow(2) + 1e-6)
         else:
             action = raw_action
             log_prob = dist.log_prob(raw_action)
@@ -122,7 +111,7 @@ class Actor(nn.Module):
 
         Shapes:
         - obs: [B, actor_obs_dim]
-        - dataset_actions: [B, action_dim] in actor output action space
+        - dataset_actions: [B, action_dim] in normalized action space
         - return: [B]
         """
         _, mean, log_std = self(obs)
@@ -130,10 +119,7 @@ class Actor(nn.Module):
         dist = torch.distributions.Normal(mean, std)
 
         if self.use_tanh:
-            if self.normalized_action_output:
-                normalized_action = dataset_actions
-            else:
-                normalized_action = (dataset_actions - self.action_bias) / (self.action_scale + 1e-6)
+            normalized_action = dataset_actions
             normalized_action = normalized_action.clamp(-1.0 + 1e-6, 1.0 - 1e-6)
 
             # atanh(x) = 0.5 * (log(1 + x) - log(1 - x))
@@ -141,8 +127,6 @@ class Actor(nn.Module):
 
             log_prob = dist.log_prob(raw_action)
             log_prob -= torch.log(1 - normalized_action.pow(2) + 1e-6)
-            if not self.normalized_action_output:
-                log_prob -= torch.log(self.action_scale + 1e-6)
         else:
             log_prob = dist.log_prob(dataset_actions)
 
@@ -159,8 +143,7 @@ class Actor(nn.Module):
         _, mean, log_std = self(obs)
         if deterministic:
             if self.use_tanh:
-                tanh_mean = torch.tanh(mean)
-                return self._maybe_scale_action(tanh_mean)
+                return torch.tanh(mean)
             return mean
 
         std = log_std.exp()
@@ -168,8 +151,7 @@ class Actor(nn.Module):
         raw_action = dist.rsample()
 
         if self.use_tanh:
-            tanh_action = torch.tanh(raw_action)
-            action = self._maybe_scale_action(tanh_action)
+            action = torch.tanh(raw_action)
         else:
             action = raw_action
 

@@ -863,6 +863,42 @@ class IQLAgent(BaseAlgo):
 
         return policy_fn
 
+    def _eval_termination_reason_flags(self, infos: dict[str, Any], num_envs: int) -> dict[str, torch.Tensor]:
+        raw_reasons = infos.get("termination_reasons", {})
+        if not isinstance(raw_reasons, dict):
+            raw_reasons = {}
+
+        reason_flags: dict[str, torch.Tensor] = {}
+        for reason, value in raw_reasons.items():
+            if isinstance(value, torch.Tensor):
+                reason_flags[str(reason)] = value.to(device=self.device, dtype=torch.bool)
+
+        if "timeout" not in reason_flags:
+            time_outs = infos.get("time_outs")
+            if isinstance(time_outs, torch.Tensor):
+                reason_flags["timeout"] = time_outs.to(device=self.device, dtype=torch.bool)
+            else:
+                reason_flags["timeout"] = torch.zeros(num_envs, device=self.device, dtype=torch.bool)
+
+        return reason_flags
+
+    def _eval_stop_reason_for_env(
+        self,
+        reason_flags: dict[str, torch.Tensor],
+        env_idx: int,
+        fallback: str | None = None,
+    ) -> str | None:
+        for reason in ("bad_tracking", "motion_ends", "timeout"):
+            flags = reason_flags.get(reason)
+            if flags is not None and bool(flags[env_idx].item()):
+                return reason
+        for reason, flags in reason_flags.items():
+            if reason in {"bad_tracking", "motion_ends", "timeout"}:
+                continue
+            if bool(flags[env_idx].item()):
+                return reason
+        return fallback
+
     @property
     def actor_onnx_wrapper(self):
         actor = copy.deepcopy(self.actor).to("cpu")
@@ -981,18 +1017,20 @@ class IQLAgent(BaseAlgo):
             episode_return += float(rewards[eval_env_idx].item())
             episode_length += 1
 
-            if bool(dones[eval_env_idx].item()):
-                stop_reason = "done"
-                break
-
-            if "time_outs" in infos and bool(infos["time_outs"][eval_env_idx].item()):
-                stop_reason = "time_out"
+            reason_flags = self._eval_termination_reason_flags(infos, int(self.env.num_envs))
+            specific_stop_reason = self._eval_stop_reason_for_env(reason_flags, eval_env_idx)
+            if specific_stop_reason is not None:
+                stop_reason = specific_stop_reason
                 break
 
             if use_early_termination and "early_termination" in infos:
                 if bool(infos["early_termination"][eval_env_idx].item()):
                     stop_reason = "early_termination"
                     break
+
+            if bool(dones[eval_env_idx].item()):
+                stop_reason = "done"
+                break
 
         if was_training:
             self.actor.train()
@@ -1054,7 +1092,8 @@ class IQLAgent(BaseAlgo):
             episode_returns += torch.where(active, step_rewards, torch.zeros_like(episode_returns))
             episode_lengths += active.to(torch.long)
 
-            timeout_flags = _info_bool("time_outs", infos)
+            reason_flags = self._eval_termination_reason_flags(infos, num_envs)
+            timeout_flags = reason_flags.get("timeout", _info_bool("time_outs", infos))
             early_flags = _info_bool("early_termination", infos) if use_early_termination else torch.zeros_like(finished)
             done_flags = dones.to(device=self.device, dtype=torch.bool)
 
@@ -1063,11 +1102,11 @@ class IQLAgent(BaseAlgo):
             newly_done = active & ~newly_timed_out & ~newly_early_terminated & done_flags
 
             for env_idx in torch.nonzero(newly_timed_out, as_tuple=False).flatten().detach().cpu().tolist():
-                stop_reasons[int(env_idx)] = "time_out"
+                stop_reasons[int(env_idx)] = self._eval_stop_reason_for_env(reason_flags, int(env_idx), "timeout")
             for env_idx in torch.nonzero(newly_early_terminated, as_tuple=False).flatten().detach().cpu().tolist():
                 stop_reasons[int(env_idx)] = "early_termination"
             for env_idx in torch.nonzero(newly_done, as_tuple=False).flatten().detach().cpu().tolist():
-                stop_reasons[int(env_idx)] = "done"
+                stop_reasons[int(env_idx)] = self._eval_stop_reason_for_env(reason_flags, int(env_idx), "done")
 
             finished |= newly_timed_out | newly_early_terminated | newly_done
             if bool(finished.all().item()):
