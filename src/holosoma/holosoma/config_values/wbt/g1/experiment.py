@@ -505,7 +505,7 @@ g1_29dof_wbt_cql = ExperimentConfig(
             reward_scale = 5.0,
             q_min=-100.0,
             q_max=100.0,
-            bellman_loss_type="huber",
+            bellman_loss_type="mse",
             huber_beta=5.0,
 
         ),
@@ -529,11 +529,11 @@ g1_29dof_wbt_cql = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
-    termination=termination.g1_29dof_wbt_termination_offline_collect,
+    termination=termination.g1_29dof_wbt_termination,
     randomization=randomization.g1_29dof_wbt_randomization,
-    command=command.g1_29dof_wbt_command_cql_collect,
+    command=command.g1_29dof_wbt_command,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
+    reward=reward.g1_29dof_wbt_fast_sac_reward,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
