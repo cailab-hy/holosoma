@@ -91,6 +91,7 @@ class IQLEnv:
             "episode_all": info_dict["episode_all"],
             "raw_episode": info_dict.get("raw_episode", {}),
             "raw_episode_all": info_dict.get("raw_episode_all", {}),
+            "termination_reasons": info_dict.get("termination_reasons", {}),
             "to_log": info_dict["to_log"],
         }
         return actor_obs, rew_buf, reset_buf, extras

@@ -448,10 +448,18 @@ class BaseTask:
 
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         final_obs_dict = {}
+        time_outs_snapshot = self.time_out_buf.clone()
+        termination_reasons_snapshot = {
+            "bad_tracking": self.bad_tracking_buf.clone(),
+            "motion_ends": self.motion_ends_buf.clone(),
+            "timeout": self.timeout_buf.clone(),
+        }
         if env_ids.numel() > 0:
             final_obs_dict = self._compute_final_observations()
 
         self.reset_envs_idx(env_ids)
+        self.extras["time_outs"] = time_outs_snapshot
+        self.extras["termination_reasons"] = termination_reasons_snapshot
 
         refresh_env_ids = self._ensure_long_tensor(self._get_envs_to_refresh())
         if refresh_env_ids.numel() > 0:
