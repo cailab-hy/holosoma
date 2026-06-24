@@ -305,6 +305,11 @@ cql = CQLAlgoConfig(
     ),
 )
 
+cql_gaussian = dataclasses.replace(
+    cql,
+    _target_="holosoma.agents.cql.cql_gaussian_agent.CQLGaussianAgent",
+)
+
 cal_ql = CALQLAlgoConfig(
     _target_="holosoma.agents.cal_ql.cal_ql_agent.CALQLAgent",
     _recursive_=False,
@@ -672,6 +677,7 @@ DEFAULTS = {
     "offline_sac": offline_sac,
     "codac": codac,
     "cql": cql,
+    "cql_gaussian": cql_gaussian,
     "cal_ql": cal_ql,
     "cql_support_aware": cql_support_aware,
     "iql": iql,

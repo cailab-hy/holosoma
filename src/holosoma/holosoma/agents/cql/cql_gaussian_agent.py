@@ -48,7 +48,7 @@ from holosoma.utils.safe_torch_import import (
 torch.set_float32_matmul_precision("high")
 
 
-class CQLEnv:
+class CQLGaussianEnv:
     def __init__(
         self,
         env: BaseTask,
@@ -126,9 +126,9 @@ class CQLEnv:
         return action_scaling_factors
 
 
-class CQLAgent(BaseAlgo):
+class CQLGaussianAgent(BaseAlgo):
     config: CQLConfig
-    env: CQLEnv  # type: ignore[assignment]
+    env: CQLGaussianEnv  # type: ignore[assignment]
     actor: Actor
     qnet: DoubleQCritic
     qnet_target: DoubleQCritic
@@ -141,7 +141,7 @@ class CQLAgent(BaseAlgo):
         log_dir: str,
         multi_gpu_cfg: dict | None = None,
     ):
-        wrapped_env = CQLEnv(env, config.actor_obs_keys, config.critic_obs_keys)
+        wrapped_env = CQLGaussianEnv(env, config.actor_obs_keys, config.critic_obs_keys)
         super().__init__(wrapped_env, config, device, multi_gpu_cfg)  # type: ignore[arg-type]
 
         self.unwrapped_env = env
@@ -585,10 +585,10 @@ class CQLAgent(BaseAlgo):
             next_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             with torch.no_grad():
                 pi_actions_det = self.actor(observations)[0]
-                q1_pi_det, q2_pi_det = self.qnet(critic_observations, pi_actions_det)
-                q_pi_minus_q_data = (
-                    torch.minimum(q1_pi_det, q2_pi_det) - torch.minimum(q1.detach(), q2.detach())
-                ).mean()
+            q1_pi_det, q2_pi_det = self.qnet(critic_observations, pi_actions_det)
+            q_pi_minus_q_data = (
+                torch.minimum(q1_pi_det, q2_pi_det) - torch.minimum(q1.detach(), q2.detach())
+            ).mean()
 
             if self._cql_weight > 0.0:
                 batch_size = dataset_actions.shape[0]
@@ -641,6 +641,7 @@ class CQLAgent(BaseAlgo):
                     q2_curr - curr_logp,
                     q2_next - next_logp,
                 ]
+                
                 cat_q1 = torch.cat(
                     q1_terms,
                     dim=1,
@@ -657,6 +658,12 @@ class CQLAgent(BaseAlgo):
                 curr_q_mean = 0.5 * ((q1_curr).mean() + (q2_curr).mean())
                 next_q_mean = 0.5 * ((q1_next).mean() + (q2_next).mean())
 
+                q_det_min = torch.minimum(q1_pi_det, q2_pi_det)
+
+                q_data_min = torch.minimum(q1.detach(), q2.detach())
+
+                det_gap_loss = F.relu(q_det_min - q_data_min).mean()
+
                 if args.use_lagrange and self.log_cql_alpha is not None:
                     cql_alpha = self.log_cql_alpha.exp().detach().clamp(max=args.cql_lagrange_max)
                     target_gap = torch.tensor(args.cql_target_action_gap, device=self.device, dtype=bellman_loss.dtype)
@@ -668,8 +675,8 @@ class CQLAgent(BaseAlgo):
             else:
                 conservative_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 cql_gap = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-            
-            q_loss = bellman_loss + conservative_loss
+
+            q_loss = bellman_loss + conservative_loss + 0.1*det_gap_loss
 
         self.q_optimizer.zero_grad(set_to_none=True)
         scaler.scale(q_loss).backward()
@@ -717,6 +724,7 @@ class CQLAgent(BaseAlgo):
             rand_q_mean.detach(),
             curr_q_mean.detach(),
             next_q_mean.detach(),
+            det_gap_loss.detach(),
         )
 
     def _update_cql_lagrange(self, cql_gap: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -1031,6 +1039,7 @@ class CQLAgent(BaseAlgo):
                         rand_q,
                         curr_q,
                         next_q,
+                        qdet_gap_loss,
                     ) = update_q(data)
 
                     cql_alpha_value, cql_lagrange_loss = self._update_cql_lagrange(cql_gap)
@@ -1061,6 +1070,7 @@ class CQLAgent(BaseAlgo):
                             "random_q": rand_q,
                             "current_q": curr_q,
                             "next_q": next_q,
+                            "qdet_gap": qdet_gap_loss,
                             "buffer_rewards": reward_mean,
                             "q_grad_norm": q_grad_norm,
                             "q_loss": q_loss,

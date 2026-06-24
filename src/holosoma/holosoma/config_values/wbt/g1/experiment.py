@@ -496,9 +496,6 @@ g1_29dof_wbt_cql = ExperimentConfig(
             tau=0.05,
             cql_weight = 0.2,
             cql_num_action_samples=32,
-            cql_near_action_samples=8,
-            cql_near_noise_std=0.05,
-            cql_near_weight = 0.05,
             use_symmetry=False,
             use_lagrange=True,
             batch_size=1024,
@@ -547,6 +544,19 @@ g1_29dof_wbt_cql = ExperimentConfig(
             "Episode/rew_motion_global_body_lin_vel": [0.45, "inf"],
             "Episode/rew_motion_global_body_ang_vel": [0.15, "inf"],
         },
+    ),
+)
+
+
+g1_29dof_wbt_cql_gaussian = replace(
+    g1_29dof_wbt_cql,
+    training=replace(
+        g1_29dof_wbt_cql.training,
+        name="g1_29dof_wbt_cql_gaussian_manager",
+    ),
+    algo=replace(
+        algo.cql_gaussian,
+        config=g1_29dof_wbt_cql.algo.config,
     ),
 )
 
@@ -967,6 +977,7 @@ __all__ = [
     "g1_29dof_wbt_CODAC",
     "g1_29dof_wbt_iql",
     "g1_29dof_wbt_cql",
+    "g1_29dof_wbt_cql_gaussian",
     "g1_29dof_wbt_bc",
     "g1_29dof_wbt_fast_sac_w_object",
     "g1_29dof_wbt_w_object",
