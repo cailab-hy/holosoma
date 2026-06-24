@@ -164,6 +164,7 @@ class CQLAgent(BaseAlgo):
         self._num_repeat_actions = config.cql_num_action_samples
         self._temperature = config.cql_temperature
         self._cql_weight = config.cql_weight
+        self._num_near_actions = config.cql_near_action_samples
 
         self._offline_dataset_path = Path(config.offline_dataset_path)
         self._offline_dataset_reader: HDF5BlockReader | None = None
@@ -178,6 +179,10 @@ class CQLAgent(BaseAlgo):
             raise ValueError(f"cql_temperature must be > 0, got {config.cql_temperature}")
         if config.cql_weight < 0.0:
             raise ValueError(f"cql_weight must be >= 0, got {config.cql_weight}")
+        if config.cql_near_action_samples < 0:
+            raise ValueError(f"cql_near_action_samples must be >= 0, got {config.cql_near_action_samples}")
+        if config.cql_near_noise_std < 0.0:
+            raise ValueError(f"cql_near_noise_std must be >= 0, got {config.cql_near_noise_std}")
         if config.use_lagrange:
             if config.cql_target_action_gap < 0.0:
                 raise ValueError(
@@ -534,6 +539,7 @@ class CQLAgent(BaseAlgo):
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
+        torch.Tensor,
     ]:
         args = self.config
         scaler = self.scaler
@@ -577,6 +583,7 @@ class CQLAgent(BaseAlgo):
             rand_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             curr_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             next_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            near_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             with torch.no_grad():
                 pi_actions_det = self.actor(observations)[0]
                 q1_pi_det, q2_pi_det = self.qnet(critic_observations, pi_actions_det)
@@ -587,6 +594,7 @@ class CQLAgent(BaseAlgo):
             if self._cql_weight > 0.0:
                 batch_size = dataset_actions.shape[0]
                 num_repeat = self._num_repeat_actions
+                num_near = self._num_near_actions
 
                 expanded_obs = observations[:, None, :].expand(batch_size, num_repeat, -1).reshape(
                     batch_size * num_repeat, -1
@@ -624,20 +632,45 @@ class CQLAgent(BaseAlgo):
 
                 random_density = math.log(0.5) * dataset_actions.shape[-1]
 
+                q1_terms = [
+                    q1_rand - random_density,
+                    q1_curr - curr_logp,
+                    q1_next - next_logp,
+                ]
+                q2_terms = [
+                    q2_rand - random_density,
+                    q2_curr - curr_logp,
+                    q2_next - next_logp,
+                ]
+                if num_near > 0:
+                    expanded_near_critic_obs = critic_observations[:, None, :].expand(
+                        batch_size, num_near, -1
+                    ).reshape(batch_size * num_near, -1)
+
+                    expanded_dataset_actions = dataset_actions[:, None, :].expand(
+                        batch_size, num_near, -1
+                    ).reshape(batch_size * num_near, -1)
+
+                    noise = torch.randn_like(expanded_dataset_actions) * args.cql_near_noise_std
+                    raw_near_actions = expanded_dataset_actions + noise
+                    near_actions = raw_near_actions.clamp(-1.0, 1.0)
+
+                    q1_near, q2_near = self.qnet(expanded_near_critic_obs, near_actions)
+                    q1_near = q1_near.view(batch_size, num_near)
+                    q2_near = q2_near.view(batch_size, num_near)
+
+                    q_near_min = torch.minimum(q1_near, q2_near)          # [B, num_near]
+                    q_data_min = torch.minimum(q1, q2).detach()[:, None]  # [B, 1]
+
+                    near_gap = q_near_min - q_data_min                    # [B, num_near]
+                    near_gap_loss = F.relu(near_gap - 0).mean() # cql_near_margin
+
                 cat_q1 = torch.cat(
-                    [
-                        q1_rand - random_density,
-                        q1_curr - curr_logp,
-                        q1_next - next_logp,
-                    ],
+                    q1_terms,
                     dim=1,
                 )
                 cat_q2 = torch.cat(
-                    [
-                        q2_rand - random_density,
-                        q2_curr - curr_logp,
-                        q2_next - next_logp,
-                    ],
+                    q2_terms,
                     dim=1,
                 )
 
@@ -660,7 +693,7 @@ class CQLAgent(BaseAlgo):
                 conservative_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 cql_gap = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
 
-            q_loss = bellman_loss + conservative_loss
+            q_loss = bellman_loss + conservative_loss + args.cql_near_weight*near_gap_loss
 
         self.q_optimizer.zero_grad(set_to_none=True)
         scaler.scale(q_loss).backward()
@@ -708,6 +741,7 @@ class CQLAgent(BaseAlgo):
             rand_q_mean.detach(),
             curr_q_mean.detach(),
             next_q_mean.detach(),
+            near_q_mean.detach(),
         )
 
     def _update_cql_lagrange(self, cql_gap: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -1022,6 +1056,7 @@ class CQLAgent(BaseAlgo):
                         rand_q,
                         curr_q,
                         next_q,
+                        near_q,
                     ) = update_q(data)
                     
                     cql_alpha_value, cql_lagrange_loss = self._update_cql_lagrange(cql_gap)
@@ -1052,6 +1087,7 @@ class CQLAgent(BaseAlgo):
                             "random_q": rand_q,
                             "current_q": curr_q,
                             "next_q": next_q,
+                            "near_q": near_q,
                             "buffer_rewards": reward_mean,
                             "q_grad_norm": q_grad_norm,
                             "q_loss": q_loss,

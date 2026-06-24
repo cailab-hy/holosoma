@@ -535,6 +535,15 @@ class CQLConfig:
     cql_weight: float = 5.0
     """weight of conservative quantile regularization"""
 
+    cql_near_action_samples: int = 0
+    """number of Gaussian-noised dataset-near actions per state for local conservative regularization"""
+
+    cql_near_noise_std: float = 0.05
+    """standard deviation of Gaussian noise added to normalized dataset actions for q_near samples"""
+
+    cq_near_weight: float = 0.05
+    """cql near loss weight"""
+
     use_lagrange: bool = False
     """whether to use Lagrange multiplier auto-tuning for CQL conservative loss"""
 
