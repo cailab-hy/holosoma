@@ -541,7 +541,7 @@ class CQLConfig:
     cql_near_noise_std: float = 0.05
     """standard deviation of Gaussian noise added to normalized dataset actions for q_near samples"""
 
-    cq_near_weight: float = 0.05
+    cql_near_weight: float = 0.05
     """cql near loss weight"""
 
     use_lagrange: bool = False
