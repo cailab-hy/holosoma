@@ -544,6 +544,12 @@ class CQLConfig:
     cql_near_weight: float = 0.05
     """cql near loss weight"""
 
+    cql_masked_active_dim: int = 8
+    """number of action dimensions perturbed by actor std for Gaussian CQL current/next samples"""
+
+    cql_masked_inactive_std: float = 0.01
+    """small Gaussian std used on inactive action dimensions for Gaussian CQL current/next samples"""
+
     use_lagrange: bool = False
     """whether to use Lagrange multiplier auto-tuning for CQL conservative loss"""
 

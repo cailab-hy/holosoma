@@ -12,7 +12,7 @@ import tqdm
 from loguru import logger
 
 from holosoma.agents.base_algo.base_algo import BaseAlgo
-from holosoma.agents.cql.cql import Actor, CNNActor, DoubleQCritic
+from holosoma.agents.cql.cql_gaussian import Actor, CNNActor, DoubleQCritic
 from holosoma.agents.cql.cql_utils import EmpiricalNormalization, save_params
 from holosoma.agents.modules.augmentation_utils import SymmetryUtils
 from holosoma.agents.modules.logging_utils import LoggingHelper
@@ -183,6 +183,12 @@ class CQLGaussianAgent(BaseAlgo):
             raise ValueError(f"cql_near_action_samples must be >= 0, got {config.cql_near_action_samples}")
         if config.cql_near_noise_std < 0.0:
             raise ValueError(f"cql_near_noise_std must be >= 0, got {config.cql_near_noise_std}")
+        if config.cql_masked_active_dim <= 0:
+            raise ValueError(f"cql_masked_active_dim must be > 0, got {config.cql_masked_active_dim}")
+        if config.cql_masked_inactive_std <= 0.0:
+            raise ValueError(
+                f"cql_masked_inactive_std must be > 0, got {config.cql_masked_inactive_std}"
+            )
         if config.use_lagrange:
             if config.cql_target_action_gap < 0.0:
                 raise ValueError(
@@ -606,8 +612,16 @@ class CQLGaussianAgent(BaseAlgo):
                 ).reshape(batch_size * num_repeat, -1)
 
                 with torch.no_grad():
-                    curr_actions, curr_logp = self.actor.get_actions_and_log_probs(expanded_obs)
-                    next_actions_rep, next_logp = self.actor.get_actions_and_log_probs(expanded_next_obs)
+                    curr_actions, curr_logp, _ = self.actor.get_masked_actions_and_log_probs(
+                        expanded_obs,
+                        active_dim=args.cql_masked_active_dim,
+                        inactive_std=args.cql_masked_inactive_std,
+                    )
+                    next_actions_rep, next_logp, _ = self.actor.get_masked_actions_and_log_probs(
+                        expanded_next_obs,
+                        active_dim=args.cql_masked_active_dim,
+                        inactive_std=args.cql_masked_inactive_std,
+                    )
 
                 rand_actions = torch.empty(
                     batch_size * num_repeat,
@@ -658,11 +672,11 @@ class CQLGaussianAgent(BaseAlgo):
                 curr_q_mean = 0.5 * ((q1_curr).mean() + (q2_curr).mean())
                 next_q_mean = 0.5 * ((q1_next).mean() + (q2_next).mean())
 
-                q_det_min = torch.minimum(q1_pi_det, q2_pi_det)
+                # q_det_min = torch.minimum(q1_pi_det, q2_pi_det)
 
-                q_data_min = torch.minimum(q1.detach(), q2.detach())
+                # q_data_min = torch.minimum(q1.detach(), q2.detach())
 
-                det_gap_loss = F.relu(q_det_min - q_data_min).mean()
+                # det_gap_loss = F.relu(q_det_min - q_data_min).mean()
 
                 if args.use_lagrange and self.log_cql_alpha is not None:
                     cql_alpha = self.log_cql_alpha.exp().detach().clamp(max=args.cql_lagrange_max)
@@ -676,7 +690,7 @@ class CQLGaussianAgent(BaseAlgo):
                 conservative_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 cql_gap = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
 
-            q_loss = bellman_loss + conservative_loss + 0.1*det_gap_loss
+            q_loss = bellman_loss + conservative_loss #+ 0.1*det_gap_loss
 
         self.q_optimizer.zero_grad(set_to_none=True)
         scaler.scale(q_loss).backward()
@@ -1091,6 +1105,14 @@ class CQLGaussianAgent(BaseAlgo):
                             "cql_lagrange_loss": cql_lagrange_loss,
                             "cql_target_action_gap": torch.tensor(
                                 args.cql_target_action_gap if args.use_lagrange else 0.0,
+                                device=self.device,
+                            ),
+                            "cql_masked_active_dim": torch.tensor(
+                                float(args.cql_masked_active_dim),
+                                device=self.device,
+                            ),
+                            "cql_masked_inactive_std": torch.tensor(
+                                args.cql_masked_inactive_std,
                                 device=self.device,
                             ),
                             "is_actor_warmup": float(is_actor_warmup),

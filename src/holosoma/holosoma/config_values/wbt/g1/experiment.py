@@ -556,7 +556,11 @@ g1_29dof_wbt_cql_gaussian = replace(
     ),
     algo=replace(
         algo.cql_gaussian,
-        config=g1_29dof_wbt_cql.algo.config,
+        config=replace(
+            g1_29dof_wbt_cql.algo.config,
+            cql_masked_active_dim=8,
+            cql_masked_inactive_std=0.01,
+        ),
     ),
 )
 
