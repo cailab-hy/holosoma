@@ -616,11 +616,13 @@ class CQLGaussianAgent(BaseAlgo):
                         expanded_obs,
                         active_dim=args.cql_masked_active_dim,
                         inactive_std=args.cql_masked_inactive_std,
+                        log_prob_mode = "active",
                     )
                     next_actions_rep, next_logp, _ = self.actor.get_masked_actions_and_log_probs(
                         expanded_next_obs,
                         active_dim=args.cql_masked_active_dim,
                         inactive_std=args.cql_masked_inactive_std,
+                        log_prob_mode = "active",
                     )
 
                 rand_actions = torch.empty(
@@ -672,11 +674,11 @@ class CQLGaussianAgent(BaseAlgo):
                 curr_q_mean = 0.5 * ((q1_curr).mean() + (q2_curr).mean())
                 next_q_mean = 0.5 * ((q1_next).mean() + (q2_next).mean())
 
-                # q_det_min = torch.minimum(q1_pi_det, q2_pi_det)
+                q_det_min = torch.minimum(q1_pi_det, q2_pi_det)
 
-                # q_data_min = torch.minimum(q1.detach(), q2.detach())
+                q_data_min = torch.minimum(q1.detach(), q2.detach())
 
-                # det_gap_loss = F.relu(q_det_min - q_data_min).mean()
+                det_gap_loss = F.relu(q_det_min - q_data_min).mean()
 
                 if args.use_lagrange and self.log_cql_alpha is not None:
                     cql_alpha = self.log_cql_alpha.exp().detach().clamp(max=args.cql_lagrange_max)

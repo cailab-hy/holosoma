@@ -125,34 +125,76 @@ class Actor(nn.Module):
         mask.scatter_(1, active_idx, 1.0)
         return mask
 
+    # def get_masked_actions_and_log_probs(
+    #     self,
+    #     obs: torch.Tensor,
+    #     active_dim: int,
+    #     inactive_std: float,
+    # ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    #     _, mean, log_std = self(obs)
+    #     std = log_std.exp()
+    #     mask = self._sample_random_mask(
+    #         batch_size=mean.shape[0],
+    #         action_dim=mean.shape[1],
+    #         active_dim=active_dim,
+    #         device=mean.device,
+    #     )
+    #     inactive_std_tensor = torch.full_like(std, inactive_std)
+    #     masked_std = torch.where(mask.bool(), std, inactive_std_tensor)
+    #     eps = torch.randn_like(mean)
+    #     raw_action = mean + masked_std * eps
+
+    #     if self.use_tanh:
+    #         action = torch.tanh(raw_action)
+    #         log_prob = torch.distributions.Normal(mean, masked_std).log_prob(raw_action)
+    #         log_prob -= torch.log(1 - action.pow(2) + 1e-6)
+    #     else:
+    #         action = raw_action
+    #         log_prob = torch.distributions.Normal(mean, masked_std).log_prob(raw_action)
+
+    #     return action, log_prob.sum(1), mask
+
     def get_masked_actions_and_log_probs(
         self,
         obs: torch.Tensor,
         active_dim: int,
         inactive_std: float,
+        # log_prob_mode: str = "active",
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         _, mean, log_std = self(obs)
         std = log_std.exp()
+
         mask = self._sample_random_mask(
             batch_size=mean.shape[0],
             action_dim=mean.shape[1],
             active_dim=active_dim,
             device=mean.device,
         )
+        log_prob_mode = "active",
         inactive_std_tensor = torch.full_like(std, inactive_std)
         masked_std = torch.where(mask.bool(), std, inactive_std_tensor)
-        eps = torch.randn_like(mean)
-        raw_action = mean + masked_std * eps
+
+        dist = torch.distributions.Normal(mean, masked_std)
+        raw_action = dist.rsample()
 
         if self.use_tanh:
             action = torch.tanh(raw_action)
-            log_prob = torch.distributions.Normal(mean, masked_std).log_prob(raw_action)
-            log_prob -= torch.log(1 - action.pow(2) + 1e-6)
+            log_prob_per_dim = dist.log_prob(raw_action)
+            log_prob_per_dim -= torch.log(1.0 - action.pow(2) + 1e-6)
         else:
             action = raw_action
-            log_prob = torch.distributions.Normal(mean, masked_std).log_prob(raw_action)
+            log_prob_per_dim = dist.log_prob(raw_action)
 
-        return action, log_prob.sum(1), mask
+        if log_prob_mode == "full":
+            log_prob = log_prob_per_dim.sum(dim=1)
+        elif log_prob_mode == "active":
+            log_prob = (log_prob_per_dim * mask).sum(dim=1)
+        elif log_prob_mode == "zero":
+            log_prob = torch.zeros(mean.shape[0], device=mean.device, dtype=mean.dtype)
+        else:
+            raise ValueError(f"Unknown log_prob_mode: {log_prob_mode}")
+
+        return action, log_prob, mask
 
     def log_prob_dataset_actions(self, obs: torch.Tensor, dataset_actions: torch.Tensor) -> torch.Tensor:
         """Compute log pi(a_data | s) for squashed Gaussian actor.
