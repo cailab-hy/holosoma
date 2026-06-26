@@ -741,6 +741,9 @@ class CQLGaussianAgent(BaseAlgo):
             curr_q_mean.detach(),
             next_q_mean.detach(),
             det_gap_loss.detach(),
+            curr_logp.mean().detach(),
+            next_logp.mean().detach(),
+            random_density.mean().detach(),
         )
 
     def _update_cql_lagrange(self, cql_gap: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -1056,6 +1059,9 @@ class CQLGaussianAgent(BaseAlgo):
                         curr_q,
                         next_q,
                         qdet_gap_loss,
+                        curr_logp,
+                        next_logp,
+                        random_density,
                     ) = update_q(data)
 
                     cql_alpha_value, cql_lagrange_loss = self._update_cql_lagrange(cql_gap)
@@ -1120,6 +1126,9 @@ class CQLGaussianAgent(BaseAlgo):
                             "is_actor_warmup": float(is_actor_warmup),
                             "is_actor_update_step": float(is_actor_update_step),
                             **action_ood_stats,
+                            "current_logprob": curr_logp,
+                            "next_logprob": next_logp,
+                            "random_density": random_density,
                         }
 
                     )
