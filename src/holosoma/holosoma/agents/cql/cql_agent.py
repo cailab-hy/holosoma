@@ -563,7 +563,7 @@ class CQLAgent(BaseAlgo):
                 discount = args.gamma ** data["next"]["effective_n_steps"]
                 next_q1_target, next_q2_target = self.qnet_target(next_critic_observations, next_actions)
                 next_target_min_q = torch.minimum(next_q1_target, next_q2_target)
-                q_target = rewards + discount * bootstrap * (next_target_min_q - alpha * next_log_probs)
+                q_target = rewards + discount * bootstrap * next_target_min_q  #- alpha * next_log_probs
                 if args.q_min is not None or args.q_max is not None:
                     q_target = q_target.clamp(min=args.q_min, max=args.q_max)
                 target_value_max = q_target.max()

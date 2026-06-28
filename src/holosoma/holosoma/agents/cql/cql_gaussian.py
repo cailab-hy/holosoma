@@ -159,7 +159,7 @@ class Actor(nn.Module):
         obs: torch.Tensor,
         active_dim: int,
         inactive_std: float,
-        # log_prob_mode: str = "active",
+        log_prob_mode: str = "active",
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         _, mean, log_std = self(obs)
         std = log_std.exp()
@@ -170,7 +170,7 @@ class Actor(nn.Module):
             active_dim=active_dim,
             device=mean.device,
         )
-        log_prob_mode = "active",
+
         inactive_std_tensor = torch.full_like(std, inactive_std)
         masked_std = torch.where(mask.bool(), std, inactive_std_tensor)
 
