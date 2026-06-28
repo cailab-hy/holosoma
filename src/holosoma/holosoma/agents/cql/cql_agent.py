@@ -719,7 +719,7 @@ class CQLAgent(BaseAlgo):
             next_q_mean.detach(),
             curr_logp.mean().detach(),
             next_logp.mean().detach(),
-            random_density.detach(),
+            random_density,
         )
 
     def _update_cql_lagrange(self, cql_gap: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
