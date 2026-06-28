@@ -93,108 +93,7 @@ g1_29dof_wbt_fast_sac_reward = RewardManagerCfg(
     }
 )
 
-g1_29dof_wbt_fast_sac_reward_collect = RewardManagerCfg(
-    terms={
-        **g1_29dof_wbt_fast_sac_reward.terms,
-        "motion_global_ref_position_error_hinge": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_global_ref_position_error_hinge",
-            params={"threshold": 0.5},
-            weight=-2.0,
-        ),
-        "motion_relative_body_position_error_hinge": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_relative_body_position_error_hinge",
-            params={
-                "threshold": 0.25,
-                "body_names": [
-                    "left_ankle_roll_link",
-                    "right_ankle_roll_link",
-                    "left_wrist_yaw_link",
-                    "right_wrist_yaw_link",
-                ],
-                "aggregation": "max",
-            },
-            weight=-5.0,
-        ),
-    }
-)
 
-g1_29dof_wbt_fast_sac_reward_offline_collect = RewardManagerCfg(
-    terms={
-        **g1_29dof_wbt_fast_sac_reward.terms,
-        "motion_global_ref_position_error_exp": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_global_ref_position_error_exp",
-            params={"sigma": 0.3},
-            weight=1.5,
-        ),
-        "motion_relative_body_position_error_exp": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_relative_body_position_error_exp",
-            params={"sigma": 0.3},
-            weight=2.5,
-        ),
-        "motion_global_ref_position_error_hinge": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_global_ref_position_error_hinge",
-            params={"threshold": 0.5},
-            weight=-2.0,
-        ),
-        "motion_global_ref_position_error_hard_hinge": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_global_ref_position_error_hinge",
-            params={"threshold": 1.0},
-            weight=-6.0,
-        ),
-        "motion_global_ref_orientation_error_hinge": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_global_ref_orientation_error_hinge",
-            params={"threshold": 0.8},
-            weight=-1.0,
-        ),
-        "motion_global_ref_orientation_error_hard_hinge": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_global_ref_orientation_error_hinge",
-            params={"threshold": 1.6},
-            weight=-3.0,
-        ),
-        "motion_relative_body_position_error_hinge": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_relative_body_position_error_hinge",
-            params={
-                "threshold": 0.25,
-                "body_names": [
-                    "left_ankle_roll_link",
-                    "right_ankle_roll_link",
-                    "left_wrist_yaw_link",
-                    "right_wrist_yaw_link",
-                ],
-                "aggregation": "max",
-            },
-            weight=-5.0,
-        ),
-        "motion_relative_body_position_error_hard_hinge": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_relative_body_position_error_hinge",
-            params={
-                "threshold": 0.5,
-                "body_names": [
-                    "left_ankle_roll_link",
-                    "right_ankle_roll_link",
-                    "left_wrist_yaw_link",
-                    "right_wrist_yaw_link",
-                ],
-                "aggregation": "max",
-            },
-            weight=-10.0,
-        ),
-        "motion_relative_body_orientation_error_hinge": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_relative_body_orientation_error_hinge",
-            params={
-                "threshold": 0.8,
-                "body_names": [
-                    "left_ankle_roll_link",
-                    "right_ankle_roll_link",
-                    "left_wrist_yaw_link",
-                    "right_wrist_yaw_link",
-                ],
-                "aggregation": "mean",
-            },
-            weight=-1.0,
-        ),
-    }
-)
 
 g1_29dof_wbt_reward_w_object = RewardManagerCfg(
     terms={
@@ -215,8 +114,6 @@ g1_29dof_wbt_reward_w_object = RewardManagerCfg(
 
 __all__ = [
     "g1_29dof_wbt_fast_sac_reward",
-    "g1_29dof_wbt_fast_sac_reward_collect",
-    "g1_29dof_wbt_fast_sac_reward_offline_collect",
     "g1_29dof_wbt_reward",
     "g1_29dof_wbt_reward_w_object",
 ]
