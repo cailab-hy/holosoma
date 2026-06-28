@@ -559,13 +559,77 @@ class CQLAgent(BaseAlgo):
             alpha = self.log_alpha.exp().detach()
 
             with torch.no_grad():
-                next_actions, next_log_probs = self.actor.get_actions_and_log_probs(next_observations)
                 discount = args.gamma ** data["next"]["effective_n_steps"]
-                next_q1_target, next_q2_target = self.qnet_target(next_critic_observations, next_actions)
-                next_target_min_q = torch.minimum(next_q1_target, next_q2_target)
-                q_target = rewards + discount * bootstrap * next_target_min_q  #- alpha * next_log_probs
+
+                # Make shapes safe: [B]
+                rewards_ = rewards.view(-1)
+                bootstrap_ = bootstrap.view(-1)
+                discount_ = discount.view(-1)
+
+                if args.cql_max_target_backup:
+                    batch_size = next_observations.shape[0]
+                    num_backup_actions = args.cql_max_target_backup_samples
+
+                    # [B, obs_dim] -> [B*K, obs_dim]
+                    expanded_next_obs = (
+                        next_observations.unsqueeze(1)
+                        .expand(batch_size, num_backup_actions, *next_observations.shape[1:])
+                        .reshape(batch_size * num_backup_actions, *next_observations.shape[1:])
+                    )
+
+                    expanded_next_critic_obs = (
+                        next_critic_observations.unsqueeze(1)
+                        .expand(batch_size, num_backup_actions, *next_critic_observations.shape[1:])
+                        .reshape(batch_size * num_backup_actions, *next_critic_observations.shape[1:])
+                    )
+
+                    # Sample K next actions per next state
+                    next_actions, next_log_probs = self.actor.get_actions_and_log_probs(
+                        expanded_next_obs
+                    )
+
+                    next_q1_target, next_q2_target = self.qnet_target(
+                        expanded_next_critic_obs,
+                        next_actions,
+                    )
+
+                    # Safe shape: [B*K] -> [B, K]
+                    next_q1_target = next_q1_target.view(batch_size, num_backup_actions)
+                    next_q2_target = next_q2_target.view(batch_size, num_backup_actions)
+                    next_log_probs = next_log_probs.view(batch_size, num_backup_actions)
+
+                    next_target_min_q_all = torch.minimum(next_q1_target, next_q2_target)
+
+                    # max_i min(Q1,Q2)(s', a_i)
+                    next_target_min_q, max_target_indices = next_target_min_q_all.max(dim=1)
+
+                    next_log_probs = next_log_probs.gather(
+                        dim=1,
+                        index=max_target_indices.unsqueeze(1),
+                    ).squeeze(1)
+                else:
+                    next_actions, next_log_probs = self.actor.get_actions_and_log_probs(
+                        next_observations
+                    )
+
+                    next_q1_target, next_q2_target = self.qnet_target(
+                        next_critic_observations,
+                        next_actions,
+                    )
+
+                    next_target_min_q = torch.minimum(next_q1_target, next_q2_target).view(-1)
+                    next_log_probs = next_log_probs.view(-1)
+
+                if args.backup_entropy:
+                    next_v = next_target_min_q - alpha * next_log_probs
+                else:
+                    next_v = next_target_min_q
+
+                q_target = rewards_ + discount_ * bootstrap_ * next_v
+
                 if args.q_min is not None or args.q_max is not None:
                     q_target = q_target.clamp(min=args.q_min, max=args.q_max)
+
                 target_value_max = q_target.max()
                 target_value_min = q_target.min()
 

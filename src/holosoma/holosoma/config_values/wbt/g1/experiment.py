@@ -494,7 +494,7 @@ g1_29dof_wbt_cql = ExperimentConfig(
             policy_frequency=2,
             target_entropy_ratio=0.5,
             tau=0.05,
-            cql_weight = 5.0,
+            cql_weight = 1.0,
             cql_num_action_samples=32,
             use_symmetry=False,
             use_lagrange=True,
@@ -507,6 +507,7 @@ g1_29dof_wbt_cql = ExperimentConfig(
             q_max=300.0,
             bellman_loss_type="mse",
             huber_beta=5.0,
+            cql_max_target_backup = True,
 
         ),
     ),

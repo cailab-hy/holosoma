@@ -696,6 +696,12 @@ class CQLConfig:
 
     reward_scale: int = 5
 
+    cql_max_target_backup: bool = False
+
+    backup_entropy : bool = False
+
+    cql_max_target_backup_samples : int = 10
+
 
 @dataclass(frozen=True)
 class CALQLConfig:
