@@ -350,7 +350,7 @@ g1_29dof_wbt_fixed_fast_sac_data = ExperimentConfig(
 g1_29dof_wbt_cql = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
-        name="g1_29dof_wbt_cql_manag2r",
+        name="g1_29dof_wbt_cql_weight5_manager",
         num_envs=512,
         eval_num_episodes=1,
     ),
@@ -361,21 +361,21 @@ g1_29dof_wbt_cql = ExperimentConfig(
             algo.cql.config,
             num_learning_iterations=400000,
             gamma=0.99,  # For motion tracking, high gamma + high num_steps is better
-            num_updates=2,
-            policy_frequency=2,
-            target_entropy_ratio=0.5,
+            num_updates=4,
+            policy_frequency=1,
+            target_entropy_ratio=1.0,
             tau=0.05,
-            cql_weight = 1.0,
+            cql_weight = 5.0,
             cql_num_action_samples=32,
             use_symmetry=False,
-            use_lagrange=True,
+            use_lagrange=False,
             batch_size=1024,
             cql_target_action_gap=0.0,
             offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_strict_5m_dataset.h5",
             use_gpu_cache=True,
             reward_scale = 5.0,
-            q_min=-300.0,
-            q_max=300.0,
+            q_min=-100.0,
+            q_max=100.0,
             bellman_loss_type="mse",
             huber_beta=5.0,
             cql_max_target_backup = True,
@@ -416,23 +416,6 @@ g1_29dof_wbt_cql = ExperimentConfig(
             "Episode/rew_motion_global_body_lin_vel": [0.45, "inf"],
             "Episode/rew_motion_global_body_ang_vel": [0.15, "inf"],
         },
-    ),
-)
-
-
-g1_29dof_wbt_cql_gaussian = replace(
-    g1_29dof_wbt_cql,
-    training=replace(
-        g1_29dof_wbt_cql.training,
-        name="g1_29dof_wbt_cql_gaussian_manager",
-    ),
-    algo=replace(
-        algo.cql_gaussian,
-        config=replace(
-            g1_29dof_wbt_cql.algo.config,
-            cql_masked_active_dim=8,
-            cql_masked_inactive_std=0.01,
-        ),
     ),
 )
 
@@ -480,11 +463,11 @@ g1_29dof_wbt_iql = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
-    termination=termination.g1_29dof_wbt_termination_offline_collect,
+    termination=termination.g1_29dof_wbt_termination,
     randomization=randomization.g1_29dof_wbt_randomization,
     command=command.g1_29dof_wbt_command_cql_collect,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
+    reward=reward.g1_29dof_wbt_fast_sac_reward,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
