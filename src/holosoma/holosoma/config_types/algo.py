@@ -550,8 +550,228 @@ class CQLConfig:
     cql_masked_inactive_std: float = 0.01
     """small Gaussian std used on inactive action dimensions for Gaussian CQL current/next samples"""
 
+
+    use_lagrange: bool = False
+    """whether to use Lagrange multiplier auto-tuning for CQL conservative loss"""
+
+    cql_target_action_gap: float = 10.0
+    """target CQL gap threshold used by Lagrange mode (higher -> less conservative)"""
+
+    cql_lagrange_learning_rate: float = 3e-4
+    """learning rate for CQL Lagrange multiplier optimizer"""
+
+    cql_lagrange_init: float = 1.0
+    """initial value of CQL Lagrange multiplier"""
+
+    cql_lagrange_max: float = 1e6
+    """maximum clamp value for CQL Lagrange multiplier"""
+
+    use_curr_tail_penalty: bool = False
+    """whether to add an extra top-k tail penalty on (q_curr - curr_logp)"""
+
+    curr_tail_weight: float = 0.0
+    """weight for the additional current-proposal top-k tail penalty"""
+
+    curr_tail_top_frac: float = 0.2
+    """top fraction used for top-k tail extraction from current proposal samples"""
+
+    bc_weight: float = 0.0
+    """optional actor BC regularization weight (actor_loss += bc_weight * MSE(pi(s), a_data))"""
+
+    target_entropy_ratio: float = 0.0
+    """the ratio of the target entropy to the number of actions"""
+
+    num_atoms: int = 101
+    """number of quantile fractions (kept name for backward compatibility)"""
+
+    v_min: float = -20.0
+    """the minimum value of the support"""
+
+    v_max: float = 20.0
+    """the maximum value of the support"""
+
+    quantile_huber_kappa: float = 1.0
+    """Huber threshold for quantile regression loss"""
+
+    critic_hidden_dim: int = 768
+    """the hidden dimension of the critic network"""
+
+    actor_hidden_dim: int = 512
+    """the hidden dimension of the actor network"""
+
+    use_symmetry: bool = False
+    """whether to use symmetry"""
+
+    alpha_init: float = 0.001
+    """the initial value of the alpha"""
+
+    use_autotune: bool = True
+    """whether to use autotune for the alpha"""
+
+    use_tanh: bool = True
+    """whether to use tanh for the action"""
+
+    log_std_max: float = 0.0
+    """the maximum value of the log std"""
+
+    log_std_min: float = -5.0
+    """the minimum value of the log std"""
+
+    compile: bool = True
+    """whether to use torch.compile."""
+
+    obs_normalization: bool = True
+    """whether to enable observation normalization"""
+
+    use_layer_norm: bool = True
+    """whether to use layer normalization"""
+
+    num_q_networks: int = 2
+    """number of Q-networks to ensemble"""
+
+    max_grad_norm: float = 0.0
+    """the maximum gradient norm"""
+
+    amp: bool = True
+    """whether to use amp"""
+
+    amp_dtype: str = "bf16"
+    """the dtype of the amp"""
+
+    weight_decay: float = 0.001
+    """the weight decay of the optimizer"""
+
+    save_interval: int = 1000
+    """the interval to save the model"""
+
+    logging_interval: int = 100
+    """the interval to log the metrics"""
+
+    offline_dataset_path: str = "offline_data/fastsac_dataset.h5"
+    """path to fixed offline dataset"""
+
+    offline_block_size: int = 65536
+    """number of contiguous transitions to read per HDF5 block refill"""
+
+    offline_buffer_capacity: int = 262144
+    """maximum number of transitions held in CPU RAM shuffle buffer"""
+
+    offline_refill_threshold: int = 65536
+    """refill shuffle buffer when remaining unsampled transitions fall below this threshold"""
+
+    offline_pin_memory: bool = True
+    """pin sampled CPU batches before CPU->GPU transfer"""
+
+    offline_shuffle_block_order: bool = True
+    """shuffle the order of contiguous HDF5 blocks each pass while keeping each block read contiguous"""
+
+    use_gpu_cache: bool = False
+    """whether to load the full offline dataset into GPU memory and sample directly on-device"""
+
+    encoder_obs_key: str = "perception_obs"
+    """the key of the encoder observation. only valid if use_cnn_encoder is True"""
+
+    encoder_obs_shape: tuple[int, int, int] = (1, 13, 9)
+    """the shape of the encoder observation. only valid if use_cnn_encoder is True"""
+
+    use_cnn_encoder: bool = False
+    """whether to use CNN for the encoder"""
+
+    actor_warmup_steps: int = 500
+    """number of initial global steps where actor update is skipped"""
+
+    q_min: float | None = None
+    """minimum Bellman target Q value; None disables lower clipping"""
+
+    q_max: float | None = None
+    """maximum Bellman target Q value; None disables upper clipping"""
+
+    bellman_loss_type: Literal["mse", "huber"] = "huber"
+    """Bellman regression loss type for critic targets"""
+
+    huber_beta: float = 10.0
+    """Smooth L1 beta used when bellman_loss_type='huber'"""
+
+    actor_obs_keys: List[str] = field(default_factory=lambda: ["actor_obs"])
+    critic_obs_keys: List[str] = field(default_factory=lambda: ["critic_obs"])
+
+    reward_scale: int = 5
+
+    cql_max_target_backup: bool = False
+
+    backup_entropy : bool = False
+
+    cql_max_target_backup_samples : int = 10
+
+
+@dataclass(frozen=True)
+class BFCQLConfig:
+    num_learning_iterations: int = 25000
+    """total timesteps of the experiments"""
+
+    critic_learning_rate: float = 3e-4
+    """the learning rate of the critic"""
+
+    actor_learning_rate: float = 3e-4
+    """the learning rate for the actor"""
+
+    alpha_learning_rate: float = 3e-4
+    """the learning rate for the alpha"""
+
+    buffer_size: int = 1024
+    """the replay memory buffer size per environment"""
+
+    num_steps: int = 1
+    """the number of steps to use for the multi-step return"""
+
+    gamma: float = 0.97
+    """the discount factor gamma"""
+
+    tau: float = 0.125
+    """target smoothing coefficient (default: 0.005)"""
+
+    batch_size: int = 2048
+    """the batch size of sample from the replay memory"""
+
+    learning_starts: int = 10
+    """timestep to start learning"""
+
+    policy_frequency: int = 4
+    """the frequency of training policy (delayed)"""
+
+    num_updates: int = 8
+    """the number of updates to perform per step"""
+
+    eval_interval: int = 1000
+    """steps per offline_learn() call when max_steps is not provided"""
+
+    cql_num_action_samples: int = 10
+    """number of repeated action samples per state for conservative regularization"""
+
+    cql_temperature: float = 1.0
+    """temperature used in conservative log-sum-exp aggregation"""
+
+    cql_weight: float = 5.0
+    """weight of conservative quantile regularization"""
+
+    cql_near_action_samples: int = 0
+    """number of Gaussian-noised dataset-near actions per state for local conservative regularization"""
+
+    cql_near_noise_std: float = 0.05
+    """standard deviation of Gaussian noise added to normalized dataset actions for q_near samples"""
+
+    cql_near_weight: float = 0.05
+    """cql near loss weight"""
+
+    cql_masked_active_dim: int = 8
+    """number of action dimensions perturbed by actor std for Gaussian CQL current/next samples"""
+
+    cql_masked_inactive_std: float = 0.01
+    """small Gaussian std used on inactive action dimensions for Gaussian CQL current/next samples"""
+
     bf_cql_action_grouping: Literal["functional_9", "coarse_5", "symmetric_14"] = "functional_9"
     """semantic action grouping preset used by body-part factorized CQL"""
+
 
     use_lagrange: bool = False
     """whether to use Lagrange multiplier auto-tuning for CQL conservative loss"""
@@ -1753,6 +1973,22 @@ class CQLAlgoConfig:
     """Algorithm-specific configuration."""
 
 
+
+
+@dataclass(frozen=True)
+class BFCQLAlgoConfig:
+    """Configuration for body-part factorized CQL algorithm wrapper."""
+
+    _target_: str
+    """Target algorithm class."""
+
+    _recursive_: bool
+    """Whether to recursively instantiate."""
+
+    config: BFCQLConfig
+    """Algorithm-specific configuration."""
+
+
 @dataclass(frozen=True)
 class CALQLAlgoConfig:
     """Configuration for O2O/CAL-QL algorithm wrapper."""
@@ -1857,6 +2093,7 @@ AlgoInitConfig = Union[
     OfflineSACConfig,
     CODACConfig,
     CQLConfig,
+    BFCQLConfig,
     CALQLConfig,
     OS_CQLConfig,
     OS_CALQLConfig,
@@ -1872,6 +2109,7 @@ AlgoConfig = Union[
     OfflineSACAlgoConfig,
     CODACAlgoConfig,
     CQLAlgoConfig,
+    BFCQLAlgoConfig,
     CALQLAlgoConfig,
     OS_CQLAlgoConfig,
     OS_CALQLAlgoConfig,
