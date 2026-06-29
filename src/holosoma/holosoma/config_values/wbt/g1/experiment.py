@@ -566,6 +566,23 @@ g1_29dof_wbt_cql_gaussian = replace(
 )
 
 
+g1_29dof_wbt_bf_cql = replace(
+    g1_29dof_wbt_cql,
+    training=replace(
+        g1_29dof_wbt_cql.training,
+        name="g1_29dof_wbt_bf_cql_manager",
+    ),
+    algo=replace(
+        algo.bf_cql,
+        config=replace(
+            g1_29dof_wbt_cql.algo.config,
+            bf_cql_action_grouping="functional_9",
+            cql_max_target_backup = False,
+        ),
+    ),
+)
+
+
 
 ##for offline rL
 g1_29dof_wbt_iql = ExperimentConfig(
@@ -983,6 +1000,7 @@ __all__ = [
     "g1_29dof_wbt_iql",
     "g1_29dof_wbt_cql",
     "g1_29dof_wbt_cql_gaussian",
+    "g1_29dof_wbt_bf_cql",
     "g1_29dof_wbt_bc",
     "g1_29dof_wbt_fast_sac_w_object",
     "g1_29dof_wbt_w_object",

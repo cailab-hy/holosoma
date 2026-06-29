@@ -550,6 +550,9 @@ class CQLConfig:
     cql_masked_inactive_std: float = 0.01
     """small Gaussian std used on inactive action dimensions for Gaussian CQL current/next samples"""
 
+    bf_cql_action_grouping: Literal["functional_9", "coarse_5", "symmetric_14"] = "functional_9"
+    """semantic action grouping preset used by body-part factorized CQL"""
+
     use_lagrange: bool = False
     """whether to use Lagrange multiplier auto-tuning for CQL conservative loss"""
 
