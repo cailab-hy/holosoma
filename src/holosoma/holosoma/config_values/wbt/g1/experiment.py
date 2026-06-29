@@ -992,6 +992,7 @@ __all__ = [
     "g1_29dof_wbt_td3_bc_w_object",
     "g1_29dof_wbt_offline_sac_w_object",
     "g1_29dof_wbt_CODAC_w_object",
+    "g1_29dof_wbt_fast_sac_w_object_data",
 ]
 
 """
