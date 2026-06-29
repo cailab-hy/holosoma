@@ -794,7 +794,7 @@ g1_29dof_wbt_fast_sac_w_object_data = replace(
         g1_29dof_wbt_fast_sac_data.algo,
         config=replace(
             g1_29dof_wbt_fast_sac_data.algo.config,
-            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_w_object_dataset_Replay64.h5",
+            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_w_object_strict_5m_dataset.h5",
         ),
     ),
     command=command.g1_29dof_wbt_command_w_object,
