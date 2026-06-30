@@ -196,6 +196,7 @@ class BaseTask:
         self.motion_ends_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self.bad_tracking_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self.timeout_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        self._deferred_reset_mask = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
 
         self.extras = {}
         self.log_dict = {}
@@ -221,6 +222,7 @@ class BaseTask:
 
     def reset_all(self):
         """Reset all robots"""
+        self._deferred_reset_mask[:] = False
         env_ids = torch.arange(self.num_envs, device=self.device)
         self.reset_envs_idx(env_ids)
 
@@ -364,6 +366,7 @@ class BaseTask:
         a second episode while other environments are still running.
         """
         self._defer_resets = bool(enabled)
+        self._deferred_reset_mask[:] = False
 
     # ------------------------------------------------------------------
     # Hooks for subclasses
@@ -473,15 +476,17 @@ class BaseTask:
             final_obs_dict = self._compute_final_observations()
 
         defer_resets = bool(getattr(self, "_defer_resets", False))
-        if env_ids.numel() > 0 and not defer_resets:
-            self.reset_envs_idx(env_ids)
+        if env_ids.numel() > 0:
+            if defer_resets:
+                self._deferred_reset_mask[env_ids] = True
+            else:
+                self.reset_envs_idx(env_ids)
         self.extras["time_outs"] = time_outs_snapshot
         self.extras["termination_reasons"] = termination_reasons_snapshot
 
-        if not defer_resets:
-            refresh_env_ids = self._ensure_long_tensor(self._get_envs_to_refresh())
-            if refresh_env_ids.numel() > 0:
-                self._refresh_envs_after_reset(refresh_env_ids)
+        refresh_env_ids = self._ensure_long_tensor(self._get_envs_to_refresh())
+        if refresh_env_ids.numel() > 0:
+            self._refresh_envs_after_reset(refresh_env_ids)
 
         self._compute_observations()
 
