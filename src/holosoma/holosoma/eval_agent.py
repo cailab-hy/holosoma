@@ -63,6 +63,19 @@ def _summarize_eval_results(eval_results: list[dict[str, Any]]) -> dict[str, flo
     }
 
 
+def _set_defer_eval_resets(algo: BaseAlgo, enabled: bool) -> bool:
+    env_candidates = [
+        getattr(algo, "unwrapped_env", None),
+        getattr(algo, "env", None),
+        getattr(getattr(algo, "env", None), "_env", None),
+    ]
+    for env in env_candidates:
+        if env is not None and hasattr(env, "set_defer_resets"):
+            env.set_defer_resets(enabled)
+            return True
+    return False
+
+
 def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) -> bool:
     evaluate_vectorized_episodes_fn = getattr(algo, "evaluate_vectorized_episodes", None)
     evaluate_one_episode_fn = getattr(algo, "evaluate_one_episode", None)
@@ -80,44 +93,51 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
     repeat_summaries: list[dict[str, float]] = []
     all_eval_results: list[dict[str, Any]] = []
 
-    for repeat_idx in range(num_repeats):
-        if callable(evaluate_vectorized_episodes_fn):
-            eval_batch_results = evaluate_vectorized_episodes_fn(
-                max_eval_steps=max_eval_steps,
-                use_early_termination=False,
-            )
-            if isinstance(eval_batch_results, list):
-                repeat_results = [result for result in eval_batch_results if isinstance(result, dict)]
-            elif isinstance(eval_batch_results, dict):
-                repeat_results = [eval_batch_results]
-            else:
-                repeat_results = []
-        else:
-            repeat_results = []
-            eval_num_episodes = max(1, int(tyro_config.training.eval_num_episodes))
-            for _ in range(eval_num_episodes):
-                eval_result = evaluate_one_episode_fn(
+    defer_resets = _set_defer_eval_resets(algo, True)
+    if defer_resets:
+        logger.info("[Eval] deferring automatic environment resets during vectorized evaluation.")
+    try:
+        for repeat_idx in range(num_repeats):
+            if callable(evaluate_vectorized_episodes_fn):
+                eval_batch_results = evaluate_vectorized_episodes_fn(
                     max_eval_steps=max_eval_steps,
                     use_early_termination=False,
                 )
-                if isinstance(eval_result, dict):
-                    repeat_results.append(eval_result)
+                if isinstance(eval_batch_results, list):
+                    repeat_results = [result for result in eval_batch_results if isinstance(result, dict)]
+                elif isinstance(eval_batch_results, dict):
+                    repeat_results = [eval_batch_results]
+                else:
+                    repeat_results = []
+            else:
+                repeat_results = []
+                eval_num_episodes = max(1, int(tyro_config.training.eval_num_episodes))
+                for _ in range(eval_num_episodes):
+                    eval_result = evaluate_one_episode_fn(
+                        max_eval_steps=max_eval_steps,
+                        use_early_termination=False,
+                    )
+                    if isinstance(eval_result, dict):
+                        repeat_results.append(eval_result)
 
-        all_eval_results.extend(repeat_results)
-        repeat_summary = _summarize_eval_results(repeat_results)
-        repeat_summaries.append(repeat_summary)
-        logger.info(
-            "[Eval Repeat] repeat={}/{} episodes={} success={:.2f}% bad_tracking={:.2f}% "
-            "timeout={:.2f}% return_mean={:.4f} length_mean={:.2f}",
-            repeat_idx + 1,
-            num_repeats,
-            int(repeat_summary["num_episodes"]),
-            100.0 * repeat_summary["success_ratio"],
-            100.0 * repeat_summary["bad_tracking_ratio"],
-            100.0 * repeat_summary["timeout_ratio"],
-            repeat_summary["episode_return_mean"],
-            repeat_summary["episode_length_mean"],
-        )
+            all_eval_results.extend(repeat_results)
+            repeat_summary = _summarize_eval_results(repeat_results)
+            repeat_summaries.append(repeat_summary)
+            logger.info(
+                "[Eval Repeat] repeat={}/{} episodes={} success={:.2f}% bad_tracking={:.2f}% "
+                "timeout={:.2f}% return_mean={:.4f} length_mean={:.2f}",
+                repeat_idx + 1,
+                num_repeats,
+                int(repeat_summary["num_episodes"]),
+                100.0 * repeat_summary["success_ratio"],
+                100.0 * repeat_summary["bad_tracking_ratio"],
+                100.0 * repeat_summary["timeout_ratio"],
+                repeat_summary["episode_return_mean"],
+                repeat_summary["episode_length_mean"],
+            )
+    finally:
+        if defer_resets:
+            _set_defer_eval_resets(algo, False)
 
     if not all_eval_results:
         logger.warning("No evaluation episodes were completed; cannot summarize eval ratios.")

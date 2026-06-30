@@ -38,6 +38,7 @@ class BaseTask:
         """
         self._manager_domain_rand_cfg = None
         self.is_evaluating = False
+        self._defer_resets = False
 
         observation_config = tyro_config.observation
         simulator_config = tyro_config.simulator
@@ -350,6 +351,20 @@ class BaseTask:
         """
         self.is_evaluating = True
 
+    def set_is_training(self) -> None:
+        """Return the environment to training mode after policy evaluation."""
+        self.is_evaluating = False
+
+    def set_defer_resets(self, enabled: bool) -> None:
+        """Defer automatic per-env resets after terminal events.
+
+        Vectorized eval needs exactly one episode per environment. The regular
+        training loop auto-resets environments immediately after terminal events;
+        deferring those resets prevents completed eval environments from starting
+        a second episode while other environments are still running.
+        """
+        self._defer_resets = bool(enabled)
+
     # ------------------------------------------------------------------
     # Hooks for subclasses
 
@@ -457,13 +472,16 @@ class BaseTask:
         if env_ids.numel() > 0:
             final_obs_dict = self._compute_final_observations()
 
-        self.reset_envs_idx(env_ids)
+        defer_resets = bool(getattr(self, "_defer_resets", False))
+        if env_ids.numel() > 0 and not defer_resets:
+            self.reset_envs_idx(env_ids)
         self.extras["time_outs"] = time_outs_snapshot
         self.extras["termination_reasons"] = termination_reasons_snapshot
 
-        refresh_env_ids = self._ensure_long_tensor(self._get_envs_to_refresh())
-        if refresh_env_ids.numel() > 0:
-            self._refresh_envs_after_reset(refresh_env_ids)
+        if not defer_resets:
+            refresh_env_ids = self._ensure_long_tensor(self._get_envs_to_refresh())
+            if refresh_env_ids.numel() > 0:
+                self._refresh_envs_after_reset(refresh_env_ids)
 
         self._compute_observations()
 
