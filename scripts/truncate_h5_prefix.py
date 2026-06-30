@@ -19,7 +19,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--fraction",
         type=float,
-        default=0.7,
+        default=0.5,
         help="Prefix fraction to keep. Default: 0.7.",
     )
     parser.add_argument(

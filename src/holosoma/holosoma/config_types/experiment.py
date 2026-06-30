@@ -85,6 +85,9 @@ class TrainingConfig:
     eval_num_episodes: int = 1
     """Number of episodes to evaluate per offline evaluation cycle."""
 
+    eval_num_repeats: int = 5
+    """Number of full vectorized evaluation repeats for eval_agent.py."""
+
     export_onnx: bool = True
     """Export policy as ONNX model."""
 
