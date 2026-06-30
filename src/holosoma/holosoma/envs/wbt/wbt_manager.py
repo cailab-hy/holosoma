@@ -60,6 +60,77 @@ class WholeBodyTrackingManager(BaseTask):
         self.simulator.refresh_sim_tensors()
         self._pre_compute_observations_callback()
 
+    def _get_eval_status_marker_positions(self) -> torch.Tensor:
+        body_idx = None
+        for candidate_name in ("head_link", "head", "logo_link", "torso_link"):
+            if candidate_name in self.body_names:
+                body_idx = self.body_names.index(candidate_name)
+                break
+
+        if body_idx is None:
+            positions = self.simulator.robot_root_states[:, :3].clone()
+            positions[:, 2] += 1.45
+        else:
+            positions = self.simulator._rigid_body_pos[:, body_idx, :].clone()
+            positions[:, 2] += 0.35
+        return positions
+
+    def _ensure_eval_status_markers(self) -> bool:
+        if self.simulator.get_simulator_type() != SimulatorType.ISAACSIM:
+            return False
+        if hasattr(self, "_eval_status_markers"):
+            return True
+
+        try:
+            from isaaclab.markers import VisualizationMarkers
+            from isaaclab.markers.config import RAY_CASTER_MARKER_CFG
+        except Exception:
+            return False
+
+        success_cfg = RAY_CASTER_MARKER_CFG.replace(prim_path="/Visuals/EvalStatus/success")
+        success_cfg.markers["hit"].radius = 0.12
+        success_cfg.markers["hit"].visual_material.diffuse_color = (0.0, 1.0, 0.0)
+
+        failure_cfg = RAY_CASTER_MARKER_CFG.replace(prim_path="/Visuals/EvalStatus/failure")
+        failure_cfg.markers["hit"].radius = 0.12
+        failure_cfg.markers["hit"].visual_material.diffuse_color = (1.0, 0.0, 0.0)
+
+        self._eval_status_markers = {
+            "success": VisualizationMarkers(success_cfg),
+            "failure": VisualizationMarkers(failure_cfg),
+        }
+        return True
+
+    def _visualize_eval_status_marker(self, marker_name: str, positions: torch.Tensor) -> None:
+        marker = self._eval_status_markers[marker_name]
+        if positions.numel() == 0:
+            if hasattr(marker, "set_visibility"):
+                marker.set_visibility(False)
+            else:
+                hidden_position = torch.tensor([[0.0, 0.0, -1000.0]], device=self.device)
+                marker.visualize(hidden_position)
+            return
+
+        if hasattr(marker, "set_visibility"):
+            marker.set_visibility(True)
+        marker.visualize(positions)
+
+    def _reset_eval_status_visualization(self):
+        if not self._ensure_eval_status_markers():
+            return
+        self._visualize_eval_status_marker("success", torch.empty(0, 3, device=self.device))
+        self._visualize_eval_status_marker("failure", torch.empty(0, 3, device=self.device))
+
+    def _update_eval_status_visualization(self):
+        if not self._ensure_eval_status_markers():
+            return
+
+        positions = self._get_eval_status_marker_positions()
+        success_positions = positions[self._deferred_eval_success_mask]
+        failure_positions = positions[self._deferred_eval_failure_mask]
+        self._visualize_eval_status_marker("success", success_positions)
+        self._visualize_eval_status_marker("failure", failure_positions)
+
     def _get_average_episode_tracker(self):
         tracker = self.curriculum_manager.get_term("average_episode_tracker")
         if tracker is None:

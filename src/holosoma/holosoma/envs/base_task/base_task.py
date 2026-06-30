@@ -197,6 +197,8 @@ class BaseTask:
         self.bad_tracking_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self.timeout_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self._deferred_reset_mask = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        self._deferred_eval_success_mask = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        self._deferred_eval_failure_mask = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
 
         self.extras = {}
         self.log_dict = {}
@@ -223,6 +225,9 @@ class BaseTask:
     def reset_all(self):
         """Reset all robots"""
         self._deferred_reset_mask[:] = False
+        self._deferred_eval_success_mask[:] = False
+        self._deferred_eval_failure_mask[:] = False
+        self._reset_eval_status_visualization()
         env_ids = torch.arange(self.num_envs, device=self.device)
         self.reset_envs_idx(env_ids)
 
@@ -367,6 +372,9 @@ class BaseTask:
         """
         self._defer_resets = bool(enabled)
         self._deferred_reset_mask[:] = False
+        self._deferred_eval_success_mask[:] = False
+        self._deferred_eval_failure_mask[:] = False
+        self._reset_eval_status_visualization()
 
     # ------------------------------------------------------------------
     # Hooks for subclasses
@@ -478,7 +486,13 @@ class BaseTask:
         defer_resets = bool(getattr(self, "_defer_resets", False))
         if env_ids.numel() > 0:
             if defer_resets:
-                self._deferred_reset_mask[env_ids] = True
+                new_env_ids = env_ids[~self._deferred_reset_mask[env_ids]]
+                if new_env_ids.numel() > 0:
+                    success_now = self.motion_ends_buf[new_env_ids]
+                    self._deferred_eval_success_mask[new_env_ids] = success_now
+                    self._deferred_eval_failure_mask[new_env_ids] = ~success_now
+                    self._deferred_reset_mask[new_env_ids] = True
+                    self._update_eval_status_visualization()
             else:
                 self.reset_envs_idx(env_ids)
         self.extras["time_outs"] = time_outs_snapshot
@@ -513,6 +527,14 @@ class BaseTask:
 
     def _refresh_envs_after_reset(self, env_ids):
         """Hook for subclasses to synchronise simulator state after resets."""
+        return
+
+    def _reset_eval_status_visualization(self):
+        """Hook for subclasses to clear eval-only success/failure visualization."""
+        return
+
+    def _update_eval_status_visualization(self):
+        """Hook for subclasses to update eval-only success/failure visualization."""
         return
 
     def _store_final_observations(self, env_ids, final_obs_dict):
