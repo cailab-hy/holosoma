@@ -845,25 +845,44 @@ class FastSACAgent(BaseAlgo):
     def load(self, ckpt_path: str | None) -> None:
         if not ckpt_path:
             return
-        # Load checkpoint if specified
         torch_checkpoint = torch.load(ckpt_path, map_location=self.device, weights_only=False)
 
-        # Handle DDP-wrapped models
-        actor_state_dict = torch_checkpoint["actor_state_dict"]
-        qnet_state_dict = torch_checkpoint["qnet_state_dict"]
+        if "actor_state_dict" not in torch_checkpoint:
+            raise RuntimeError("Checkpoint missing required FastSAC key: actor_state_dict")
 
-        self.actor.load_state_dict(actor_state_dict)
-        self.qnet.load_state_dict(qnet_state_dict)
+        self.actor.load_state_dict(torch_checkpoint["actor_state_dict"])
 
-        self.obs_normalizer.load_state_dict(torch_checkpoint["obs_normalizer_state"])
-        self.critic_obs_normalizer.load_state_dict(torch_checkpoint["critic_obs_normalizer_state"])
-        self.qnet_target.load_state_dict(torch_checkpoint["qnet_target_state_dict"])
-        self.log_alpha.data.copy_(torch_checkpoint["log_alpha"].to(self.device))
-        self.actor_optimizer.load_state_dict(torch_checkpoint["actor_optimizer_state_dict"])
-        self.q_optimizer.load_state_dict(torch_checkpoint["q_optimizer_state_dict"])
-        self.alpha_optimizer.load_state_dict(torch_checkpoint["alpha_optimizer_state_dict"])
-        self.scaler.load_state_dict(torch_checkpoint["grad_scaler_state_dict"])
-        self.global_step = torch_checkpoint["global_step"]
+        if "qnet_state_dict" in torch_checkpoint:
+            self.qnet.load_state_dict(torch_checkpoint["qnet_state_dict"])
+        if "qnet_target_state_dict" in torch_checkpoint:
+            self.qnet_target.load_state_dict(torch_checkpoint["qnet_target_state_dict"])
+        elif "qnet_state_dict" in torch_checkpoint:
+            self.qnet_target.load_state_dict(self.qnet.state_dict())
+
+        obs_norm_state = torch_checkpoint.get("obs_normalizer_state")
+        critic_obs_norm_state = torch_checkpoint.get("critic_obs_normalizer_state")
+        if isinstance(obs_norm_state, dict):
+            self.obs_normalizer.load_state_dict(obs_norm_state)
+        elif self.obs_normalization:
+            logger.warning("FastSAC checkpoint has no obs_normalizer_state; eval will use fresh normalizer stats.")
+        if isinstance(critic_obs_norm_state, dict):
+            self.critic_obs_normalizer.load_state_dict(critic_obs_norm_state)
+        elif self.obs_normalization:
+            logger.warning("FastSAC checkpoint has no critic_obs_normalizer_state; eval critic stats are fresh.")
+
+        if "log_alpha" in torch_checkpoint:
+            self.log_alpha.data.copy_(torch_checkpoint["log_alpha"].to(self.device))
+        if "actor_optimizer_state_dict" in torch_checkpoint:
+            self.actor_optimizer.load_state_dict(torch_checkpoint["actor_optimizer_state_dict"])
+        if "q_optimizer_state_dict" in torch_checkpoint:
+            self.q_optimizer.load_state_dict(torch_checkpoint["q_optimizer_state_dict"])
+        if "alpha_optimizer_state_dict" in torch_checkpoint:
+            self.alpha_optimizer.load_state_dict(torch_checkpoint["alpha_optimizer_state_dict"])
+        grad_scaler_state = torch_checkpoint.get("grad_scaler_state_dict")
+        if grad_scaler_state is not None:
+            self.scaler.load_state_dict(grad_scaler_state)
+
+        self.global_step = int(torch_checkpoint.get("global_step", 0))
         self._restore_env_state(torch_checkpoint.get("env_state"))
 
     def _init_transition_exporter(self) -> bool:
@@ -1167,6 +1186,42 @@ class FastSACAgent(BaseAlgo):
 
         return policy_fn
 
+    def _eval_termination_reason_flags(self, infos: dict[str, Any], num_envs: int) -> dict[str, torch.Tensor]:
+        raw_reasons = infos.get("termination_reasons", {})
+        if not isinstance(raw_reasons, dict):
+            raw_reasons = {}
+
+        reason_flags: dict[str, torch.Tensor] = {}
+        for reason, value in raw_reasons.items():
+            if isinstance(value, torch.Tensor):
+                reason_flags[str(reason)] = value.to(device=self.device, dtype=torch.bool)
+
+        if "timeout" not in reason_flags:
+            time_outs = infos.get("time_outs")
+            if isinstance(time_outs, torch.Tensor):
+                reason_flags["timeout"] = time_outs.to(device=self.device, dtype=torch.bool)
+            else:
+                reason_flags["timeout"] = torch.zeros(num_envs, device=self.device, dtype=torch.bool)
+
+        return reason_flags
+
+    def _eval_stop_reason_for_env(
+        self,
+        reason_flags: dict[str, torch.Tensor],
+        env_idx: int,
+        fallback: str | None = None,
+    ) -> str | None:
+        for reason in ("bad_tracking", "motion_ends", "timeout"):
+            flags = reason_flags.get(reason)
+            if flags is not None and bool(flags[env_idx].item()):
+                return reason
+        for reason, flags in reason_flags.items():
+            if reason in {"bad_tracking", "motion_ends", "timeout"}:
+                continue
+            if bool(flags[env_idx].item()):
+                return reason
+        return fallback
+
     @property
     def actor_onnx_wrapper(self):
         # Use the underlying module for ONNX export
@@ -1321,3 +1376,152 @@ class FastSACAgent(BaseAlgo):
             # Actions are already scaled by the actor
             actions = self.actor(normalized_obs)[0]
             obs, _, _, _ = self.env.step(actions)
+
+    @torch.no_grad()
+    def evaluate_one_episode(
+        self,
+        max_eval_steps: int | None = None,
+        use_early_termination: bool = False,
+    ) -> dict[str, float | int | str | None]:
+        self.env.set_is_evaluating()
+        was_training = self.actor.training
+
+        self.actor.eval()
+        if self.obs_normalization:
+            self.obs_normalizer.eval()
+
+        obs = self.env.reset()
+        eval_env_idx = 0
+        episode_return = 0.0
+        episode_length = 0
+        stop_reason = None
+
+        for step_idx in itertools.count():
+            if max_eval_steps is not None and step_idx >= max_eval_steps:
+                stop_reason = "max_eval_steps"
+                break
+
+            if self.obs_normalization:
+                normalized_obs = self.obs_normalizer(obs, update=False)
+            else:
+                normalized_obs = obs
+
+            actions = self.actor(normalized_obs)[0]
+            obs, rewards, dones, infos = self.env.step(actions)
+
+            episode_return += float(rewards[eval_env_idx].item())
+            episode_length += 1
+
+            reason_flags = self._eval_termination_reason_flags(infos, int(self.env.num_envs))
+            specific_stop_reason = self._eval_stop_reason_for_env(reason_flags, eval_env_idx)
+            if specific_stop_reason is not None:
+                stop_reason = specific_stop_reason
+                break
+
+            if use_early_termination and "early_termination" in infos:
+                if bool(infos["early_termination"][eval_env_idx].item()):
+                    stop_reason = "early_termination"
+                    break
+
+            if bool(dones[eval_env_idx].item()):
+                stop_reason = "done"
+                break
+
+        if was_training:
+            self.actor.train()
+            if self.obs_normalization:
+                self.obs_normalizer.train()
+
+        if hasattr(self.env, "set_is_training"):
+            self.env.set_is_training()
+
+        return {
+            "episode_return": float(episode_return),
+            "episode_length": int(episode_length),
+            "stop_reason": stop_reason,
+        }
+
+    @torch.no_grad()
+    def evaluate_vectorized_episodes(
+        self,
+        max_eval_steps: int | None = None,
+        use_early_termination: bool = False,
+    ) -> list[dict[str, float | int | str | None]]:
+        self.env.set_is_evaluating()
+        was_training = self.actor.training
+
+        self.actor.eval()
+        if self.obs_normalization:
+            self.obs_normalizer.eval()
+
+        obs = self.env.reset()
+        num_envs = int(self.env.num_envs)
+        episode_returns = torch.zeros(num_envs, device=self.device, dtype=torch.float32)
+        episode_lengths = torch.zeros(num_envs, device=self.device, dtype=torch.long)
+        finished = torch.zeros(num_envs, device=self.device, dtype=torch.bool)
+        stop_reasons: list[str | None] = [None] * num_envs
+
+        def _info_bool(name: str, infos: dict[str, Any]) -> torch.Tensor:
+            value = infos.get(name)
+            if isinstance(value, torch.Tensor):
+                return value.to(device=self.device, dtype=torch.bool)
+            return torch.zeros(num_envs, device=self.device, dtype=torch.bool)
+
+        for step_idx in itertools.count():
+            if max_eval_steps is not None and step_idx >= max_eval_steps:
+                unfinished_indices = torch.nonzero(~finished, as_tuple=False).flatten().detach().cpu().tolist()
+                for env_idx in unfinished_indices:
+                    stop_reasons[int(env_idx)] = "max_eval_steps"
+                break
+
+            if self.obs_normalization:
+                normalized_obs = self.obs_normalizer(obs, update=False)
+            else:
+                normalized_obs = obs
+
+            actions = self.actor(normalized_obs)[0]
+            obs, rewards, dones, infos = self.env.step(actions)
+
+            active = ~finished
+            step_rewards = rewards.to(device=self.device, dtype=torch.float32)
+            episode_returns += torch.where(active, step_rewards, torch.zeros_like(episode_returns))
+            episode_lengths += active.to(torch.long)
+
+            reason_flags = self._eval_termination_reason_flags(infos, num_envs)
+            timeout_flags = reason_flags.get("timeout", _info_bool("time_outs", infos))
+            early_flags = _info_bool("early_termination", infos) if use_early_termination else torch.zeros_like(finished)
+            done_flags = dones.to(device=self.device, dtype=torch.bool)
+
+            newly_timed_out = active & timeout_flags
+            newly_early_terminated = active & ~newly_timed_out & early_flags
+            newly_done = active & ~newly_timed_out & ~newly_early_terminated & done_flags
+
+            for env_idx in torch.nonzero(newly_timed_out, as_tuple=False).flatten().detach().cpu().tolist():
+                stop_reasons[int(env_idx)] = self._eval_stop_reason_for_env(reason_flags, int(env_idx), "timeout")
+            for env_idx in torch.nonzero(newly_early_terminated, as_tuple=False).flatten().detach().cpu().tolist():
+                stop_reasons[int(env_idx)] = "early_termination"
+            for env_idx in torch.nonzero(newly_done, as_tuple=False).flatten().detach().cpu().tolist():
+                stop_reasons[int(env_idx)] = self._eval_stop_reason_for_env(reason_flags, int(env_idx), "done")
+
+            finished |= newly_timed_out | newly_early_terminated | newly_done
+            if bool(finished.all().item()):
+                break
+
+        if was_training:
+            self.actor.train()
+            if self.obs_normalization:
+                self.obs_normalizer.train()
+
+        if hasattr(self.env, "set_is_training"):
+            self.env.set_is_training()
+
+        returns = episode_returns.detach().cpu().tolist()
+        lengths = episode_lengths.detach().cpu().tolist()
+        return [
+            {
+                "episode_return": float(returns[env_idx]),
+                "episode_length": int(lengths[env_idx]),
+                "stop_reason": stop_reasons[env_idx],
+            }
+            for env_idx in range(num_envs)
+        ]

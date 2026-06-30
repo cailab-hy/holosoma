@@ -99,9 +99,29 @@ def load_saved_experiment_config(checkpoint_cfg: CheckpointConfig) -> tuple[Expe
 def _load_config_from_checkpoint(checkpoint_path: Path) -> tuple[ExperimentConfig, str | None]:
     """Attempt to load the serialized ExperimentConfig from a checkpoint file."""
 
-    checkpoint_contents = torch.load(checkpoint_path, map_location="cpu")
-    config_data = checkpoint_contents["experiment_config"]
-    return ExperimentConfig(**config_data), checkpoint_contents.get("wandb_run_path")
+    checkpoint_contents = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    config_data = checkpoint_contents.get("experiment_config")
+    if config_data is not None:
+        return ExperimentConfig(**config_data), checkpoint_contents.get("wandb_run_path")
+
+    config_candidates = [
+        checkpoint_path.with_name(CONFIG_NAME),
+        checkpoint_path.parent / CONFIG_NAME,
+        checkpoint_path.parent.parent / CONFIG_NAME,
+    ]
+    for config_path in config_candidates:
+        if config_path.exists():
+            with open(config_path) as f:
+                logger.warning(
+                    "Checkpoint has no embedded experiment_config; falling back to sibling config: {}",
+                    config_path,
+                )
+                return ExperimentConfig(**yaml.safe_load(f)), checkpoint_contents.get("wandb_run_path")
+
+    raise KeyError(
+        "Checkpoint has no embedded experiment_config and no holosoma_config.yaml was found next to it. "
+        "Pass a checkpoint saved by the current trainer or keep the original config file beside the .pt."
+    )
 
 
 class CheckpointMetadata(TypedDict):
