@@ -88,6 +88,9 @@ class TrainingConfig:
     eval_num_repeats: int = 5
     """Number of full vectorized evaluation repeats for eval_agent.py."""
 
+    eval_num_envs: int = 512
+    """Number of parallel environments used by eval_agent.py. Set <=0 to use eval_overrides.num_envs."""
+
     export_onnx: bool = True
     """Export policy as ONNX model."""
 
@@ -193,6 +196,11 @@ class ExperimentConfig:
             randomize_tiles=self.eval_overrides.randomize_tiles,
             xy_offset_range=self.eval_overrides.xy_offset_range,
         )
+        eval_num_envs = (
+            self.training.eval_num_envs
+            if int(self.training.eval_num_envs) > 0
+            else self.eval_overrides.num_envs
+        )
 
         return dataclasses.replace(
             self,
@@ -216,7 +224,7 @@ class ExperimentConfig:
             training=dataclasses.replace(
                 self.training,
                 headless=self.eval_overrides.headless,
-                num_envs=self.eval_overrides.num_envs,
+                num_envs=eval_num_envs,
             ),
             logger=holosoma.config_values.logger.disabled if self.eval_overrides.disable_logger else self.logger,
         )

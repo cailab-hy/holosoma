@@ -71,6 +71,12 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
 
     num_repeats = max(1, int(tyro_config.training.eval_num_repeats))
     max_eval_steps = tyro_config.training.max_eval_steps
+    logger.info(
+        "[Eval] starting repeated evaluation with num_envs={} repeats={} max_eval_steps={}",
+        tyro_config.training.num_envs,
+        num_repeats,
+        max_eval_steps,
+    )
     repeat_summaries: list[dict[str, float]] = []
     all_eval_results: list[dict[str, Any]] = []
 
