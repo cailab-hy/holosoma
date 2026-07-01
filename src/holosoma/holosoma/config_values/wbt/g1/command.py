@@ -37,7 +37,7 @@ motion_config = MotionConfig(
     noise_to_initial_pose=init_pose_config,
 )
 
-motion_config_cql_collect = replace(
+motion_config_offline_collect = replace(
     motion_config,
     use_adaptive_timesteps_sampler=False,
     start_at_timestep_zero_prob=1.0,
@@ -87,13 +87,13 @@ g1_29dof_wbt_command_w_object = replace(
     },
 )
 
-g1_29dof_wbt_command_cql_collect = replace(
+g1_29dof_wbt_command_offline_collect = replace(
     g1_29dof_wbt_command,
     setup_terms={
         "motion_command": CommandTermCfg(
             func="holosoma.managers.command.terms.wbt:MotionCommand",
             params={
-                "motion_config": motion_config_cql_collect,
+                "motion_config": motion_config_offline_collect,
             },
         )
     },
@@ -101,6 +101,6 @@ g1_29dof_wbt_command_cql_collect = replace(
 
 __all__ = [
     "g1_29dof_wbt_command",
-    "g1_29dof_wbt_command_cql_collect",
+    "g1_29dof_wbt_command_offline_collect",
     "g1_29dof_wbt_command_w_object",
 ]
