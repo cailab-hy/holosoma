@@ -161,20 +161,31 @@ g1_29dof_wbt_fast_sac_reward_offline_collect = RewardManagerCfg(
             params={"threshold": 1.6},
             weight=-3.0,
         ),
-        "motion_relative_body_position_error_soft_margin": RewardTermCfg(
+        "motion_relative_body_position_error_ankle_soft_margin": RewardTermCfg(
             func="holosoma.managers.reward.terms.wbt:motion_relative_body_position_error_hinge",
             params={
                 "threshold": 0.2,
                 "body_names": [
                     "left_ankle_roll_link",
                     "right_ankle_roll_link",
+                ],
+                "aggregation": "max",
+                "power": 2.0,
+            },
+            weight=-20.0,
+        ),
+        "motion_relative_body_position_error_wrist_soft_margin": RewardTermCfg(
+            func="holosoma.managers.reward.terms.wbt:motion_relative_body_position_error_hinge",
+            params={
+                "threshold": 0.18,
+                "body_names": [
                     "left_wrist_yaw_link",
                     "right_wrist_yaw_link",
                 ],
                 "aggregation": "max",
                 "power": 2.0,
             },
-            weight=-20.0,
+            weight=-40.0,
         ),
         "motion_relative_body_position_error_hinge": RewardTermCfg(
             func="holosoma.managers.reward.terms.wbt:motion_relative_body_position_error_hinge",
