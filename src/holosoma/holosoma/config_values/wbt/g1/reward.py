@@ -131,6 +131,11 @@ g1_29dof_wbt_fast_sac_reward_offline_collect = RewardManagerCfg(
             params={"sigma": 0.3},
             weight=2.5,
         ),
+        "motion_global_ref_position_error_soft_margin": RewardTermCfg(
+            func="holosoma.managers.reward.terms.wbt:motion_global_ref_position_error_hinge",
+            params={"threshold": 0.4, "power": 2.0},
+            weight=-8.0,
+        ),
         "motion_global_ref_position_error_hinge": RewardTermCfg(
             func="holosoma.managers.reward.terms.wbt:motion_global_ref_position_error_hinge",
             params={"threshold": 0.5},
@@ -141,6 +146,11 @@ g1_29dof_wbt_fast_sac_reward_offline_collect = RewardManagerCfg(
             params={"threshold": 1.0},
             weight=-6.0,
         ),
+        "motion_global_ref_orientation_error_soft_margin": RewardTermCfg(
+            func="holosoma.managers.reward.terms.wbt:motion_global_ref_orientation_error_hinge",
+            params={"threshold": 0.64, "power": 2.0},
+            weight=-3.0,
+        ),
         "motion_global_ref_orientation_error_hinge": RewardTermCfg(
             func="holosoma.managers.reward.terms.wbt:motion_global_ref_orientation_error_hinge",
             params={"threshold": 0.8},
@@ -150,6 +160,21 @@ g1_29dof_wbt_fast_sac_reward_offline_collect = RewardManagerCfg(
             func="holosoma.managers.reward.terms.wbt:motion_global_ref_orientation_error_hinge",
             params={"threshold": 1.6},
             weight=-3.0,
+        ),
+        "motion_relative_body_position_error_soft_margin": RewardTermCfg(
+            func="holosoma.managers.reward.terms.wbt:motion_relative_body_position_error_hinge",
+            params={
+                "threshold": 0.2,
+                "body_names": [
+                    "left_ankle_roll_link",
+                    "right_ankle_roll_link",
+                    "left_wrist_yaw_link",
+                    "right_wrist_yaw_link",
+                ],
+                "aggregation": "max",
+                "power": 2.0,
+            },
+            weight=-20.0,
         ),
         "motion_relative_body_position_error_hinge": RewardTermCfg(
             func="holosoma.managers.reward.terms.wbt:motion_relative_body_position_error_hinge",
@@ -178,6 +203,21 @@ g1_29dof_wbt_fast_sac_reward_offline_collect = RewardManagerCfg(
                 "aggregation": "max",
             },
             weight=-10.0,
+        ),
+        "motion_relative_body_orientation_error_soft_margin": RewardTermCfg(
+            func="holosoma.managers.reward.terms.wbt:motion_relative_body_orientation_error_hinge",
+            params={
+                "threshold": 0.64,
+                "body_names": [
+                    "left_ankle_roll_link",
+                    "right_ankle_roll_link",
+                    "left_wrist_yaw_link",
+                    "right_wrist_yaw_link",
+                ],
+                "aggregation": "mean",
+                "power": 2.0,
+            },
+            weight=-3.0,
         ),
         "motion_relative_body_orientation_error_hinge": RewardTermCfg(
             func="holosoma.managers.reward.terms.wbt:motion_relative_body_orientation_error_hinge",

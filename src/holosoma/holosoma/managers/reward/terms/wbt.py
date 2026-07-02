@@ -90,16 +90,30 @@ def motion_relative_body_position_error_exp(env: WholeBodyTrackingManager, sigma
     return torch.exp(-error.mean(-1) / sigma**2)
 
 
-def motion_global_ref_position_error_hinge(env: WholeBodyTrackingManager, threshold: float) -> torch.Tensor:
+def _apply_hinge_power(violation: torch.Tensor, power: float) -> torch.Tensor:
+    if power == 1.0:
+        return violation
+    return violation.pow(power)
+
+
+def motion_global_ref_position_error_hinge(
+    env: WholeBodyTrackingManager,
+    threshold: float,
+    power: float = 1.0,
+) -> torch.Tensor:
     motion_command = _get_motion_command_and_assert_type(env)
     error = torch.norm(motion_command.ref_pos_w - motion_command.robot_ref_pos_w, dim=-1)
-    return torch.relu(error - threshold)
+    return _apply_hinge_power(torch.relu(error - threshold), power)
 
 
-def motion_global_ref_orientation_error_hinge(env: WholeBodyTrackingManager, threshold: float) -> torch.Tensor:
+def motion_global_ref_orientation_error_hinge(
+    env: WholeBodyTrackingManager,
+    threshold: float,
+    power: float = 1.0,
+) -> torch.Tensor:
     motion_command = _get_motion_command_and_assert_type(env)
     error = quat_error_magnitude(motion_command.ref_quat_w, motion_command.robot_ref_quat_w)
-    return torch.relu(error - threshold)
+    return _apply_hinge_power(torch.relu(error - threshold), power)
 
 
 def motion_relative_body_position_error_hinge(
@@ -107,6 +121,7 @@ def motion_relative_body_position_error_hinge(
     threshold: float,
     body_names: list[str] | tuple[str, ...] | None = None,
     aggregation: str = "max",
+    power: float = 1.0,
 ) -> torch.Tensor:
     motion_command = _get_motion_command_and_assert_type(env)
     body_error = torch.norm(motion_command.body_pos_relative_w - motion_command.robot_body_pos_w, dim=-1)
@@ -120,7 +135,7 @@ def motion_relative_body_position_error_hinge(
             raise ValueError(f"None of the configured body_names were found: {body_names}")
         body_error = body_error[:, torch.tensor(body_indexes, dtype=torch.long, device=body_error.device)]
 
-    violation = torch.relu(body_error - threshold)
+    violation = _apply_hinge_power(torch.relu(body_error - threshold), power)
     if aggregation == "max":
         return violation.max(dim=-1).values
     if aggregation == "mean":
@@ -141,6 +156,7 @@ def motion_relative_body_orientation_error_hinge(
     threshold: float,
     body_names: list[str] | tuple[str, ...] | None = None,
     aggregation: str = "mean",
+    power: float = 1.0,
 ) -> torch.Tensor:
     motion_command = _get_motion_command_and_assert_type(env)
     body_error = quat_error_magnitude(motion_command.body_quat_relative_w, motion_command.robot_body_quat_w)
@@ -154,7 +170,7 @@ def motion_relative_body_orientation_error_hinge(
             raise ValueError(f"None of the configured body_names were found: {body_names}")
         body_error = body_error[:, torch.tensor(body_indexes, dtype=torch.long, device=body_error.device)]
 
-    violation = torch.relu(body_error - threshold)
+    violation = _apply_hinge_power(torch.relu(body_error - threshold), power)
     if aggregation == "max":
         return violation.max(dim=-1).values
     if aggregation == "mean":
