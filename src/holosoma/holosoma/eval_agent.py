@@ -25,6 +25,16 @@ from holosoma.utils.sim_utils import (
 from holosoma.utils.tyro_utils import TYRO_CONIFG
 
 
+def _as_detail_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple, set)):
+        return [str(item) for item in value]
+    return [str(value)]
+
+
 def _stop_reason_counts(eval_results: list[dict[str, Any]]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for result in eval_results:
@@ -32,6 +42,30 @@ def _stop_reason_counts(eval_results: list[dict[str, Any]]) -> dict[str, int]:
         stop_reason = str(stop_reason_value) if stop_reason_value is not None else "none"
         counts[stop_reason] = counts.get(stop_reason, 0) + 1
     return counts
+
+
+def _bad_tracking_detail_counts(eval_results: list[dict[str, Any]]) -> tuple[dict[str, int], int, int]:
+    counts: dict[str, int] = {}
+    bad_tracking_total = 0
+    multi_detail_total = 0
+    for result in eval_results:
+        if result.get("stop_reason") != "bad_tracking":
+            continue
+        bad_tracking_total += 1
+        details = sorted(set(_as_detail_list(result.get("bad_tracking_details"))))
+        if not details:
+            details = ["unknown"]
+        if len(details) > 1:
+            multi_detail_total += 1
+        for detail in details:
+            counts[detail] = counts.get(detail, 0) + 1
+    return counts, bad_tracking_total, multi_detail_total
+
+
+def _bad_tracking_detail_percentages(detail_counts: dict[str, int], denominator: int) -> dict[str, float]:
+    if denominator <= 0:
+        return {}
+    return {detail: 100.0 * float(count) / float(denominator) for detail, count in detail_counts.items()}
 
 
 def _summarize_eval_results(eval_results: list[dict[str, Any]]) -> dict[str, float]:
@@ -135,6 +169,17 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
                 repeat_summary["episode_return_mean"],
                 repeat_summary["episode_length_mean"],
             )
+            repeat_detail_counts, repeat_bad_tracking_total, repeat_multi_detail_total = _bad_tracking_detail_counts(
+                repeat_results
+            )
+            if repeat_bad_tracking_total > 0:
+                logger.info(
+                    "[Eval Repeat] bad_tracking_details={} percent_of_bad_tracking={} multi_detail={}/{}",
+                    repeat_detail_counts,
+                    _bad_tracking_detail_percentages(repeat_detail_counts, repeat_bad_tracking_total),
+                    repeat_multi_detail_total,
+                    repeat_bad_tracking_total,
+                )
     finally:
         if defer_resets:
             _set_defer_eval_resets(algo, False)
@@ -177,6 +222,16 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
         eval_metrics[f"Eval/stop_reason/{stop_reason}"] = ratio
         eval_metrics[f"Eval/stop_reason_percent/{stop_reason}"] = 100.0 * ratio
 
+    detail_counts, bad_tracking_total, multi_detail_total = _bad_tracking_detail_counts(all_eval_results)
+    detail_percentages = _bad_tracking_detail_percentages(detail_counts, bad_tracking_total)
+    for detail, count in detail_counts.items():
+        all_episode_ratio = float(count) / max(1.0, total_summary["num_episodes"])
+        bad_tracking_ratio = float(count) / max(1, bad_tracking_total)
+        eval_metrics[f"Eval/bad_tracking_detail/{detail}"] = all_episode_ratio
+        eval_metrics[f"Eval/bad_tracking_detail_percent/{detail}"] = 100.0 * all_episode_ratio
+        eval_metrics[f"Eval/bad_tracking_detail_among_bad_tracking/{detail}"] = bad_tracking_ratio
+        eval_metrics[f"Eval/bad_tracking_detail_percent_among_bad_tracking/{detail}"] = 100.0 * bad_tracking_ratio
+
     logger.info(
         "[Eval Summary] repeats={} total_episodes={} success={:.2f}%±{:.2f}% "
         "bad_tracking={:.2f}%±{:.2f}% timeout={:.2f}%±{:.2f}% "
@@ -195,6 +250,14 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
         total_summary["episode_length_std"],
     )
     logger.info("[Eval Summary] stop_reason_counts={}", stop_reason_counts)
+    if bad_tracking_total > 0:
+        logger.info(
+            "[Eval Summary] bad_tracking_detail_counts={} percent_of_bad_tracking={} multi_detail={}/{}",
+            detail_counts,
+            detail_percentages,
+            multi_detail_total,
+            bad_tracking_total,
+        )
 
     writer = getattr(algo, "writer", None)
     if writer is not None:

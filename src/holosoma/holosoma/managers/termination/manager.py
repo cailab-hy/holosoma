@@ -91,6 +91,12 @@ class TerminationManager:
                     f"Termination term '{term_name}' returned dtype {result.dtype}, expected torch.bool tensor."
                 )
             term_results[term_name] = result
+            instance = self._term_instances.get(term_name)
+            detail_flags = getattr(instance, "last_reason_flags", None)
+            if isinstance(detail_flags, dict):
+                for detail_name, detail_value in detail_flags.items():
+                    if isinstance(detail_value, torch.Tensor):
+                        term_results[str(detail_name)] = detail_value.to(device=self.device, dtype=torch.bool)
 
             if term_cfg.is_timeout:
                 timeout_flags |= result

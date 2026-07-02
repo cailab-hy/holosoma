@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from holosoma.config_types.algo import AlgoInitConfig
 from holosoma.envs.base_task.base_task import BaseTask
+from holosoma.utils.eval_reason_utils import bad_tracking_detail_names
 from holosoma.utils.safe_torch_import import torch
 
 if TYPE_CHECKING:
@@ -153,3 +154,12 @@ class BaseAlgo:
             return
         env = self._unwrap_env()
         env.load_checkpoint_state(env_state)
+
+    def _eval_bad_tracking_details_for_env(
+        self,
+        reason_flags: dict[str, torch.Tensor],
+        env_idx: int,
+    ) -> list[str]:
+        """Return WBT bad-tracking subconditions for a completed eval env."""
+
+        return bad_tracking_detail_names(reason_flags, env_idx)

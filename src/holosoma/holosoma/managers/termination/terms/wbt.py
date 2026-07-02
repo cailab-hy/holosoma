@@ -52,9 +52,16 @@ class BadTracking(TerminationTermBase):
         self.bad_motion_body_pos_body_indexes = self._get_index_of_a_in_b(
             self.bad_motion_body_pos_body_names, self.body_names_to_track, self.env.device
         )
+        self.bad_motion_body_pos_ankle_indexes = self._get_existing_indexes_of_a_in_b(
+            ["left_ankle_roll_link", "right_ankle_roll_link"], self.body_names_to_track, self.env.device
+        )
+        self.bad_motion_body_pos_wrist_indexes = self._get_existing_indexes_of_a_in_b(
+            ["left_wrist_yaw_link", "right_wrist_yaw_link"], self.body_names_to_track, self.env.device
+        )
 
         self.bad_object_pos_threshold = cfg.params["bad_object_pos_threshold"]
         self.bad_object_ori_threshold = cfg.params["bad_object_ori_threshold"]
+        self.last_reason_flags: dict[str, torch.Tensor] = {}
 
     def __call__(self, env: Any, **kwargs) -> torch.Tensor:
         motion_command = self.env.command_manager.get_state("motion_command")
@@ -67,13 +74,32 @@ class BadTracking(TerminationTermBase):
         # return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
         bad_ref_pos = self.bad_ref_pos(motion_command)
         bad_ref_ori = self.bad_ref_ori(motion_command)
-        bad_motion_body_pos = self.bad_motion_body_pos(motion_command)
+        body_pos_error = self.body_pos_error(motion_command)
+        bad_motion_body_pos = self.bad_motion_body_pos_from_error(body_pos_error, self.bad_motion_body_pos_body_indexes)
+        bad_motion_body_pos_ankle = self.bad_motion_body_pos_from_error(
+            body_pos_error, self.bad_motion_body_pos_ankle_indexes
+        )
+        bad_motion_body_pos_wrist = self.bad_motion_body_pos_from_error(
+            body_pos_error, self.bad_motion_body_pos_wrist_indexes
+        )
         bad_tracking = bad_ref_pos | bad_ref_ori | bad_motion_body_pos
+        bad_object_pos = torch.zeros_like(bad_tracking)
+        bad_object_ori = torch.zeros_like(bad_tracking)
 
         if motion_command.motion.has_object:
             bad_object_pos = self.bad_object_pos(motion_command)
             bad_object_ori = self.bad_object_ori(motion_command)
             bad_tracking |= bad_object_pos | bad_object_ori
+
+        self.last_reason_flags = {
+            "bad_tracking_ref_pos": bad_ref_pos,
+            "bad_tracking_ref_ori": bad_ref_ori,
+            "bad_tracking_body_pos": bad_motion_body_pos,
+            "bad_tracking_body_pos_ankle": bad_motion_body_pos_ankle,
+            "bad_tracking_body_pos_wrist": bad_motion_body_pos_wrist,
+            "bad_tracking_object_pos": bad_object_pos,
+            "bad_tracking_object_ori": bad_object_ori,
+        }
 
         if motion_command.motion_cfg.use_adaptive_timesteps_sampler and torch.any(bad_tracking):
             failed_at_time_step = motion_command.time_steps[bad_tracking]
@@ -99,11 +125,22 @@ class BadTracking(TerminationTermBase):
 
     def bad_motion_body_pos(self, motion_command: MotionCommand) -> torch.Tensor:
         """Terminate if the motion body position is too far from the robot's body position."""
-        body_idx = self.bad_motion_body_pos_body_indexes
-        error = torch.norm(
-            motion_command.body_pos_relative_w[:, body_idx] - motion_command.robot_body_pos_w[:, body_idx], dim=-1
+        return self.bad_motion_body_pos_from_error(
+            self.body_pos_error(motion_command), self.bad_motion_body_pos_body_indexes
         )
-        return torch.any(error > self.bad_motion_body_pos_threshold, dim=-1)
+
+    def body_pos_error(self, motion_command: MotionCommand) -> torch.Tensor:
+        """Return per-tracked-body position error."""
+        return torch.norm(
+            motion_command.body_pos_relative_w - motion_command.robot_body_pos_w,
+            dim=-1,
+        )
+
+    def bad_motion_body_pos_from_error(self, body_pos_error: torch.Tensor, body_idx: torch.Tensor) -> torch.Tensor:
+        """Terminate if selected body position errors exceed the configured threshold."""
+        if body_idx.numel() == 0:
+            return torch.zeros(body_pos_error.shape[0], dtype=torch.bool, device=body_pos_error.device)
+        return torch.any(body_pos_error[:, body_idx] > self.bad_motion_body_pos_threshold, dim=-1)
 
     def bad_object_pos(self, motion_command: MotionCommand) -> torch.Tensor:
         """Terminate if the object position is too far from the simulator's object position."""
@@ -130,4 +167,10 @@ class BadTracking(TerminationTermBase):
         for name in a_names:
             assert name in b_names, f"The specified name ({name}) doesn't exist: {b_names}"
             indexes.append(b_names.index(name))
+        return torch.tensor(indexes, dtype=torch.long, device=device)
+
+    def _get_existing_indexes_of_a_in_b(
+        self, a_names: List[str], b_names: List[str], device: str = "cpu"
+    ) -> torch.Tensor:
+        indexes = [b_names.index(name) for name in a_names if name in b_names]
         return torch.tensor(indexes, dtype=torch.long, device=device)

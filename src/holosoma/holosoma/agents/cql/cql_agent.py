@@ -1390,6 +1390,7 @@ class CQLAgent(BaseAlgo):
         episode_return = 0.0
         episode_length = 0
         stop_reason = None
+        bad_tracking_details: list[str] = []
 
         for t in itertools.count():
             if max_eval_steps is not None and t >= max_eval_steps:
@@ -1411,6 +1412,8 @@ class CQLAgent(BaseAlgo):
             specific_stop_reason = self._eval_stop_reason_for_env(reason_flags, eval_env_idx)
             if specific_stop_reason is not None:
                 stop_reason = specific_stop_reason
+                if stop_reason == "bad_tracking":
+                    bad_tracking_details = self._eval_bad_tracking_details_for_env(reason_flags, eval_env_idx)
                 break
 
             if use_early_termination and "early_termination" in infos:
@@ -1434,6 +1437,7 @@ class CQLAgent(BaseAlgo):
             "episode_return": float(episode_return),
             "episode_length": int(episode_length),
             "stop_reason": stop_reason,
+            "bad_tracking_details": bad_tracking_details,
         }
 
     @torch.no_grad()
@@ -1455,6 +1459,7 @@ class CQLAgent(BaseAlgo):
         episode_lengths = torch.zeros(num_envs, device=self.device, dtype=torch.long)
         finished = torch.zeros(num_envs, device=self.device, dtype=torch.bool)
         stop_reasons: list[str | None] = [None] * num_envs
+        bad_tracking_details: list[list[str]] = [[] for _ in range(num_envs)]
 
         def _info_bool(name: str, infos: dict[str, Any]) -> torch.Tensor:
             value = infos.get(name)
@@ -1492,11 +1497,23 @@ class CQLAgent(BaseAlgo):
             newly_done = active & ~newly_timed_out & ~newly_early_terminated & done_flags
 
             for env_idx in torch.nonzero(newly_timed_out, as_tuple=False).flatten().detach().cpu().tolist():
-                stop_reasons[int(env_idx)] = self._eval_stop_reason_for_env(reason_flags, int(env_idx), "timeout")
+                env_idx_int = int(env_idx)
+                stop_reason = self._eval_stop_reason_for_env(reason_flags, env_idx_int, "timeout")
+                stop_reasons[env_idx_int] = stop_reason
+                if stop_reason == "bad_tracking":
+                    bad_tracking_details[env_idx_int] = self._eval_bad_tracking_details_for_env(
+                        reason_flags, env_idx_int
+                    )
             for env_idx in torch.nonzero(newly_early_terminated, as_tuple=False).flatten().detach().cpu().tolist():
                 stop_reasons[int(env_idx)] = "early_termination"
             for env_idx in torch.nonzero(newly_done, as_tuple=False).flatten().detach().cpu().tolist():
-                stop_reasons[int(env_idx)] = self._eval_stop_reason_for_env(reason_flags, int(env_idx), "done")
+                env_idx_int = int(env_idx)
+                stop_reason = self._eval_stop_reason_for_env(reason_flags, env_idx_int, "done")
+                stop_reasons[env_idx_int] = stop_reason
+                if stop_reason == "bad_tracking":
+                    bad_tracking_details[env_idx_int] = self._eval_bad_tracking_details_for_env(
+                        reason_flags, env_idx_int
+                    )
 
             finished |= newly_timed_out | newly_early_terminated | newly_done
             if bool(finished.all().item()):
@@ -1517,6 +1534,7 @@ class CQLAgent(BaseAlgo):
                 "episode_return": float(returns[env_idx]),
                 "episode_length": int(lengths[env_idx]),
                 "stop_reason": stop_reasons[env_idx],
+                "bad_tracking_details": bad_tracking_details[env_idx],
             }
             for env_idx in range(num_envs)
         ]

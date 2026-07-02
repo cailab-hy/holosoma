@@ -476,10 +476,13 @@ class BaseTask:
         final_obs_dict = {}
         time_outs_snapshot = self.time_out_buf.clone()
         termination_reasons_snapshot = {
-            "bad_tracking": self.bad_tracking_buf.clone(),
-            "motion_ends": self.motion_ends_buf.clone(),
-            "timeout": self.timeout_buf.clone(),
+            str(name): value.clone()
+            for name, value in self.extras.get("termination_reasons", {}).items()
+            if isinstance(value, torch.Tensor)
         }
+        termination_reasons_snapshot.setdefault("bad_tracking", self.bad_tracking_buf.clone())
+        termination_reasons_snapshot.setdefault("motion_ends", self.motion_ends_buf.clone())
+        termination_reasons_snapshot.setdefault("timeout", self.timeout_buf.clone())
         if env_ids.numel() > 0:
             final_obs_dict = self._compute_final_observations()
 
@@ -591,11 +594,15 @@ class BaseTask:
         self.reset_buf |= reset_flags.to(dtype=self.reset_buf.dtype)
         self.time_out_buf |= timeout_flags
         self.reset_buf |= self.time_out_buf
-        self.extras["termination_reasons"] = {
+        termination_reasons = {
             "bad_tracking": self.bad_tracking_buf.clone(),
             "motion_ends": self.motion_ends_buf.clone(),
             "timeout": self.timeout_buf.clone(),
         }
+        for reason_name, reason_value in term_results.items():
+            if reason_name not in termination_reasons:
+                termination_reasons[reason_name] = reason_value.clone()
+        self.extras["termination_reasons"] = termination_reasons
 
     def _collect_tracking_metrics(self) -> dict[str, torch.Tensor]:
         """Return per-env tracking/risk metrics for offline dataset export.
