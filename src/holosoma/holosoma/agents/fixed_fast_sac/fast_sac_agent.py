@@ -101,6 +101,15 @@ class FastSACEnv:
             # wonwoo: keep offline export robust even if the environment does not expose this metric yet.
             return torch.zeros_like(rew_buf, dtype=torch.float32)
 
+        termination_reason_infos = {
+            str(name): value.to(device=rew_buf.device, dtype=torch.bool)
+            for name, value in termination_reasons.items()
+            if isinstance(value, torch.Tensor)
+        }
+        termination_reason_infos.setdefault("bad_tracking", _bool_info("bad_tracking"))
+        termination_reason_infos.setdefault("motion_ends", _bool_info("motion_ends"))
+        termination_reason_infos.setdefault("timeout", _bool_info("timeout"))
+
         extras = {
             "time_outs": info_dict["time_outs"],
             "observations": {
@@ -114,11 +123,7 @@ class FastSACEnv:
             "episode_all": info_dict["episode_all"],
             "raw_episode": info_dict.get("raw_episode", {}),
             "raw_episode_all": info_dict.get("raw_episode_all", {}),
-            "termination_reasons": {
-                "bad_tracking": _bool_info("bad_tracking"),
-                "motion_ends": _bool_info("motion_ends"),
-                "timeout": _bool_info("timeout"),
-            },
+            "termination_reasons": termination_reason_infos,
             "tracking_metrics": {
                 "err_root_pos": _float_info("err_root_pos"),
                 "err_root_ori": _float_info("err_root_ori"),
