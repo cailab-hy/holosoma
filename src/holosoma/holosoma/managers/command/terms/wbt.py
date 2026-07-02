@@ -309,6 +309,16 @@ class MotionCommand(CommandTermBase):
         self.tracked_body_indexes = self._get_index_of_a_in_b(
             self.motion_cfg.body_names_to_track, robot_body_names, self.device
         )
+        self.ankle_body_pos_metric_indexes = self._get_index_of_a_in_b(
+            ["left_ankle_roll_link", "right_ankle_roll_link"],
+            self.motion_cfg.body_names_to_track,
+            self.device,
+        )
+        self.wrist_body_pos_metric_indexes = self._get_index_of_a_in_b(
+            ["left_wrist_yaw_link", "right_wrist_yaw_link"],
+            self.motion_cfg.body_names_to_track,
+            self.device,
+        )
 
         # 3. get the name of the object, or indices of the object
         if self.motion.has_object:
@@ -725,9 +735,15 @@ class MotionCommand(CommandTermBase):
         self.metrics["motion/error_ref_lin_vel"] = torch.norm(self.ref_lin_vel_w - self.robot_ref_lin_vel_w, dim=-1)
         self.metrics["motion/error_ref_ang_vel"] = torch.norm(self.ref_ang_vel_w - self.robot_ref_ang_vel_w, dim=-1)
 
-        self.metrics["motion/error_body_pos"] = torch.norm(
-            self.body_pos_relative_w - self.robot_body_pos_w, dim=-1
-        ).mean(dim=-1)
+        body_pos_error = torch.norm(self.body_pos_relative_w - self.robot_body_pos_w, dim=-1)
+        self.metrics["motion/error_body_pos"] = body_pos_error.mean(dim=-1)
+        self.metrics["motion/error_body_pos_max"] = body_pos_error.max(dim=-1).values
+        self.metrics["motion/error_body_pos_ankle_max"] = body_pos_error[
+            :, self.ankle_body_pos_metric_indexes
+        ].max(dim=-1).values
+        self.metrics["motion/error_body_pos_wrist_max"] = body_pos_error[
+            :, self.wrist_body_pos_metric_indexes
+        ].max(dim=-1).values
 
         self.metrics["motion/error_body_rot"] = quat_error_magnitude(
             self.body_quat_relative_w, self.robot_body_quat_w
