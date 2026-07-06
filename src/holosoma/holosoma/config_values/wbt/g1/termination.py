@@ -111,9 +111,9 @@ g1_29dof_wbt_termination_offline_collect = TerminationManagerCfg(
         "bad_tracking": TerminationTermCfg(
             func="holosoma.managers.termination.terms.wbt:BadTracking",
             params={
-                "bad_ref_pos_threshold": 2.0,
-                "bad_ref_ori_threshold": 2.4,
-                "bad_motion_body_pos_threshold": 1.0,
+                "bad_ref_pos_threshold": 1.0,
+                "bad_ref_ori_threshold": 1.6,
+                "bad_motion_body_pos_threshold": 0.5,
                 "body_names_to_track": [
                     "pelvis",
                     "left_hip_roll_link",
@@ -136,8 +136,8 @@ g1_29dof_wbt_termination_offline_collect = TerminationManagerCfg(
                     "left_wrist_yaw_link",
                     "right_wrist_yaw_link",
                 ],
-                "bad_object_pos_threshold": 1.0,
-                "bad_object_ori_threshold": 2.4,
+                "bad_object_pos_threshold": 0.5,
+                "bad_object_ori_threshold": 1.6,
             },
         ),
     }

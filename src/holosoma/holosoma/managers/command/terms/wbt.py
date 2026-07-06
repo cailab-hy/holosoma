@@ -20,6 +20,7 @@ from holosoma.utils.rotations import (
     quat_from_euler_xyz,
     quat_inverse,
     quat_mul,
+    quat_rotate_inverse,
     slerp,
     yaw_quat,
 )
@@ -259,6 +260,18 @@ FAKE_BODY_NAME_ALIASES: dict[str, str] = {
     "right_foot_contact_point": "right_ankle_roll_link",
 }
 
+STRICT_REF_POS_THRESHOLD = 0.5
+STRICT_REF_ORI_PROJECTED_GRAVITY_THRESHOLD = 0.8
+STRICT_BODY_POS_THRESHOLD = 0.25
+STRICT_OBJECT_POS_THRESHOLD = 0.25
+STRICT_OBJECT_ORI_THRESHOLD = 0.8
+
+RELAXED_REF_POS_THRESHOLD = 1.0
+RELAXED_REF_ORI_PROJECTED_GRAVITY_THRESHOLD = 1.6
+RELAXED_BODY_POS_THRESHOLD = 0.5
+RELAXED_OBJECT_POS_THRESHOLD = 0.5
+RELAXED_OBJECT_ORI_THRESHOLD = 1.6
+
 
 def get_filtered_body_names(body_list: List[str], pattern: str) -> List[str]:
     return [body_name for body_name in body_list if re.match(pattern, body_name)]
@@ -319,6 +332,9 @@ class MotionCommand(CommandTermBase):
             self.motion_cfg.body_names_to_track,
             self.device,
         )
+        self.strict_body_pos_metric_indexes = torch.unique(
+            torch.cat([self.ankle_body_pos_metric_indexes, self.wrist_body_pos_metric_indexes])
+        )
 
         # 3. get the name of the object, or indices of the object
         if self.motion.has_object:
@@ -350,6 +366,7 @@ class MotionCommand(CommandTermBase):
         env_ids = self._ensure_index_tensor(env_ids)
         if env_ids.numel() == 0:
             return
+        self._reset_recovery_metrics(env_ids)
 
         # 0. Sample the time steps
         if self.motion_cfg.use_adaptive_timesteps_sampler:
@@ -728,6 +745,9 @@ class MotionCommand(CommandTermBase):
         if self.motion_cfg.use_adaptive_timesteps_sampler:
             self.adaptive_timesteps_sampler.init_buffers()
 
+        self.strict_violation_seen = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self.strict_recovered_seen = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+
     def update_metrics(self):
         """Update the metrics. After action, before step() is called."""
         self.metrics["motion/error_ref_pos"] = torch.norm(self.ref_pos_w - self.robot_ref_pos_w, dim=-1)
@@ -758,6 +778,7 @@ class MotionCommand(CommandTermBase):
 
         self.metrics["motion/error_joint_pos"] = torch.norm(self.joint_pos - self.robot_joint_pos, dim=-1)
         self.metrics["motion/error_joint_vel"] = torch.norm(self.joint_vel - self.robot_joint_vel, dim=-1)
+        self._update_recovery_metrics(body_pos_error)
 
         if self.motion_cfg.use_adaptive_timesteps_sampler:
             self.adaptive_timesteps_sampler.get_stats()
@@ -770,6 +791,79 @@ class MotionCommand(CommandTermBase):
             self.metrics["motion/adaptive_timesteps_sampler_top1_bin"] = self.adaptive_timesteps_sampler.metrics[
                 "sampling_top1_bin"
             ]
+
+    def _update_recovery_metrics(self, body_pos_error: torch.Tensor) -> None:
+        ref_pos_error = self.metrics["motion/error_ref_pos"]
+        ref_ori_gravity_error = self._projected_gravity_z_error()
+        strict_body_pos_error = body_pos_error[:, self.strict_body_pos_metric_indexes].max(dim=-1).values
+        ankle_body_pos_error = body_pos_error[:, self.ankle_body_pos_metric_indexes].max(dim=-1).values
+        wrist_body_pos_error = body_pos_error[:, self.wrist_body_pos_metric_indexes].max(dim=-1).values
+
+        strict_ref_pos = ref_pos_error > STRICT_REF_POS_THRESHOLD
+        strict_ref_ori = ref_ori_gravity_error > STRICT_REF_ORI_PROJECTED_GRAVITY_THRESHOLD
+        strict_body_pos = strict_body_pos_error > STRICT_BODY_POS_THRESHOLD
+        strict_ankle_pos = ankle_body_pos_error > STRICT_BODY_POS_THRESHOLD
+        strict_wrist_pos = wrist_body_pos_error > STRICT_BODY_POS_THRESHOLD
+
+        relaxed_ref_pos = ref_pos_error > RELAXED_REF_POS_THRESHOLD
+        relaxed_ref_ori = ref_ori_gravity_error > RELAXED_REF_ORI_PROJECTED_GRAVITY_THRESHOLD
+        relaxed_body_pos = strict_body_pos_error > RELAXED_BODY_POS_THRESHOLD
+
+        strict_any = strict_ref_pos | strict_ref_ori | strict_body_pos
+        relaxed_any = relaxed_ref_pos | relaxed_ref_ori | relaxed_body_pos
+
+        if self.motion.has_object:
+            object_pos_error = torch.norm(self.object_pos_w - self.simulator_object_pos_w, dim=-1)
+            object_ori_error = quat_error_magnitude(self.object_quat_w, self.simulator_object_quat_w)
+            strict_object_pos = object_pos_error > STRICT_OBJECT_POS_THRESHOLD
+            strict_object_ori = object_ori_error > STRICT_OBJECT_ORI_THRESHOLD
+            relaxed_object_pos = object_pos_error > RELAXED_OBJECT_POS_THRESHOLD
+            relaxed_object_ori = object_ori_error > RELAXED_OBJECT_ORI_THRESHOLD
+            strict_any = strict_any | strict_object_pos | strict_object_ori
+            relaxed_any = relaxed_any | relaxed_object_pos | relaxed_object_ori
+            self.metrics["motion/recovery/strict_object_pos_violation"] = strict_object_pos.float()
+            self.metrics["motion/recovery/strict_object_ori_violation"] = strict_object_ori.float()
+            self.metrics["motion/recovery/relaxed_object_pos_violation"] = relaxed_object_pos.float()
+            self.metrics["motion/recovery/relaxed_object_ori_violation"] = relaxed_object_ori.float()
+
+        previous_strict_seen = self.strict_violation_seen.clone()
+        strict_recovered_now = previous_strict_seen & ~strict_any & ~self.strict_recovered_seen
+        self.strict_violation_seen |= strict_any
+        self.strict_recovered_seen |= strict_recovered_now
+
+        strict_seen_count = self.strict_violation_seen.float().sum().clamp_min(1.0)
+        strict_recovered_among_violated = self.strict_recovered_seen.float().sum() / strict_seen_count
+
+        self.metrics["motion/recovery/strict_violation_active"] = strict_any.float()
+        self.metrics["motion/recovery/strict_violation_seen"] = self.strict_violation_seen.float()
+        self.metrics["motion/recovery/strict_recovered_now"] = strict_recovered_now.float()
+        self.metrics["motion/recovery/strict_recovered_seen"] = self.strict_recovered_seen.float()
+        self.metrics["motion/recovery/strict_recovered_among_violated"] = strict_recovered_among_violated.expand(
+            self.num_envs
+        )
+        self.metrics["motion/recovery/relaxed_violation_active"] = relaxed_any.float()
+
+        self.metrics["motion/recovery/strict_ref_pos_violation"] = strict_ref_pos.float()
+        self.metrics["motion/recovery/strict_ref_ori_violation"] = strict_ref_ori.float()
+        self.metrics["motion/recovery/strict_body_pos_violation"] = strict_body_pos.float()
+        self.metrics["motion/recovery/strict_ankle_pos_violation"] = strict_ankle_pos.float()
+        self.metrics["motion/recovery/strict_wrist_pos_violation"] = strict_wrist_pos.float()
+        self.metrics["motion/recovery/relaxed_ref_pos_violation"] = relaxed_ref_pos.float()
+        self.metrics["motion/recovery/relaxed_ref_ori_violation"] = relaxed_ref_ori.float()
+        self.metrics["motion/recovery/relaxed_body_pos_violation"] = relaxed_body_pos.float()
+
+    def _projected_gravity_z_error(self) -> torch.Tensor:
+        gravity = torch.zeros((self.num_envs, 3), dtype=torch.float32, device=self.device)
+        gravity[:, 2] = -1.0
+        motion_projected_gravity_b = quat_rotate_inverse(self.ref_quat_w, gravity, w_last=True)
+        robot_projected_gravity_b = quat_rotate_inverse(self.robot_ref_quat_w, gravity, w_last=True)
+        return torch.abs(motion_projected_gravity_b[:, 2] - robot_projected_gravity_b[:, 2])
+
+    def _reset_recovery_metrics(self, env_ids: torch.Tensor) -> None:
+        if hasattr(self, "strict_violation_seen"):
+            self.strict_violation_seen[env_ids] = False
+        if hasattr(self, "strict_recovered_seen"):
+            self.strict_recovered_seen[env_ids] = False
 
     #########################################################################################
     ## Internal helpers

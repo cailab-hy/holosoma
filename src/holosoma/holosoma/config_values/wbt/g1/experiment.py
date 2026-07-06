@@ -458,7 +458,7 @@ g1_29dof_wbt_bf_cql = ExperimentConfig(
             target_entropy_ratio=1.0,
             tau=0.05,
             cql_weight=1.0,
-            cql_num_action_samples=32,
+            cql_num_action_samples=4,
             use_symmetry=False,
             use_lagrange=False,
             batch_size=1024,
@@ -471,7 +471,6 @@ g1_29dof_wbt_bf_cql = ExperimentConfig(
             bellman_loss_type="mse",
             huber_beta=5.0,
             cql_max_target_backup=True,
-            ood_actor_num = 2,
         ),
     ),
     simulator=replace(
