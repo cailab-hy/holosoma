@@ -162,6 +162,7 @@ class BFCQLAgent(BaseAlgo):
 
         self.eval_step = max(1, config.eval_interval)
         self._num_repeat_actions = config.cql_num_action_samples
+        self._ood_actor_num = config.ood_actor_num
         self._temperature = config.cql_temperature
         self._cql_weight = config.cql_weight
         self._num_near_actions = config.cql_near_action_samples
@@ -175,6 +176,8 @@ class BFCQLAgent(BaseAlgo):
 
         if config.cql_num_action_samples <= 0:
             raise ValueError(f"cql_num_action_samples must be > 0, got {config.cql_num_action_samples}")
+        if config.ood_actor_num <= 0:
+            raise ValueError(f"ood_actor_num must be > 0, got {config.ood_actor_num}")
         if config.cql_temperature <= 0.0:
             raise ValueError(f"cql_temperature must be > 0, got {config.cql_temperature}")
         if config.cql_weight < 0.0:
@@ -540,6 +543,42 @@ class BFCQLAgent(BaseAlgo):
         counterfactual_actions[:, list(group_indices)] = group_actions
         return counterfactual_actions
 
+    def _sample_actor_ood_group_mask(
+        self,
+        num_rows: int,
+        base_group_idx: int,
+        num_groups: int,
+        device: torch.device | str,
+    ) -> torch.Tensor:
+        actor_group_count = min(self._ood_actor_num, num_groups)
+        selected_group_mask = torch.zeros(num_rows, num_groups, device=device, dtype=torch.bool)
+        selected_group_mask[:, base_group_idx] = True
+
+        num_extra_groups = actor_group_count - 1
+        if num_extra_groups > 0:
+            scores = torch.rand(num_rows, num_groups, device=device)
+            scores[:, base_group_idx] = -1.0
+            extra_group_ids = scores.topk(num_extra_groups, dim=1).indices
+            selected_group_mask.scatter_(1, extra_group_ids, True)
+        return selected_group_mask
+
+    def _counterfactual_actor_group_actions(
+        self,
+        base_actions: torch.Tensor,
+        actor_actions: torch.Tensor,
+        selected_group_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        counterfactual_actions = base_actions.clone()
+        for group_idx, group_indices in enumerate(self.bf_cql_group_indices):
+            row_ids = torch.nonzero(selected_group_mask[:, group_idx], as_tuple=False).flatten()
+            if row_ids.numel() == 0:
+                continue
+            col_ids = torch.as_tensor(group_indices, device=base_actions.device, dtype=torch.long)
+            counterfactual_actions[row_ids[:, None], col_ids[None, :]] = actor_actions[
+                row_ids[:, None], col_ids[None, :]
+            ]
+        return counterfactual_actions
+
 
     def _update_q(
         self,
@@ -682,6 +721,8 @@ class BFCQLAgent(BaseAlgo):
                     next_actions_rep, _, next_group_logps = self.actor.get_actions_and_group_log_probs(
                         expanded_next_obs
                     )
+                    curr_group_logps_stacked = torch.stack(curr_group_logps, dim=1)
+                    next_group_logps_stacked = torch.stack(next_group_logps, dim=1)
 
                 cql1_loss_total = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 cql2_loss_total = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
@@ -692,12 +733,8 @@ class BFCQLAgent(BaseAlgo):
                 next_logp_total = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 random_density_total = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
 
-                for group_indices, curr_group_logp, next_group_logp in zip(
-                    self.bf_cql_group_indices,
-                    curr_group_logps,
-                    next_group_logps,
-                    strict=True,
-                ):
+                num_groups_int = len(self.bf_cql_group_indices)
+                for group_idx, group_indices in enumerate(self.bf_cql_group_indices):
                     group_dim = len(group_indices)
                     rand_group_actions = torch.empty(
                         batch_size * num_repeat,
@@ -712,16 +749,25 @@ class BFCQLAgent(BaseAlgo):
                         group_indices,
                         rand_group_actions,
                     )
-                    curr_counterfactual_actions = self._counterfactual_group_actions(
-                        expanded_dataset_actions,
-                        group_indices,
-                        curr_actions[:, list(group_indices)],
+                    selected_group_mask = self._sample_actor_ood_group_mask(
+                        num_rows=batch_size * num_repeat,
+                        base_group_idx=group_idx,
+                        num_groups=num_groups_int,
+                        device=self.device,
                     )
-                    next_counterfactual_actions = self._counterfactual_group_actions(
+                    curr_counterfactual_actions = self._counterfactual_actor_group_actions(
                         expanded_dataset_actions,
-                        group_indices,
-                        next_actions_rep[:, list(group_indices)],
+                        curr_actions,
+                        selected_group_mask,
                     )
+                    next_counterfactual_actions = self._counterfactual_actor_group_actions(
+                        expanded_dataset_actions,
+                        next_actions_rep,
+                        selected_group_mask,
+                    )
+                    selected_group_mask_float = selected_group_mask.to(dtype=curr_group_logps_stacked.dtype)
+                    curr_actor_logp = (curr_group_logps_stacked * selected_group_mask_float).sum(dim=1)
+                    next_actor_logp = (next_group_logps_stacked * selected_group_mask_float).sum(dim=1)
 
                     counterfactual_actions = torch.cat(
                         [
@@ -745,22 +791,22 @@ class BFCQLAgent(BaseAlgo):
                     q2_curr = q2_curr.view(batch_size, num_repeat)
                     q1_next = q1_next.view(batch_size, num_repeat)
                     q2_next = q2_next.view(batch_size, num_repeat)
-                    curr_group_logp = curr_group_logp.view(batch_size, num_repeat)
-                    next_group_logp = next_group_logp.view(batch_size, num_repeat)
+                    curr_actor_logp = curr_actor_logp.view(batch_size, num_repeat)
+                    next_actor_logp = next_actor_logp.view(batch_size, num_repeat)
 
                     q1_terms = torch.cat(
                         [
                             q1_rand - random_density,
-                            q1_curr - curr_group_logp,
-                            q1_next - next_group_logp,
+                            q1_curr - curr_actor_logp,
+                            q1_next - next_actor_logp,
                         ],
                         dim=1,
                     )
                     q2_terms = torch.cat(
                         [
                             q2_rand - random_density,
-                            q2_curr - curr_group_logp,
-                            q2_next - next_group_logp,
+                            q2_curr - curr_actor_logp,
+                            q2_next - next_actor_logp,
                         ],
                         dim=1,
                     )
@@ -776,8 +822,8 @@ class BFCQLAgent(BaseAlgo):
                     )
                     curr_q_total = curr_q_total + 0.5 * (q1_curr.mean() + q2_curr.mean())
                     next_q_total = next_q_total + 0.5 * (q1_next.mean() + q2_next.mean())
-                    curr_logp_total = curr_logp_total + curr_group_logp.mean()
-                    next_logp_total = next_logp_total + next_group_logp.mean()
+                    curr_logp_total = curr_logp_total + curr_actor_logp.mean()
+                    next_logp_total = next_logp_total + next_actor_logp.mean()
                     random_density_total = random_density_total + torch.tensor(
                         random_density,
                         device=self.device,
@@ -1225,6 +1271,10 @@ class BFCQLAgent(BaseAlgo):
                             "cql_lagrange_loss": cql_lagrange_loss,
                             "cql_target_action_gap": torch.tensor(
                                 args.cql_target_action_gap if args.use_lagrange else 0.0,
+                                device=self.device,
+                            ),
+                            "bf_cql/ood_actor_num": torch.tensor(
+                                float(args.ood_actor_num),
                                 device=self.device,
                             ),
                             "is_actor_warmup": float(is_actor_warmup),

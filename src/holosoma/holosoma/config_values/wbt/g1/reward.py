@@ -185,7 +185,7 @@ g1_29dof_wbt_fast_sac_reward_offline_collect = RewardManagerCfg(
                 "aggregation": "max",
                 "power": 2.0,
             },
-            weight=-40.0,
+            weight=-70.0,
         ),
         "motion_relative_body_position_error_hinge": RewardTermCfg(
             func="holosoma.managers.reward.terms.wbt:motion_relative_body_position_error_hinge",

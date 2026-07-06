@@ -333,6 +333,7 @@ bf_cql = BFCQLAlgoConfig(
         cql_temperature=1.0,
         cql_weight=5.0,
         bf_cql_action_grouping="functional_9",
+        ood_actor_num=1,
         use_lagrange=False,
         cql_target_action_gap=10.0,
         cql_lagrange_learning_rate=3e-4,

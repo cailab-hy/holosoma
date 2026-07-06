@@ -772,6 +772,8 @@ class BFCQLConfig:
     bf_cql_action_grouping: Literal["functional_9", "coarse_5", "symmetric_14"] = "functional_9"
     """semantic action grouping preset used by body-part factorized CQL"""
 
+    ood_actor_num: int = 1
+    """number of action groups replaced by actor samples in each BF-CQL actor OOD candidate"""
 
     use_lagrange: bool = False
     """whether to use Lagrange multiplier auto-tuning for CQL conservative loss"""

@@ -450,6 +450,7 @@ g1_29dof_wbt_bf_cql = ExperimentConfig(
         config=replace(
             algo.bf_cql.config,
             bf_cql_action_grouping="functional_9",
+            ood_actor_num=1,
             num_learning_iterations=400000,
             gamma=0.99,
             num_updates=4,
@@ -470,6 +471,7 @@ g1_29dof_wbt_bf_cql = ExperimentConfig(
             bellman_loss_type="mse",
             huber_beta=5.0,
             cql_max_target_backup=True,
+            ood_actor_num = 2,
         ),
     ),
     simulator=replace(
