@@ -224,12 +224,22 @@ def _convert_h5_field(name: str, value) -> np.ndarray:
             "dones",
             "done_bad_tracking",
             "done_motion_ends",
+            "done_segment_ends",
             "done_timeout",
             "episode_data_complete",
         )
     ):
         return _as_uint8(value)
-    if name.endswith(("episode_step", "global_step", "episode_id", "episode_length")):
+    if name.endswith(
+        (
+            "episode_step",
+            "global_step",
+            "episode_id",
+            "episode_length",
+            "motion_time_step",
+            "d3_segment_id",
+        )
+    ):
         return _as_int64(value)
     return _as_float32(value)
 
@@ -1021,12 +1031,36 @@ class FastSACAgent(BaseAlgo):
                         device=device,
                         dtype=torch.long,
                     )
+                    motion_command = None
+                    if hasattr(env, "command_manager"):
+                        try:
+                            motion_command = env.command_manager.get_state("motion_command")
+                        except Exception:
+                            motion_command = None
+                    if motion_command is not None and hasattr(motion_command, "time_steps"):
+                        motion_time_step_tensor = motion_command.time_steps.to(device=device, dtype=torch.long).clone()
+                        motion_total_steps = max(int(motion_command.motion.time_step_total) - 1, 1)
+                        motion_phase_tensor = motion_time_step_tensor.to(dtype=torch.float32) / float(motion_total_steps)
+                        d3_segment_id = int(getattr(motion_command, "d3_segment_id", -1))
+                        d3_segment_id_tensor = torch.full(
+                            (env.num_envs,),
+                            d3_segment_id,
+                            device=device,
+                            dtype=torch.long,
+                        )
+                    else:
+                        motion_time_step_tensor = torch.zeros(env.num_envs, device=device, dtype=torch.long)
+                        motion_phase_tensor = torch.zeros(env.num_envs, device=device, dtype=torch.float32)
+                        d3_segment_id_tensor = torch.full((env.num_envs,), -1, device=device, dtype=torch.long)
 
                     transition_to_save = TensorDict(
                         {
                             "observations": obs,
                             "actions": torch.as_tensor(actions, device=device, dtype=torch.float),
                             "critic_observations": critic_obs,
+                            "motion_time_step": motion_time_step_tensor,
+                            "motion_phase": motion_phase_tensor,
+                            "d3_segment_id": d3_segment_id_tensor,
                             "next": {
                                 "observations": transition_to_save_next_obs,
                                 "critic_observations": transition_to_save_next_critic_obs,
@@ -1035,7 +1069,8 @@ class FastSACAgent(BaseAlgo):
                                 "dones": dones.to(torch.uint8),
                                 "done_bad_tracking": _reason_tensor("bad_tracking"),
                                 "done_motion_ends": _reason_tensor("motion_ends"),
-                                "done_timeout": _reason_tensor("timeout"),
+                                "done_segment_ends": _reason_tensor("segment_ends"),
+                                "done_timeout": truncations.to(torch.uint8),
                                 "episode_step": episode_step_tensor,
                                 "global_step": global_step_tensor,
                                 "err_root_pos": _metric_tensor("err_root_pos"),

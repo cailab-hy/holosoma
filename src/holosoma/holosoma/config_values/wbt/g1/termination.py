@@ -144,6 +144,52 @@ g1_29dof_wbt_termination_offline_collect = TerminationManagerCfg(
 )
 
 
+g1_29dof_wbt_termination_d3_segment = TerminationManagerCfg(
+    terms={
+        "timeout": TerminationTermCfg(
+            func="holosoma.managers.termination.terms.common:timeout_exceeded",
+            is_timeout=True,
+        ),
+        "segment_ends": TerminationTermCfg(
+            func="holosoma.managers.termination.terms.wbt:motion_segment_ends",
+            is_timeout=True,
+        ),
+        "bad_tracking": TerminationTermCfg(
+            func="holosoma.managers.termination.terms.wbt:BadTracking",
+            params={
+                "bad_ref_pos_threshold": 1.0,
+                "bad_ref_ori_threshold": 1.6,
+                "bad_motion_body_pos_threshold": 0.5,
+                "body_names_to_track": [
+                    "pelvis",
+                    "left_hip_roll_link",
+                    "left_knee_link",
+                    "left_ankle_roll_link",
+                    "right_hip_roll_link",
+                    "right_knee_link",
+                    "right_ankle_roll_link",
+                    "torso_link",
+                    "left_shoulder_roll_link",
+                    "left_elbow_link",
+                    "left_wrist_yaw_link",
+                    "right_shoulder_roll_link",
+                    "right_elbow_link",
+                    "right_wrist_yaw_link",
+                ],
+                "bad_motion_body_pos_body_names": [
+                    "left_ankle_roll_link",
+                    "right_ankle_roll_link",
+                    "left_wrist_yaw_link",
+                    "right_wrist_yaw_link",
+                ],
+                "bad_object_pos_threshold": 0.5,
+                "bad_object_ori_threshold": 1.6,
+            },
+        ),
+    }
+)
+
+
 g1_29dof_wbt_offline_termination = TerminationManagerCfg(
     terms={
         "timeout": TerminationTermCfg(
@@ -161,4 +207,5 @@ __all__ = [
     "g1_29dof_wbt_offline_termination",
     "g1_29dof_wbt_termination_collect",
     "g1_29dof_wbt_termination_offline_collect",
+    "g1_29dof_wbt_termination_d3_segment",
 ]

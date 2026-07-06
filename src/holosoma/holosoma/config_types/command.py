@@ -123,5 +123,14 @@ class MotionConfig:
     """Duration in seconds of the post-appended interpolation phase.
     Only used if enable_default_pose_append is True."""
 
+    d3_segment_id: int | None = None
+    """Optional D3 segment id. None disables segment-restricted motion sampling."""
+
+    d3_segment_start_phase: float | None = None
+    """Optional D3 segment start phase in [0, 1]."""
+
+    d3_segment_end_phase: float | None = None
+    """Optional D3 segment end phase in [0, 1]. Segment end is treated as timeout."""
+
     # noise related
     noise_to_initial_pose: NoiseToInitialPoseConfig = field(default_factory=NoiseToInitialPoseConfig)

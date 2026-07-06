@@ -210,6 +210,57 @@ g1_29dof_wbt_fast_sac_data = ExperimentConfig(
     ),
 )
 
+g1_29dof_wbt_fast_sac_d3_seg_a_data = replace(
+    g1_29dof_wbt_fast_sac_data,
+    training=replace(
+        g1_29dof_wbt_fast_sac_data.training,
+        name="g1_29dof_wbt_fast_sac_d3_seg_a_data_collect_manager",
+    ),
+    algo=replace(
+        g1_29dof_wbt_fast_sac_data.algo,
+        config=replace(
+            g1_29dof_wbt_fast_sac_data.algo.config,
+            offline_dataset_path="offline_data/g1_29dof_wbt_d3_seg_a_dataset.h5",
+        ),
+    ),
+    termination=termination.g1_29dof_wbt_termination_d3_segment,
+    command=command.g1_29dof_wbt_command_d3_seg_a,
+)
+
+g1_29dof_wbt_fast_sac_d3_seg_b_data = replace(
+    g1_29dof_wbt_fast_sac_data,
+    training=replace(
+        g1_29dof_wbt_fast_sac_data.training,
+        name="g1_29dof_wbt_fast_sac_d3_seg_b_data_collect_manager",
+    ),
+    algo=replace(
+        g1_29dof_wbt_fast_sac_data.algo,
+        config=replace(
+            g1_29dof_wbt_fast_sac_data.algo.config,
+            offline_dataset_path="offline_data/g1_29dof_wbt_d3_seg_b_dataset.h5",
+        ),
+    ),
+    termination=termination.g1_29dof_wbt_termination_d3_segment,
+    command=command.g1_29dof_wbt_command_d3_seg_b,
+)
+
+g1_29dof_wbt_fast_sac_d3_seg_c_data = replace(
+    g1_29dof_wbt_fast_sac_data,
+    training=replace(
+        g1_29dof_wbt_fast_sac_data.training,
+        name="g1_29dof_wbt_fast_sac_d3_seg_c_data_collect_manager",
+    ),
+    algo=replace(
+        g1_29dof_wbt_fast_sac_data.algo,
+        config=replace(
+            g1_29dof_wbt_fast_sac_data.algo.config,
+            offline_dataset_path="offline_data/g1_29dof_wbt_d3_seg_c_dataset.h5",
+        ),
+    ),
+    termination=termination.g1_29dof_wbt_termination_d3_segment,
+    command=command.g1_29dof_wbt_command_d3_seg_c,
+)
+
 g1_29dof_wbt_fast_sac_episode_data = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
@@ -507,6 +558,57 @@ g1_29dof_wbt_bf_cql = ExperimentConfig(
             "Episode/rew_motion_global_body_lin_vel": [0.45, "inf"],
             "Episode/rew_motion_global_body_ang_vel": [0.15, "inf"],
         },
+    ),
+)
+
+g1_29dof_wbt_sync_cql = replace(
+    g1_29dof_wbt_bf_cql,
+    training=replace(
+        g1_29dof_wbt_bf_cql.training,
+        name="g1_29dof_wbt_sync_cql_manager",
+    ),
+    algo=replace(
+        algo.sync_cql,
+        config=replace(
+            g1_29dof_wbt_bf_cql.algo.config,
+            sync_cql=replace(
+                g1_29dof_wbt_bf_cql.algo.config.sync_cql,
+                K=2,
+                delta_threshold=0.5,
+                selection_mode="topk",
+                drift_mode="rmse",
+                eps_gain=0.0,
+                margin_m=0.0,
+                alpha2=1.0,
+                alpha2_lagrange=False,
+                tau_syn=5.0,
+                lambda_cf=0.0,
+                drift_ema=0.0,
+            ),
+        ),
+    ),
+)
+
+g1_29dof_wbt_pbf_cql = replace(
+    g1_29dof_wbt_bf_cql,
+    training=replace(
+        g1_29dof_wbt_bf_cql.training,
+        name="g1_29dof_wbt_pbf_cql_manager",
+    ),
+    algo=replace(
+        algo.pbf_cql,
+        config=replace(
+            g1_29dof_wbt_bf_cql.algo.config,
+            ood_actor_num=1,
+            pbf_cql=replace(
+                g1_29dof_wbt_bf_cql.algo.config.pbf_cql,
+                enabled=True,
+                alpha=0.05,
+                margin=0.0,
+                use_softplus=False,
+                softplus_beta=1.0,
+            ),
+        ),
     ),
 )
 
@@ -876,15 +978,21 @@ g1_29dof_wbt_td3_bc_w_object = replace(
 __all__ = [
     "g1_29dof_wbt",
     "g1_29dof_wbt_fast_sac",
+    "g1_29dof_wbt_fast_sac_data",
     "g1_29dof_wbt_fixed_fast_sac_data",
+    "g1_29dof_wbt_fast_sac_d3_seg_a_data",
+    "g1_29dof_wbt_fast_sac_d3_seg_b_data",
+    "g1_29dof_wbt_fast_sac_d3_seg_c_data",
     "g1_29dof_wbt_fast_sac_episode_data",
     "g1_29dof_wbt_iql",
     "g1_29dof_wbt_cql",
     "g1_29dof_wbt_cql_gaussian",
     "g1_29dof_wbt_bf_cql",
+    "g1_29dof_wbt_sync_cql",
+    "g1_29dof_wbt_pbf_cql",
     "g1_29dof_wbt_bc",
     "g1_29dof_wbt_fast_sac_w_object",
-    "g1_29dof_wbt_fast_sac_w_object_episode_data"
+    "g1_29dof_wbt_fast_sac_w_object_episode_data",
     "g1_29dof_wbt_w_object",
     "g1_29dof_wbt_cql_w_object",
     "g1_29dof_wbt_iql_w_object",

@@ -48,6 +48,38 @@ motion_config_offline_collect = replace(
     default_pose_append_duration_s=0.0,
 )
 
+motion_config_d3_base = replace(
+    motion_config,
+    use_adaptive_timesteps_sampler=False,
+    start_at_timestep_zero_prob=0.0,
+    freeze_at_timestep_zero_prob=0.0,
+    enable_default_pose_prepend=False,
+    default_pose_prepend_duration_s=0.0,
+    enable_default_pose_append=False,
+    default_pose_append_duration_s=0.0,
+)
+
+motion_config_d3_seg_a = replace(
+    motion_config_d3_base,
+    d3_segment_id=0,
+    d3_segment_start_phase=0.00,
+    d3_segment_end_phase=0.39,
+)
+
+motion_config_d3_seg_b = replace(
+    motion_config_d3_base,
+    d3_segment_id=1,
+    d3_segment_start_phase=0.29,
+    d3_segment_end_phase=0.69,
+)
+
+motion_config_d3_seg_c = replace(
+    motion_config_d3_base,
+    d3_segment_id=2,
+    d3_segment_start_phase=0.60,
+    d3_segment_end_phase=1.00,
+)
+
 motion_config_w_object = replace(
     motion_config,
     motion_file="holosoma/data/motions/g1_29dof/whole_body_tracking/sub3_largebox_003_mj_w_obj.npz",
@@ -99,8 +131,47 @@ g1_29dof_wbt_command_offline_collect = replace(
     },
 )
 
+g1_29dof_wbt_command_d3_seg_a = replace(
+    g1_29dof_wbt_command,
+    setup_terms={
+        "motion_command": CommandTermCfg(
+            func="holosoma.managers.command.terms.wbt:MotionCommand",
+            params={
+                "motion_config": motion_config_d3_seg_a,
+            },
+        )
+    },
+)
+
+g1_29dof_wbt_command_d3_seg_b = replace(
+    g1_29dof_wbt_command,
+    setup_terms={
+        "motion_command": CommandTermCfg(
+            func="holosoma.managers.command.terms.wbt:MotionCommand",
+            params={
+                "motion_config": motion_config_d3_seg_b,
+            },
+        )
+    },
+)
+
+g1_29dof_wbt_command_d3_seg_c = replace(
+    g1_29dof_wbt_command,
+    setup_terms={
+        "motion_command": CommandTermCfg(
+            func="holosoma.managers.command.terms.wbt:MotionCommand",
+            params={
+                "motion_config": motion_config_d3_seg_c,
+            },
+        )
+    },
+)
+
 __all__ = [
     "g1_29dof_wbt_command",
     "g1_29dof_wbt_command_offline_collect",
+    "g1_29dof_wbt_command_d3_seg_a",
+    "g1_29dof_wbt_command_d3_seg_b",
+    "g1_29dof_wbt_command_d3_seg_c",
     "g1_29dof_wbt_command_w_object",
 ]

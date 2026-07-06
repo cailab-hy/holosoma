@@ -705,6 +705,76 @@ class CQLConfig:
 
 
 @dataclass(frozen=True)
+class PBFCQLSettings:
+    """Configuration for pair-synergy BF-CQL regularization."""
+
+    enabled: bool = True
+    """whether to add the all-pair PBF-CQL conservative penalty"""
+
+    alpha: float = 0.05
+    """weight applied to the PBF-CQL pair-synergy penalty"""
+
+    margin: float = 0.0
+    """hinge/softplus margin applied to Delta_ij"""
+
+    use_softplus: bool = False
+    """use beta-scaled softplus instead of ReLU hinge"""
+
+    softplus_beta: float = 1.0
+    """temperature-like beta for the softplus penalty"""
+
+    detach_singletons: bool = True
+    """kept for config visibility; PBF-CQL always detaches singleton values"""
+
+    log_pair_stats: bool = True
+    """whether to log aggregate pair residual diagnostics"""
+
+
+@dataclass(frozen=True)
+class SyncCQLSettings:
+    """Configuration for SYNC-QL synergy regularization."""
+
+    K: int = 2
+    """maximum selected group-block size"""
+
+    delta_threshold: float = 0.5
+    """minimum normalized-RMSE drift required for a group to enter the candidate set"""
+
+    selection_mode: Literal["topk", "greedy", "random", "none"] = "topk"
+    """block selection mode for synergy counterfactuals"""
+
+    drift_mode: Literal["rmse", "density"] = "rmse"
+    """actor drift estimator used for candidate screening"""
+
+    eps_gain: float = 0.0
+    """minimum greedy marginal gain required to keep adding groups"""
+
+    margin_m: float = 0.0
+    """hinge margin applied to the synergy residual Delta(M*)"""
+
+    alpha2: float = 1.0
+    """fixed SYNC-QL synergy penalty weight or initial Lagrange multiplier"""
+
+    alpha2_lagrange: bool = False
+    """whether to auto-tune alpha2 to track tau_syn"""
+
+    tau_syn: float = 5.0
+    """target synergy hinge penalty for alpha2 Lagrange tuning"""
+
+    lambda_cf: float = 0.0
+    """weight of the actor counterfactual block objective"""
+
+    drift_ema: float = 0.0
+    """EMA blending for per-group drift selection stability; 0.0 uses current-batch drift only"""
+
+    drift_std_momentum: float = 0.999
+    """momentum for running dataset action std used by RMSE drift"""
+
+    freeze_drift_stats: bool = False
+    """whether to freeze running dataset action std updates"""
+
+
+@dataclass(frozen=True)
 class BFCQLConfig:
     num_learning_iterations: int = 25000
     """total timesteps of the experiments"""
@@ -774,6 +844,12 @@ class BFCQLConfig:
 
     ood_actor_num: int = 1
     """number of action groups replaced by actor samples in each BF-CQL actor OOD candidate"""
+
+    sync_cql: SyncCQLSettings = field(default_factory=SyncCQLSettings)
+    """SYNC-QL synergy regularization settings"""
+
+    pbf_cql: PBFCQLSettings = field(default_factory=PBFCQLSettings)
+    """PBF-CQL all-pair synergy regularization settings"""
 
     use_lagrange: bool = False
     """whether to use Lagrange multiplier auto-tuning for CQL conservative loss"""

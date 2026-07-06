@@ -25,6 +25,15 @@ def motion_ends(env, **_) -> torch.Tensor:
     return motion_command.time_steps >= motion_command.motion.time_step_total - 2
 
 
+def motion_segment_ends(env, **_) -> torch.Tensor:
+    """Timeout if an optional D3 motion segment ends."""
+    motion_command = env.command_manager.get_state("motion_command")
+    segment_end_step = getattr(motion_command, "d3_segment_end_step", None)
+    if segment_end_step is None:
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    return motion_command.time_steps >= int(segment_end_step)
+
+
 class BadTracking(TerminationTermBase):
     """Terminate if the tracking is bad.
 

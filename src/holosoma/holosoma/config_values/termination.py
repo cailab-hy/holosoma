@@ -2,7 +2,13 @@
 
 from holosoma.config_values.loco.g1.termination import g1_29dof_termination
 from holosoma.config_values.loco.t1.termination import t1_29dof_termination
-from holosoma.config_values.wbt.g1.termination import g1_29dof_wbt_termination ,g1_29dof_wbt_offline_termination, g1_29dof_wbt_termination_collect ,g1_29dof_wbt_termination_offline_collect
+from holosoma.config_values.wbt.g1.termination import (
+    g1_29dof_wbt_offline_termination,
+    g1_29dof_wbt_termination,
+    g1_29dof_wbt_termination_collect,
+    g1_29dof_wbt_termination_d3_segment,
+    g1_29dof_wbt_termination_offline_collect,
+)
 
 none = None
 
@@ -14,4 +20,5 @@ DEFAULTS = {
     "g1_29dof_wbt_termination_offline_collect" : g1_29dof_wbt_termination_offline_collect,
     "g1_29dof_wbt_offline_termination" : g1_29dof_wbt_offline_termination,
     "g1_29dof_wbt_termination_collect" : g1_29dof_wbt_termination_collect,
+    "g1_29dof_wbt_termination_d3_segment": g1_29dof_wbt_termination_d3_segment,
 }

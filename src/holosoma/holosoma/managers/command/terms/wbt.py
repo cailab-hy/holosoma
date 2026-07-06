@@ -316,6 +316,7 @@ class MotionCommand(CommandTermBase):
 
         # Maybe append interpolated transition back to default pose
         self._maybe_add_default_pose_transition(prepend=False)
+        self._configure_d3_segment_bounds()
 
         # 2. get the indexes of the root link and the tracked links
         self.ref_body_index = robot_body_names.index(self.motion_cfg.body_name_ref[0])  # int
@@ -361,6 +362,42 @@ class MotionCommand(CommandTermBase):
         if self._env.viewer and self._env.simulator.get_simulator_type() == SimulatorType.ISAACSIM:
             self._setup_visualization_markers_for_isaacsim()
 
+    def _configure_d3_segment_bounds(self) -> None:
+        """Configure optional D3 segment RSI bounds after motion preprocessing."""
+
+        self.d3_segment_start_step: int | None = None
+        self.d3_segment_end_step: int | None = None
+        self.d3_segment_id: int = -1 if self.motion_cfg.d3_segment_id is None else int(self.motion_cfg.d3_segment_id)
+
+        start_phase = self.motion_cfg.d3_segment_start_phase
+        end_phase = self.motion_cfg.d3_segment_end_phase
+        if start_phase is None and end_phase is None:
+            return
+        if start_phase is None or end_phase is None:
+            raise ValueError("Both d3_segment_start_phase and d3_segment_end_phase must be set for D3 segment mode.")
+        if not (0.0 <= float(start_phase) < float(end_phase) <= 1.0):
+            raise ValueError(
+                "D3 segment phases must satisfy 0 <= start < end <= 1, "
+                f"got start={start_phase}, end={end_phase}."
+            )
+
+        max_motion_step = max(int(self.motion.time_step_total) - 2, 1)
+        start_step = int(round(float(start_phase) * max_motion_step))
+        end_step = int(round(float(end_phase) * max_motion_step))
+        start_step = max(0, min(start_step, max_motion_step - 1))
+        end_step = max(start_step + 1, min(end_step, max_motion_step))
+
+        self.d3_segment_start_step = start_step
+        self.d3_segment_end_step = end_step
+        logger.info(
+            "Configured D3 motion segment: "
+            f"id={self.d3_segment_id}, start_step={start_step}, end_step={end_step}, "
+            f"start_phase={start_step / max_motion_step:.3f}, end_phase={end_step / max_motion_step:.3f}"
+        )
+
+    def _has_d3_segment_bounds(self) -> bool:
+        return self.d3_segment_start_step is not None and self.d3_segment_end_step is not None
+
     def reset(self, env_ids: torch.Tensor | None) -> None:
         """called per reset_idx, reset timesteps and robot/object poses."""
         env_ids = self._ensure_index_tensor(env_ids)
@@ -369,19 +406,29 @@ class MotionCommand(CommandTermBase):
         self._reset_recovery_metrics(env_ids)
 
         # 0. Sample the time steps
-        if self.motion_cfg.use_adaptive_timesteps_sampler:
+        if self._has_d3_segment_bounds():
+            assert self.d3_segment_start_step is not None
+            assert self.d3_segment_end_step is not None
+            if self._env.is_evaluating:
+                self.time_steps[env_ids] = self.d3_segment_start_step
+            else:
+                segment_length = max(int(self.d3_segment_end_step - self.d3_segment_start_step), 1)
+                offsets = torch.floor(torch.rand(env_ids.numel(), device=self.device) * segment_length).long()
+                self.time_steps[env_ids] = int(self.d3_segment_start_step) + offsets
+        elif self.motion_cfg.use_adaptive_timesteps_sampler:
             phase = self.adaptive_timesteps_sampler.sample(env_ids.numel())
+            self.time_steps[env_ids] = (phase * (self.motion.time_step_total - 1)).long()
         else:
             phase = torch.rand(env_ids.numel(), device=self.device)
-
-        if self._env.is_evaluating:
-            phase = torch.zeros_like(phase)
-
-        self.time_steps[env_ids] = (phase * (self.motion.time_step_total - 1)).long()
+            if self._env.is_evaluating:
+                phase = torch.zeros_like(phase)
+            self.time_steps[env_ids] = (phase * (self.motion.time_step_total - 1)).long()
 
         # Handle start_at_timestep_zero_prob
         prob = self.motion_cfg.start_at_timestep_zero_prob
-        if prob >= 1.0:
+        if self._has_d3_segment_bounds():
+            pass
+        elif prob >= 1.0:
             self.time_steps[env_ids] = 0
         elif prob > 0.0:
             subset = self.time_steps[env_ids]
