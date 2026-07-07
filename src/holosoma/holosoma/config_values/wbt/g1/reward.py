@@ -121,6 +121,19 @@ g1_29dof_wbt_fast_sac_reward_collect = RewardManagerCfg(
 g1_29dof_wbt_fast_sac_reward_offline_collect = RewardManagerCfg(
     terms={
         **g1_29dof_wbt_fast_sac_reward.terms,
+        # NOTE: the retargeted reference (sub3_largebox_003_mj) saturates the HARD
+        # limits on both ankle_roll joints and waist_pitch during the crouch/grab,
+        # so the 0.9-soft-limit violation is unavoidable while tracking correctly
+        # (~0.07 rad summed in segment A). At weight -100 this cancels the entire
+        # positive tracking reward: a PERFECT tracker earns a negative return in
+        # segment A, making early termination the return-optimal policy (observed
+        # as segment_ends_ratio degrading from ~0.2 to ~0.05 during training).
+        # Weight -10 keeps the safety gradient without flipping the reward sign.
+        "limits_dof_pos": RewardTermCfg(
+            func="holosoma.managers.reward.terms.wbt:limits_dof_pos",
+            params={"soft_dof_pos_limit": 0.9},
+            weight=-10.0,
+        ),
         "motion_global_ref_position_error_exp": RewardTermCfg(
             func="holosoma.managers.reward.terms.wbt:motion_global_ref_position_error_exp",
             params={"sigma": 0.3},
