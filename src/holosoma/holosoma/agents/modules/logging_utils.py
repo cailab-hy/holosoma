@@ -168,6 +168,16 @@ class LoggingHelper:
             return
 
         termination_reasons = infos.get("termination_reasons", {})
+        if isinstance(termination_reasons, dict):
+            for name, value in termination_reasons.items():
+                if not isinstance(value, torch.Tensor):
+                    continue
+                if name.startswith("bad_tracking_"):
+                    continue
+                if name not in self.termination_reason_counts:
+                    self.termination_reason_counts[name] = 0
+            self.termination_reason_names = tuple(self.termination_reason_counts.keys())
+
         reason_union = torch.zeros_like(finished_mask)
         reason_count_per_env = torch.zeros_like(finished_mask, dtype=torch.long)
 

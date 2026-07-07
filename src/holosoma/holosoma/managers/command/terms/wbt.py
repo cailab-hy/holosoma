@@ -427,7 +427,15 @@ class MotionCommand(CommandTermBase):
         # Handle start_at_timestep_zero_prob
         prob = self.motion_cfg.start_at_timestep_zero_prob
         if self._has_d3_segment_bounds():
-            pass
+            assert self.d3_segment_start_step is not None
+            if prob >= 1.0:
+                self.time_steps[env_ids] = self.d3_segment_start_step
+            elif prob > 0.0:
+                subset = self.time_steps[env_ids]
+                rand_vals = torch.rand_like(subset, dtype=torch.float32)
+                segment_start_steps = torch.full_like(subset, int(self.d3_segment_start_step))
+                subset = torch.where(rand_vals < prob, segment_start_steps, subset)
+                self.time_steps[env_ids] = subset
         elif prob >= 1.0:
             self.time_steps[env_ids] = 0
         elif prob > 0.0:

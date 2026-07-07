@@ -51,7 +51,7 @@ motion_config_offline_collect = replace(
 motion_config_d3_base = replace(
     motion_config,
     use_adaptive_timesteps_sampler=False,
-    start_at_timestep_zero_prob=0.0,
+    start_at_timestep_zero_prob=0.2,
     freeze_at_timestep_zero_prob=0.0,
     enable_default_pose_prepend=False,
     default_pose_prepend_duration_s=0.0,
