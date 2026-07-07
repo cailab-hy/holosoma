@@ -221,6 +221,21 @@ g1_29dof_wbt_fast_sac_d3_seg_a_data = replace(
         config=replace(
             g1_29dof_wbt_fast_sac_data.algo.config,
             offline_dataset_path="offline_data/g1_29dof_wbt_d3_seg_a_dataset.h5",
+            dasave_env_num = 32,
+        ),
+    ),
+    simulator=replace(
+        simulator.isaacsim,
+        config=replace(
+            simulator.isaacsim.config,
+            scene=replace(
+                simulator.isaacsim.config.scene,
+                env_spacing=2.5,
+            ),
+            sim=replace(
+                simulator.isaacsim.config.sim,
+                max_episode_length_s=5.0,
+            ),
         ),
     ),
     termination=termination.g1_29dof_wbt_termination_d3_segment,
@@ -240,6 +255,20 @@ g1_29dof_wbt_fast_sac_d3_seg_b_data = replace(
             offline_dataset_path="offline_data/g1_29dof_wbt_d3_seg_b_dataset.h5",
         ),
     ),
+    simulator=replace(
+        simulator.isaacsim,
+        config=replace(
+            simulator.isaacsim.config,
+            scene=replace(
+                simulator.isaacsim.config.scene,
+                env_spacing=2.5,
+            ),
+            sim=replace(
+                simulator.isaacsim.config.sim,
+                max_episode_length_s=5.0,
+            ),
+        ),
+    ),    
     termination=termination.g1_29dof_wbt_termination_d3_segment,
     command=command.g1_29dof_wbt_command_d3_seg_b,
 )
@@ -255,6 +284,20 @@ g1_29dof_wbt_fast_sac_d3_seg_c_data = replace(
         config=replace(
             g1_29dof_wbt_fast_sac_data.algo.config,
             offline_dataset_path="offline_data/g1_29dof_wbt_d3_seg_c_dataset.h5",
+        ),
+    ),
+    simulator=replace(
+        simulator.isaacsim,
+        config=replace(
+            simulator.isaacsim.config,
+            scene=replace(
+                simulator.isaacsim.config.scene,
+                env_spacing=2.5,
+            ),
+            sim=replace(
+                simulator.isaacsim.config.sim,
+                max_episode_length_s=5.0,
+            ),
         ),
     ),
     termination=termination.g1_29dof_wbt_termination_d3_segment,
