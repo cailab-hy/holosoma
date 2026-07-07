@@ -121,6 +121,13 @@ g1_29dof_wbt_fast_sac_reward_collect = RewardManagerCfg(
 g1_29dof_wbt_fast_sac_reward_offline_collect = RewardManagerCfg(
     terms={
         **g1_29dof_wbt_fast_sac_reward.terms,
+        # Survival floor: bad_tracking is a true terminal (V=0), so this guarantees
+        # continuing is never return-worse than dying, independent of how hard the
+        # penalty terms bite in difficult motion regions (crouch/grab, segments).
+        "alive": RewardTermCfg(
+            func="holosoma.managers.reward.terms.wbt:alive",
+            weight=2.0,
+        ),
         # NOTE: the retargeted reference (sub3_largebox_003_mj) saturates the HARD
         # limits on both ankle_roll joints and waist_pitch during the crouch/grab,
         # so the 0.9-soft-limit violation is unavoidable while tracking correctly

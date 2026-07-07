@@ -495,11 +495,16 @@ g1_29dof_wbt_cql = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
+    # Strict (original) termination for eval: deployment-grade success criterion,
+    # deliberately tighter than the loose collection thresholds.
     termination=termination.g1_29dof_wbt_termination,
     randomization=randomization.g1_29dof_wbt_randomization,
-    command=command.g1_29dof_wbt_command,
+    # Eval must replay the dataset's motion timeline (1s default-pose prepend):
+    # raw frame 0 carries a retargeting velocity spike and never appears as an
+    # episode-start state in the collected data.
+    command=command.g1_29dof_wbt_command_offline_collect,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward,
+    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
@@ -586,11 +591,16 @@ g1_29dof_wbt_bf_cql = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
+    # Strict (original) termination for eval: deployment-grade success criterion,
+    # deliberately tighter than the loose collection thresholds.
     termination=termination.g1_29dof_wbt_termination,
     randomization=randomization.g1_29dof_wbt_randomization,
-    command=command.g1_29dof_wbt_command,
+    # Eval must replay the dataset's motion timeline (1s default-pose prepend):
+    # raw frame 0 carries a retargeting velocity spike and never appears as an
+    # episode-start state in the collected data.
+    command=command.g1_29dof_wbt_command_offline_collect,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward,
+    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
@@ -699,11 +709,16 @@ g1_29dof_wbt_iql = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
+    # Strict (original) termination for eval: deployment-grade success criterion,
+    # deliberately tighter than the loose collection thresholds.
     termination=termination.g1_29dof_wbt_termination,
     randomization=randomization.g1_29dof_wbt_randomization,
-    command=command.g1_29dof_wbt_command,
+    # Eval must replay the dataset's motion timeline (1s default-pose prepend):
+    # raw frame 0 carries a retargeting velocity spike and never appears as an
+    # episode-start state in the collected data.
+    command=command.g1_29dof_wbt_command_offline_collect,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward,
+    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
@@ -757,11 +772,16 @@ g1_29dof_wbt_bc = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
+    # Strict (original) termination for eval: deployment-grade success criterion,
+    # deliberately tighter than the loose collection thresholds.
     termination=termination.g1_29dof_wbt_termination,
     randomization=randomization.g1_29dof_wbt_randomization,
-    command=command.g1_29dof_wbt_command,
+    # Eval must replay the dataset's motion timeline (1s default-pose prepend):
+    # raw frame 0 carries a retargeting velocity spike and never appears as an
+    # episode-start state in the collected data.
+    command=command.g1_29dof_wbt_command_offline_collect,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward,
+    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
@@ -810,11 +830,16 @@ g1_29dof_wbt_td3_bc = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
+    # Strict (original) termination for eval: deployment-grade success criterion,
+    # deliberately tighter than the loose collection thresholds.
     termination=termination.g1_29dof_wbt_termination,
     randomization=randomization.g1_29dof_wbt_randomization,
-    command=command.g1_29dof_wbt_command,
+    # Eval must replay the dataset's motion timeline (1s default-pose prepend):
+    # raw frame 0 carries a retargeting velocity spike and never appears as an
+    # episode-start state in the collected data.
+    command=command.g1_29dof_wbt_command_offline_collect,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward,
+    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={

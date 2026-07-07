@@ -359,8 +359,10 @@ class IQLAgent(BaseAlgo):
             rewards = data["next"]["rewards"]  # [B]
             dones = data["next"]["dones"].bool()  # [B]
             truncations = data["next"]["truncations"].bool()  # [B]
-            #bootstrap = (truncations | ~dones).float()  # [B]
-            bootstrap = (~dones).float()
+            # Truncated ends (timeout / d3 segment_ends) are not true terminals: the
+            # exporter stores the final pre-reset observation in next.observations, so
+            # bootstrap through them. Required for cross-segment value stitching.
+            bootstrap = (truncations | ~dones).float()  # [B]
             discount = args.discount ** data["next"]["effective_n_steps"]  # [B]
 
             with torch.no_grad():

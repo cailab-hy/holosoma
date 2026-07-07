@@ -28,6 +28,23 @@ def _get_motion_command_and_assert_type(env: WholeBodyTrackingManager) -> Motion
 #########################################################################################################
 
 
+def alive(env: WholeBodyTrackingManager) -> torch.Tensor:
+    """Constant per-step survival bonus.
+
+    With bad_tracking configured as a true terminal (V=0), a positive per-step
+    floor guarantees that surviving is never worth less than terminating early —
+    without it, penalty-heavy reward presets can make early termination the
+    return-optimal policy in hard motion regions.
+
+    Args:
+        env: The environment instance
+
+    Returns:
+        Reward tensor [num_envs]
+    """
+    return torch.ones(env.num_envs, device=env.device)
+
+
 def penalty_action_rate(env: WholeBodyTrackingManager) -> torch.Tensor:
     """Penalize changes in actions between steps.
 
