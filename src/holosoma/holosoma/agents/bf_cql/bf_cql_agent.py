@@ -8,12 +8,25 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, Sequence
 
+import numpy as np
 import tqdm
 from loguru import logger
 
 from holosoma.agents.base_algo.base_algo import BaseAlgo
 from holosoma.agents.bf_cql.bf_cql import DoubleQCritic, FactorizedActor, resolve_action_groups
 from holosoma.agents.bf_cql.bf_cql_utils import EmpiricalNormalization, save_params
+from holosoma.agents.bf_cql.syndiag import (
+    build_coalitions,
+    coalition_group_mask,
+    coalition_q_values,
+    compute_group_drift,
+    group_dim_mask,
+    quartile_delta_stats,
+    recall_top_pair,
+    singleton_columns,
+    superadditivity_quad,
+    synergy_residuals,
+)
 from holosoma.agents.modules.augmentation_utils import SymmetryUtils
 from holosoma.agents.modules.logging_utils import LoggingHelper
 from holosoma.config_types.algo import BFCQLConfig
@@ -173,6 +186,24 @@ class BFCQLAgent(BaseAlgo):
         self._offline_gpu_cache: GPUTransitionCache | None = None
         self._offline_num_samples = 0
         self._critic_update_step = 0
+
+        # Synergy-OOD diagnostics (logging only; full state built in _syndiag_setup).
+        syndiag_cfg = getattr(config, "syndiag", None)
+        self._syndiag_cfg = syndiag_cfg
+        self._syndiag_enabled = bool(syndiag_cfg is not None and syndiag_cfg.enabled)
+        if self._syndiag_enabled:
+            if syndiag_cfg.interval <= 0:
+                raise ValueError(f"syndiag.interval must be > 0, got {syndiag_cfg.interval}")
+            if syndiag_cfg.dump_interval < 0:
+                raise ValueError(f"syndiag.dump_interval must be >= 0, got {syndiag_cfg.dump_interval}")
+            if syndiag_cfg.dump_topk <= 0:
+                raise ValueError(f"syndiag.dump_topk must be > 0, got {syndiag_cfg.dump_topk}")
+            if syndiag_cfg.delta_min < 0.0:
+                raise ValueError(f"syndiag.delta_min must be >= 0, got {syndiag_cfg.delta_min}")
+            if syndiag_cfg.max_coalitions <= 0:
+                raise ValueError(f"syndiag.max_coalitions must be > 0, got {syndiag_cfg.max_coalitions}")
+            if syndiag_cfg.dump_max_rows <= 0:
+                raise ValueError(f"syndiag.dump_max_rows must be > 0, got {syndiag_cfg.dump_max_rows}")
 
         if config.cql_num_action_samples <= 0:
             raise ValueError(f"cql_num_action_samples must be > 0, got {config.cql_num_action_samples}")
@@ -437,8 +468,265 @@ class BFCQLAgent(BaseAlgo):
         if args.use_symmetry:
             self.symmetry_utils = SymmetryUtils(env._env)
 
+        self._syndiag_setup()
+
         if self.is_multi_gpu:
             self._synchronize_model_parameters()
+
+    # ------------------------------------------------------------------
+    # Synergy-OOD diagnostics (syndiag) — logging only, NO loss changes.
+    #
+    # Hook sites:
+    #   1. _update_q's existing torch.no_grad() diagnostic block exports the
+    #      already-computed per-sample min(Q1,Q2)(s, a_D) and the deterministic
+    #      actor action (both detached) through the return tuple. _update_q is
+    #      torch.compile'd, so the tick itself cannot live inside it (file I/O
+    #      and step-dependent Python branching would break/recompile the graph).
+    #   2. offline_learn calls _syndiag_maybe_tick right next to the existing
+    #      _compute_action_ood_stats call and merges the returned scalars into
+    #      training_metrics.
+    #
+    # On non-tick steps the overhead is the enabled flag + one modulo check.
+    # Diagnostics never touch the autograd graph, optimizers, observation
+    # normalizers, or the default RNG (all math is deterministic).
+    # ------------------------------------------------------------------
+
+    def _syndiag_setup(self) -> None:
+        """Build coalition structure and diagnostic-only buffers (never shared with training)."""
+        self._syndiag_tick_count = 0
+        self._syndiag_fail_count = 0
+        self._syndiag_sigma_initialized = False
+        if not self._syndiag_enabled:
+            return
+
+        cfg = self._syndiag_cfg
+        n_act = self.env.robot_config.actions_dim
+        num_groups = len(self.bf_cql_group_names)
+
+        self._syndiag_coalitions = build_coalitions(
+            self.bf_cql_group_names,
+            cfg.max_coalitions,
+            warn=logger.warning,
+        )
+        self._syndiag_group_dim_mask = group_dim_mask(self.bf_cql_group_indices, n_act, self.device)  # [G, A]
+        self._syndiag_coalition_group_mask = coalition_group_mask(
+            self._syndiag_coalitions, num_groups, self.device
+        )  # [C, G]
+        self._syndiag_coalition_dim_mask = (
+            self._syndiag_coalition_group_mask.to(torch.float32) @ self._syndiag_group_dim_mask.to(torch.float32)
+        ) > 0.5  # [C, A]
+        self._syndiag_singleton_cols = singleton_columns(self._syndiag_coalitions, num_groups).to(self.device)
+
+        pair_cols = [c for c, coal in enumerate(self._syndiag_coalitions) if len(coal.group_ids) == 2]
+        triple_cols = [c for c, coal in enumerate(self._syndiag_coalitions) if len(coal.group_ids) == 3]
+        self._syndiag_pair_cols = torch.tensor(pair_cols, dtype=torch.long, device=self.device)
+        self._syndiag_triple_cols = torch.tensor(triple_cols, dtype=torch.long, device=self.device)
+        self._syndiag_pair_group_ids = torch.tensor(
+            [list(self._syndiag_coalitions[c].group_ids) for c in pair_cols] or [[0, 0]],
+            dtype=torch.long,
+            device=self.device,
+        )
+
+        # Per-action-dim running std of dataset actions (normalized space).
+        # Dedicated diagnostic buffer: NOT the observation normalizers, never
+        # checkpointed, updated only on diagnostic ticks with momentum 0.999.
+        self._syndiag_sigma = torch.ones(n_act, device=self.device)
+        self._syndiag_dump_dir = Path(self.log_dir) / "syndiag"
+
+        num_named = len(self._syndiag_coalitions) - num_groups - len(pair_cols)
+        logger.info(
+            f"syndiag enabled: interval={cfg.interval} critic updates, dump_interval={cfg.dump_interval} ticks, "
+            f"coalitions={len(self._syndiag_coalitions)} ({num_groups} singletons, {len(pair_cols)} pairs, "
+            f"{num_named} named)"
+        )
+        logger.info("syndiag coalition names: {}".format([c.name for c in self._syndiag_coalitions]))
+
+    def _syndiag_maybe_tick(
+        self,
+        data: TensorDict,
+        q_data_min: torch.Tensor,
+        pi_actions: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        """Run the diagnostic tick on schedule; never crash training."""
+        if not self._syndiag_enabled:
+            return {}
+        if self._critic_update_step % self._syndiag_cfg.interval != 0:
+            return {}
+        try:
+            metrics = self._syndiag_tick(data, q_data_min, pi_actions)
+        except Exception:
+            self._syndiag_fail_count += 1
+            if self._syndiag_fail_count == 1:
+                logger.exception("syndiag tick failed; training is unaffected (logging only).")
+            if self._syndiag_fail_count >= 3:
+                self._syndiag_enabled = False
+                logger.warning("syndiag disabled after 3 consecutive tick failures.")
+            return {}
+        self._syndiag_fail_count = 0
+        return metrics
+
+    @torch.no_grad()
+    def _syndiag_tick(
+        self,
+        data: TensorDict,
+        q_data_min: torch.Tensor,
+        pi_actions: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        cfg = self._syndiag_cfg
+        self._syndiag_tick_count += 1
+
+        a_data = self._to_normalized_actions(data["actions"]).float()
+        a_pi = pi_actions.float()
+        q_data_min = q_data_min.float()
+
+        # 1. Group drift with a diagnostic-only running sigma_D (momentum 0.999,
+        #    bootstrapped from the first tick's batch std).
+        batch_sigma = a_data.std(dim=0, unbiased=False)
+        if self._syndiag_sigma_initialized:
+            self._syndiag_sigma.mul_(0.999).add_(batch_sigma, alpha=1.0 - 0.999)
+        else:
+            self._syndiag_sigma.copy_(batch_sigma)
+            self._syndiag_sigma_initialized = True
+        drift = compute_group_drift(a_pi, a_data, self._syndiag_sigma, self._syndiag_group_dim_mask)  # [B, G]
+
+        # 2. Coalition values from ONE batched twin-critic forward, evaluated
+        #    under the same autocast context as training so v(M) compares
+        #    q_cf against the reused q_data at matching precision.
+        with self._maybe_amp():
+            q_cf = coalition_q_values(
+                self.qnet,
+                data["critic_observations"],
+                a_pi,
+                a_data,
+                self._syndiag_coalition_dim_mask,
+            )
+        q_cf = q_cf.float()  # [B, C]
+        v = q_cf - q_data_min[:, None]  # [B, C]
+        delta = synergy_residuals(v, self._syndiag_coalition_group_mask, self._syndiag_singleton_cols)  # [B, C]
+
+        # 3. Aggregates.
+        metrics: dict[str, torch.Tensor] = {}
+        for g, name in enumerate(self.bf_cql_group_names):
+            metrics[f"syndiag/drift_{name}"] = drift[:, g].mean()
+        for c, coalition in enumerate(self._syndiag_coalitions):
+            metrics[f"syndiag/v_{coalition.name}"] = v[:, c].mean()
+            metrics[f"syndiag/delta_{coalition.name}"] = delta[:, c].mean()
+
+        coalition_sizes = self._syndiag_coalition_group_mask.sum(dim=1).to(drift.dtype)  # [C]
+        block_drift = (drift @ self._syndiag_coalition_group_mask.to(drift.dtype).t()) / coalition_sizes[None, :]
+
+        for size_name, cols in (("pairs", self._syndiag_pair_cols), ("triples", self._syndiag_triple_cols)):
+            if cols.numel() == 0:
+                continue
+            stats = quartile_delta_stats(block_drift[:, cols], delta[:, cols])
+            if stats is None:
+                continue
+            for q in range(1, 5):
+                metrics[f"syndiag/delta_{size_name}_driftQ{q}"] = stats[f"q{q}"]
+            metrics[f"syndiag/delta_{size_name}_q4_over_q1"] = stats["q4_over_q1"]
+            metrics[f"syndiag/delta_{size_name}_q4_minus_q1"] = stats["q4_minus_q1"]
+
+        if self._syndiag_pair_cols.numel() > 0:
+            delta_pairs = delta[:, self._syndiag_pair_cols]
+            active_frac = None
+            for k in (2, 3):
+                recall, active_frac = recall_top_pair(
+                    delta_pairs,
+                    self._syndiag_pair_group_ids,
+                    drift,
+                    top_k=k,
+                    delta_min=cfg.delta_min,
+                )
+                if recall is not None:
+                    metrics[f"syndiag/recall_pair_top{k}"] = recall
+            if active_frac is not None:
+                metrics["syndiag/active_frac"] = active_frac
+
+        superadd = superadditivity_quad(delta, self._syndiag_coalitions)
+        if superadd is not None:
+            metrics["syndiag/superadditivity_quad"] = superadd
+
+        # 4. Raw dump for offline counterfactual replay (Part B).
+        if (
+            cfg.dump_interval > 0
+            and self._syndiag_tick_count % cfg.dump_interval == 0
+            and self.is_main_process
+        ):
+            self._syndiag_dump(
+                data,
+                a_data=a_data,
+                a_pi=a_pi,
+                drift=drift,
+                v=v,
+                delta=delta,
+                q_data_min=q_data_min,
+                q_cf=q_cf,
+            )
+
+        return metrics
+
+    @torch.no_grad()
+    def _syndiag_dump(
+        self,
+        data: TensorDict,
+        *,
+        a_data: torch.Tensor,
+        a_pi: torch.Tensor,
+        drift: torch.Tensor,
+        v: torch.Tensor,
+        delta: torch.Tensor,
+        q_data_min: torch.Tensor,
+        q_cf: torch.Tensor,
+    ) -> None:
+        """Write one compressed npz consumed by tools/eval_counterfactual_gap.py."""
+        cfg = self._syndiag_cfg
+        rows = min(int(a_data.shape[0]), cfg.dump_max_rows)  # deterministic subsample: first rows
+
+        top_k = min(cfg.dump_topk, delta.shape[1])
+        top_delta, top_cols = delta[:rows].topk(top_k, dim=1)  # [rows, K]
+        top_masks = self._syndiag_coalition_dim_mask[top_cols]  # [rows, K, A]
+        a_cf_top = torch.where(top_masks, a_pi[:rows, None, :], a_data[:rows, None, :])
+        a_cf_top_env = self._to_env_actions(a_cf_top)
+
+        dataset_index = data.get("dataset_index", None)
+        if isinstance(dataset_index, torch.Tensor):
+            dataset_index_np = dataset_index[:rows].detach().cpu().numpy()
+        else:
+            dataset_index_np = np.full((rows,), -1, dtype=np.int64)
+        raw_observations = data.get("syndiag_raw_observations", None)
+        if isinstance(raw_observations, torch.Tensor):
+            raw_observations_np = raw_observations[:rows].detach().float().cpu().numpy()
+        else:
+            raw_observations_np = np.zeros((rows, 0), dtype=np.float32)
+
+        self._syndiag_dump_dir.mkdir(parents=True, exist_ok=True)
+        dump_path = self._syndiag_dump_dir / f"dump_step{self.global_step:08d}.npz"
+        np.savez_compressed(
+            dump_path,
+            schema_version=np.int64(1),
+            global_step=np.int64(self.global_step),
+            dataset_path=str(self._offline_dataset_path),
+            group_names=np.array(self.bf_cql_group_names),
+            group_dim_mask=self._syndiag_group_dim_mask.cpu().numpy(),
+            coalition_names=np.array([c.name for c in self._syndiag_coalitions]),
+            coalition_group_mask=self._syndiag_coalition_group_mask.cpu().numpy(),
+            coalition_dim_mask=self._syndiag_coalition_dim_mask.cpu().numpy(),
+            dataset_index=dataset_index_np,
+            observations_raw=raw_observations_np,
+            actions_raw=data["actions"][:rows].detach().float().cpu().numpy(),
+            a_pi_norm=a_pi[:rows].cpu().numpy(),
+            a_pi_env=self._to_env_actions(a_pi[:rows]).cpu().numpy(),
+            drift=drift[:rows].cpu().numpy(),
+            v=v[:rows].cpu().numpy(),
+            delta=delta[:rows].cpu().numpy(),
+            q_data_min=q_data_min[:rows].cpu().numpy(),
+            q_cf=q_cf[:rows].cpu().numpy(),
+            top_coalition_ids=top_cols.cpu().numpy(),
+            top_delta=top_delta.cpu().numpy(),
+            a_cf_env_top=a_cf_top_env.cpu().numpy(),
+            sigma=self._syndiag_sigma.cpu().numpy(),
+        )
+        logger.info(f"syndiag: wrote raw dump {dump_path} ({rows} rows, {top_k} coalitions/sample)")
 
     @contextmanager
     def _maybe_amp(self):
@@ -601,6 +889,8 @@ class BFCQLAgent(BaseAlgo):
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
     ]:
         args = self.config
         scaler = self.scaler
@@ -692,6 +982,11 @@ class BFCQLAgent(BaseAlgo):
                 q_pi_minus_q_data = (
                     torch.minimum(q1_pi_det, q2_pi_det) - torch.minimum(q1.detach(), q2.detach())
                 ).mean()
+                # syndiag hook: export already-computed per-sample quantities so the
+                # periodic diagnostics in offline_learn can reuse them without
+                # re-evaluating the critic on dataset actions (detached, logging only).
+                syndiag_q_data_min = torch.minimum(q1, q2).detach()
+                syndiag_pi_actions = pi_actions_det.detach()
 
             if self._cql_weight > 0.0:
                 batch_size = dataset_actions.shape[0]
@@ -904,6 +1199,8 @@ class BFCQLAgent(BaseAlgo):
             curr_logp_mean.detach(),
             next_logp_mean.detach(),
             random_density_mean.detach(),
+            syndiag_q_data_min,
+            syndiag_pi_actions,
         )
 
     def _update_cql_lagrange(self, cql_gap: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -1038,6 +1335,13 @@ class BFCQLAgent(BaseAlgo):
             )  # type: ignore[index]
             batch = augmented_batch
 
+        # syndiag (logging only): keep references to the raw, pre-normalization
+        # observations and the sampler-provided dataset row index. Zero-copy;
+        # apply_observation_normalization reassigns keys instead of mutating.
+        syndiag_enabled = getattr(self, "_syndiag_enabled", False)
+        syndiag_raw_observations = batch["observations"] if syndiag_enabled else None
+        syndiag_dataset_index = batch.get("dataset_index") if syndiag_enabled else None
+
         batch = apply_observation_normalization(batch, normalize_obs, normalize_critic_obs)
         effective_batch_size = int(batch["observations"].shape[0])
         next_batch = {
@@ -1048,7 +1352,7 @@ class BFCQLAgent(BaseAlgo):
             "dones": batch["next"]["dones"].to(torch.long),
             "effective_n_steps": batch["next"]["effective_n_steps"],
         }
-        return TensorDict(
+        data = TensorDict(
             {
                 "observations": batch["observations"],
                 "actions": batch["actions"],
@@ -1058,6 +1362,19 @@ class BFCQLAgent(BaseAlgo):
             batch_size=effective_batch_size,
             device=self.device,
         )
+        if syndiag_enabled:
+            if (
+                isinstance(syndiag_dataset_index, torch.Tensor)
+                and int(syndiag_dataset_index.shape[0]) == effective_batch_size
+            ):
+                data["dataset_index"] = syndiag_dataset_index.to(device=self.device, dtype=torch.long)
+            else:
+                # e.g. symmetry augmentation replaced the batch; index unavailable.
+                data["dataset_index"] = torch.full(
+                    (effective_batch_size,), -1, dtype=torch.long, device=self.device
+                )
+            data["syndiag_raw_observations"] = syndiag_raw_observations
+        return data
 
     def load(self, ckpt_path: str | None) -> None:
         if not ckpt_path:
@@ -1221,6 +1538,8 @@ class BFCQLAgent(BaseAlgo):
                         curr_logp,
                         next_logp,
                         random_density,
+                        syndiag_q_data_min,
+                        syndiag_pi_actions,
                     ) = update_q(data)
 
                     cql_alpha_value, cql_lagrange_loss = self._update_cql_lagrange(cql_gap)
@@ -1246,6 +1565,9 @@ class BFCQLAgent(BaseAlgo):
                     self._soft_update_q_target()
 
                     action_ood_stats = self._compute_action_ood_stats(data)
+                    # syndiag hook site 2: periodic synergy-OOD diagnostics
+                    # (logging only; {} on non-tick steps).
+                    syndiag_stats = self._syndiag_maybe_tick(data, syndiag_q_data_min, syndiag_pi_actions)
                     self.training_metrics.add(
                         {
                             "random_q": rand_q,
@@ -1280,6 +1602,7 @@ class BFCQLAgent(BaseAlgo):
                             "is_actor_warmup": float(is_actor_warmup),
                             "is_actor_update_step": float(is_actor_update_step),
                             **action_ood_stats,
+                            **syndiag_stats,
                             "current_logprob": curr_logp,
                             "next_logprob": next_logp,
                             "random_density": random_density,

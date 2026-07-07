@@ -91,7 +91,8 @@ def _summarize_eval_results(eval_results: list[dict[str, Any]]) -> dict[str, flo
         "episode_return_std": float(statistics.pstdev(episode_returns)) if len(episode_returns) > 1 else 0.0,
         "episode_length_mean": float(statistics.fmean(episode_lengths)),
         "episode_length_std": float(statistics.pstdev(episode_lengths)) if len(episode_lengths) > 1 else 0.0,
-        "success_ratio": float(counts.get("motion_ends", 0)) / num_episodes,
+        # D3 segment runs end successful episodes via segment_ends instead of motion_ends.
+        "success_ratio": float(counts.get("motion_ends", 0) + counts.get("segment_ends", 0)) / num_episodes,
         "bad_tracking_ratio": float(counts.get("bad_tracking", 0)) / num_episodes,
         "timeout_ratio": float(counts.get("timeout", 0)) / num_episodes,
     }

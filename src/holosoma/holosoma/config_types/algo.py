@@ -775,6 +775,37 @@ class SyncCQLSettings:
 
 
 @dataclass(frozen=True)
+class SynDiagSettings:
+    """Configuration for synergy-OOD diagnostic logging (BF-CQL, logging only).
+
+    Never changes losses, gradients, optimizer steps, or RNG consumption of the
+    training path; with enabled=False the training path is bit-identical to the
+    pre-syndiag behavior.
+    """
+
+    enabled: bool = True
+    """whether to run the periodic synergy-OOD diagnostics"""
+
+    interval: int = 200
+    """run diagnostics every N critic updates"""
+
+    dump_interval: int = 50
+    """dump raw npz every N diagnostic ticks (0 = never)"""
+
+    dump_topk: int = 3
+    """top coalitions per sample (by Delta) whose counterfactual actions are dumped"""
+
+    delta_min: float = 0.0
+    """activity threshold on the per-sample top Delta for recall metrics"""
+
+    max_coalitions: int = 32
+    """safety cap on the coalition list; warn and truncate (singletons+pairs kept first)"""
+
+    dump_max_rows: int = 2048
+    """subsample cap on rows per raw dump file (keeps files well under ~50MB)"""
+
+
+@dataclass(frozen=True)
 class BFCQLConfig:
     num_learning_iterations: int = 25000
     """total timesteps of the experiments"""
@@ -850,6 +881,9 @@ class BFCQLConfig:
 
     pbf_cql: PBFCQLSettings = field(default_factory=PBFCQLSettings)
     """PBF-CQL all-pair synergy regularization settings"""
+
+    syndiag: SynDiagSettings = field(default_factory=SynDiagSettings)
+    """synergy-OOD diagnostic logging settings (logging only, no loss changes)"""
 
     use_lagrange: bool = False
     """whether to use Lagrange multiplier auto-tuning for CQL conservative loss"""

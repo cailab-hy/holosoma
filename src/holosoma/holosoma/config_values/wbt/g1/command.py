@@ -62,7 +62,12 @@ motion_config_d3_base = replace(
 motion_config_d3_seg_a = replace(
     motion_config_d3_base,
     d3_segment_id=0,
-    d3_segment_start_phase=0.00,
+    # NOTE: frames 0-2 of sub3_largebox_003_mj.npz carry a retargeting velocity
+    # artifact (joint-vel norm ~15 rad/s vs ~4 from frame 3 onward). The full-motion
+    # collect config hides this behind the 1s default-pose prepend; segment mode has
+    # no prepend, so starting at phase 0.00 initializes 20% of training episodes and
+    # 100% of eval episodes with that velocity spike. Phase 0.01 -> frame 3.
+    d3_segment_start_phase=0.01,
     d3_segment_end_phase=0.39,
 )
 

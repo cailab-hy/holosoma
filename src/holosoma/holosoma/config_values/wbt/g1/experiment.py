@@ -221,7 +221,7 @@ g1_29dof_wbt_fast_sac_d3_seg_a_data = replace(
         config=replace(
             g1_29dof_wbt_fast_sac_data.algo.config,
             offline_dataset_path="offline_data/g1_29dof_wbt_d3_seg_a_dataset.h5",
-            dasave_env_num = 32,
+            save_env_num = 32,
         ),
     ),
     simulator=replace(

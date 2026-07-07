@@ -194,6 +194,7 @@ class BaseTask:
         self.time_out_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         # wonwoo: keep per-reason termination flags so offline dataset export can store them separately.
         self.motion_ends_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        self.segment_ends_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self.bad_tracking_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self.timeout_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self._deferred_reset_mask = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
@@ -430,6 +431,7 @@ class BaseTask:
         self.extras["termination_reasons"] = {
             "bad_tracking": self.bad_tracking_buf.clone(),
             "motion_ends": self.motion_ends_buf.clone(),
+            "segment_ends": self.segment_ends_buf.clone(),
             "timeout": self.timeout_buf.clone(),
         }
 
@@ -482,6 +484,7 @@ class BaseTask:
         }
         termination_reasons_snapshot.setdefault("bad_tracking", self.bad_tracking_buf.clone())
         termination_reasons_snapshot.setdefault("motion_ends", self.motion_ends_buf.clone())
+        termination_reasons_snapshot.setdefault("segment_ends", self.segment_ends_buf.clone())
         termination_reasons_snapshot.setdefault("timeout", self.timeout_buf.clone())
         if env_ids.numel() > 0:
             final_obs_dict = self._compute_final_observations()
@@ -491,7 +494,9 @@ class BaseTask:
             if defer_resets:
                 new_env_ids = env_ids[~self._deferred_reset_mask[env_ids]]
                 if new_env_ids.numel() > 0:
-                    success_now = self.motion_ends_buf[new_env_ids]
+                    # D3 segment runs terminate successful episodes via segment_ends
+                    # (motion_ends is absent from their termination config).
+                    success_now = (self.motion_ends_buf | self.segment_ends_buf)[new_env_ids]
                     self._deferred_eval_success_mask[new_env_ids] = success_now
                     self._deferred_eval_failure_mask[new_env_ids] = ~success_now
                     self._deferred_reset_mask[new_env_ids] = True
@@ -580,6 +585,7 @@ class BaseTask:
         self.reset_buf[:] = 0
         self.time_out_buf[:] = 0
         self.motion_ends_buf[:] = 0
+        self.segment_ends_buf[:] = 0
         self.bad_tracking_buf[:] = 0
         self.timeout_buf[:] = 0
 
@@ -588,6 +594,7 @@ class BaseTask:
 
         reset_flags, timeout_flags, term_results = self.termination_manager.check()
         self.motion_ends_buf |= term_results.get("motion_ends", torch.zeros_like(self.motion_ends_buf))
+        self.segment_ends_buf |= term_results.get("segment_ends", torch.zeros_like(self.segment_ends_buf))
         self.bad_tracking_buf |= term_results.get("bad_tracking", torch.zeros_like(self.bad_tracking_buf))
         self.timeout_buf |= term_results.get("timeout", torch.zeros_like(self.timeout_buf))
 

@@ -700,6 +700,9 @@ class RAMShuffleBuffer:
             read_size = min(self.block_size, available)
             start, end = self._take_next_read_slice(read_size)
             block = self.block_reader.read_block(start=start, block_size=end - start)
+            # Logging-only field: global row index into the source HDF5 dataset.
+            block_len = int(block["observations"].shape[0])
+            block["dataset_index"] = torch.arange(start, start + block_len, dtype=torch.long)
             self._append_block(block)
 
         if self._num_items == 0:
@@ -961,7 +964,10 @@ class GPUTransitionCache:
         if self._storage is None:
             raise RuntimeError("GPUTransitionCache storage is empty.")
         sample_indices = torch.randint(self._num_samples, (batch_size,), device=self.device)
-        return _index_nested_batch(self._storage, sample_indices, pin_memory=False)
+        batch = _index_nested_batch(self._storage, sample_indices, pin_memory=False)
+        # Logging-only field: global row index into the source HDF5 dataset.
+        batch["dataset_index"] = sample_indices.to(torch.long)
+        return batch
 
     def close(self) -> None:
         self._storage = None

@@ -974,6 +974,7 @@ class FastSACAgent(BaseAlgo):
                                 "dones": dones.to(torch.uint8),
                                 "done_bad_tracking": _reason_tensor("bad_tracking"),
                                 "done_motion_ends": _reason_tensor("motion_ends"),
+                                "done_segment_ends": _reason_tensor("segment_ends"),
                                 "done_timeout": _reason_tensor("timeout"),
                                 "episode_step": episode_step_tensor,
                                 "global_step": global_step_tensor,
