@@ -374,7 +374,7 @@ bf_cql = BFCQLAlgoConfig(
 
 sync_cql = dataclasses.replace(
     bf_cql,
-    _target_="holosoma.agents.bf_cql.sync_cql_agent.SyncCQLAgent",
+    _target_="holosoma.agents.sync_cql.sync_cql_agent.SyncCQLAgent",
 )
 
 pbf_cql = dataclasses.replace(

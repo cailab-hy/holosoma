@@ -1,197 +1,153 @@
+"""Unit tests for the standalone SYNC-QL package (agents/sync_cql).
+
+Covers the drift-gating math that works without a simulator, plus a guard that
+the package stays decoupled from agents/bf_cql.
+"""
+
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 import torch
 
-from holosoma.agents.bf_cql.sync_cql_agent import (
-    SyncCQLAgent,
-    build_group_to_action_mask,
-    counterfactual_actions_from_group_masks,
-    synergy_residual,
-)
+from holosoma.agents.sync_cql.sync_cql import GROUP_PRESETS, resolve_action_groups
+from holosoma.agents.sync_cql.sync_cql_agent import SyncCQLAgent, build_group_to_action_mask
+
+SYNC_PKG = Path(__file__).resolve().parents[1] / "src/holosoma/holosoma/agents/sync_cql"
 
 
-def _minimal_agent(*, mode: str = "topk", k: int = 2, delta: float = 0.5) -> SyncCQLAgent:
+def _minimal_agent(
+    *,
+    mode: str = "topk",
+    k: int = 2,
+    delta: float = 0.5,
+    drift_ema: float = 0.0,
+    momentum: float = 0.999,
+    freeze: bool = False,
+) -> SyncCQLAgent:
     agent = object.__new__(SyncCQLAgent)
     agent.device = "cpu"
-    agent.bf_cql_group_indices = [(0,), (1,), (2,), (3,)]
-    agent.bf_cql_group_names = ["g0", "g1", "g2", "g3"]
+    agent.bf_cql_group_indices = [(0,), (1,), (2, 3)]
+    agent.bf_cql_group_names = ["g0", "g1", "g23"]
     agent.config = SimpleNamespace(
         sync_cql=SimpleNamespace(
             K=k,
             delta_threshold=delta,
             selection_mode=mode,
             drift_mode="rmse",
-            eps_gain=0.0,
-            margin_m=0.0,
-            alpha2=0.0,
-            alpha2_lagrange=False,
-            tau_syn=5.0,
-            lambda_cf=0.0,
-            drift_ema=0.0,
-            drift_std_momentum=0.999,
-            freeze_drift_stats=False,
+            drift_ema=drift_ema,
+            drift_std_momentum=momentum,
+            freeze_drift_stats=freeze,
         )
     )
     agent.sync_group_to_action_mask = build_group_to_action_mask(agent.bf_cql_group_indices, 4, device="cpu")
+    agent.sync_action_std = torch.ones(4)
+    agent.sync_group_drift_ema = torch.zeros(len(agent.bf_cql_group_indices))
     return agent
 
 
-def test_selection_none_zero_sync_penalty_is_backward_compatible_at_loss_level():
-    agent = _minimal_agent(mode="none", k=2)
-    observations = torch.randn(5, 3)
-    critic_observations = torch.randn(5, 4)
-    dataset_actions = torch.randn(5, 4)
-    q1 = torch.randn(5)
-    q2 = torch.randn(5)
+def test_package_has_no_bf_cql_dependency():
+    for py_file in SYNC_PKG.glob("*.py"):
+        source = py_file.read_text()
+        assert "from holosoma.agents.bf_cql" not in source, f"{py_file.name} imports from agents/bf_cql"
+        assert "import holosoma.agents.bf_cql" not in source, f"{py_file.name} imports from agents/bf_cql"
 
-    sync_loss, sync_penalty, *_rest, selected_mask, _subset_hash = agent._compute_sync_penalty(
-        observations,
-        critic_observations,
-        dataset_actions,
-        q1,
-        q2,
+
+def test_group_to_action_mask_shape_and_content():
+    mask = build_group_to_action_mask([(0,), (1, 2), (3,)], 4, device="cpu")
+    assert mask.shape == (3, 4)
+    assert mask.dtype == torch.bool
+    expected = torch.tensor(
+        [[True, False, False, False], [False, True, True, False], [False, False, False, True]]
     )
-
-    assert torch.allclose(sync_loss, torch.tensor(0.0))
-    assert torch.allclose(sync_penalty, torch.tensor(0.0))
-    assert selected_mask.shape == (5, 4)
-    assert not selected_mask.any()
+    assert torch.equal(mask, expected)
 
 
-def test_additive_q_synergy_residual_vanishes():
-    group_indices = [(0, 1), (2,), (3,)]
-    group_to_action = build_group_to_action_mask(group_indices, 4, device="cpu")
-    dataset_actions = torch.randn(7, 4)
-    actor_actions = torch.randn(7, 4)
-    block_masks = torch.tensor(
+def test_resolve_action_groups_presets_cover_all_dims():
+    dof_names = [name for _, joints in GROUP_PRESETS["coarse_5"] for name in joints]
+    names, indices = resolve_action_groups("coarse_5", dof_names)
+    assert names == [group for group, _ in GROUP_PRESETS["coarse_5"]]
+    assert sorted(i for grp in indices for i in grp) == list(range(len(dof_names)))
+
+
+def test_group_drift_zero_when_actor_matches_dataset():
+    agent = _minimal_agent()
+    actions = torch.randn(6, 4)
+    drift = agent._compute_group_drift(actions, actions)
+    assert drift.shape == (6, 3)
+    assert drift.max().item() < 1e-5
+
+
+def test_group_drift_is_normalized_rmse_per_group():
+    agent = _minimal_agent()
+    agent.sync_action_std = torch.tensor([2.0, 1.0, 1.0, 1.0])
+    dataset = torch.zeros(1, 4)
+    actor = torch.tensor([[2.0, 1.0, 3.0, 4.0]])
+    drift = agent._compute_group_drift(dataset, actor)
+    # g0: |2/2| = 1 ; g1: |1/1| = 1 ; g23: sqrt((9+16)/2)
+    assert drift[0, 0].item() == pytest.approx(1.0, abs=1e-4)
+    assert drift[0, 1].item() == pytest.approx(1.0, abs=1e-4)
+    assert drift[0, 2].item() == pytest.approx(((9 + 16) / 2) ** 0.5, abs=1e-3)
+
+
+def test_group_drift_ema_blends_batch_and_history():
+    agent = _minimal_agent(drift_ema=0.5)
+    agent.sync_group_drift_ema = torch.tensor([4.0, 4.0, 4.0])
+    dataset = torch.zeros(2, 4)
+    actor = torch.zeros(2, 4)
+    drift = agent._compute_group_drift(dataset, actor)
+    # batch drift ~0; ema buffer updates to 0.5*4 + 0.5*0 = 2; blended = 0.5*0 + 0.5*2 = 1
+    assert torch.allclose(drift, torch.full((2, 3), 1.0), atol=1e-3)
+
+
+def test_action_std_update_momentum_and_freeze():
+    agent = _minimal_agent(momentum=0.9)
+    actions = torch.tensor([[0.0, 0.0, 0.0, 0.0], [2.0, 4.0, 6.0, 8.0]])
+    batch_std = actions.std(dim=0, unbiased=False).clamp_min(1e-3)
+    agent._update_sync_action_std(actions)
+    assert torch.allclose(agent.sync_action_std, 0.9 * torch.ones(4) + 0.1 * batch_std, atol=1e-5)
+
+    frozen = _minimal_agent(freeze=True)
+    before = frozen.sync_action_std.clone()
+    frozen._update_sync_action_std(actions)
+    assert torch.equal(frozen.sync_action_std, before)
+
+
+def test_selected_subset_hash_is_injective_over_masks():
+    agent = _minimal_agent()
+    masks = torch.tensor(
         [
-            [[True, False, True]],
-            [[False, True, True]],
-            [[True, True, False]],
-            [[True, False, False]],
-            [[False, True, False]],
-            [[False, False, True]],
-            [[True, True, True]],
-        ],
-        dtype=torch.bool,
-    )
-    singleton_masks = torch.zeros(7, 3, 3, dtype=torch.bool)
-    for batch_idx in range(7):
-        selected = torch.nonzero(block_masks[batch_idx, 0], as_tuple=False).flatten()
-        for singleton_idx, group_idx in enumerate(selected):
-            singleton_masks[batch_idx, singleton_idx, group_idx] = True
-    singleton_valid = singleton_masks.any(dim=2)
-
-    weights = torch.tensor([0.3, -0.7, 1.2, 0.5])
-    q_data = dataset_actions @ weights
-    q_block = counterfactual_actions_from_group_masks(
-        dataset_actions,
-        actor_actions,
-        block_masks,
-        group_to_action,
-    ).squeeze(1) @ weights
-    q_singletons = (
-        counterfactual_actions_from_group_masks(dataset_actions, actor_actions, singleton_masks, group_to_action)
-        @ weights
-    )
-
-    delta, _, _ = synergy_residual(q_data, q_block, q_singletons, singleton_valid)
-    assert torch.allclose(delta, torch.zeros_like(delta), atol=1e-6)
-
-
-def test_interaction_q_synergy_residual_has_block_gradients():
-    group_indices = [(0,), (1,)]
-    group_to_action = build_group_to_action_mask(group_indices, 2, device="cpu")
-    dataset_actions = torch.zeros(4, 2)
-    actor_actions = torch.ones(4, 2, requires_grad=True)
-    block_masks = torch.ones(4, 1, 2, dtype=torch.bool)
-    singleton_masks = torch.tensor([[[True, False], [False, True]]] * 4, dtype=torch.bool)
-    singleton_valid = singleton_masks.any(dim=2)
-
-    block_actions = counterfactual_actions_from_group_masks(
-        dataset_actions,
-        actor_actions,
-        block_masks,
-        group_to_action,
-    ).squeeze(1)
-    singleton_actions = counterfactual_actions_from_group_masks(
-        dataset_actions,
-        actor_actions,
-        singleton_masks,
-        group_to_action,
-    )
-    q_data = dataset_actions[:, 0] * dataset_actions[:, 1]
-    q_block = block_actions[:, 0] * block_actions[:, 1]
-    q_singletons = singleton_actions[..., 0] * singleton_actions[..., 1]
-
-    delta, _, _ = synergy_residual(q_data.detach(), q_block, q_singletons, singleton_valid)
-    penalty = torch.relu(delta).mean()
-    penalty.backward()
-
-    assert torch.all(delta > 0.0)
-    assert actor_actions.grad is not None
-    assert torch.all(actor_actions.grad > 0.0)
-
-
-def test_selection_shape_empty_mask_and_no_gradient_through_selection():
-    agent = _minimal_agent(mode="topk", k=2, delta=10.0)
-    batch_size = 6
-    group_drift = torch.ones(batch_size, 4, requires_grad=True)
-
-    selected_mask, selected_indices, active_mask = agent._select_sync_groups(
-        observations=torch.randn(batch_size, 3),
-        critic_observations=torch.randn(batch_size, 4),
-        dataset_actions=torch.randn(batch_size, 4),
-        actor_actions=torch.randn(batch_size, 4),
-        q_data_min=torch.randn(batch_size),
-        group_drift=group_drift,
-    )
-
-    assert selected_mask.shape == (batch_size, 4)
-    assert selected_indices.shape == (batch_size, 2)
-    assert active_mask.shape == (batch_size,)
-    assert not selected_mask.any()
-    assert not active_mask.any()
-    assert selected_mask.requires_grad is False
-    assert selected_indices.requires_grad is False
-
-
-def test_topk_selection_does_not_call_critic_and_respects_budget_screening():
-    agent = _minimal_agent(mode="topk", k=2, delta=0.5)
-
-    class RaisingCritic:
-        def __call__(self, *_args, **_kwargs):
-            raise AssertionError("topk selection must not evaluate Q")
-
-    agent.qnet = RaisingCritic()
-    group_drift = torch.tensor(
-        [
-            [0.1, 0.9, 0.8, 0.2],
-            [0.7, 0.6, 0.1, 0.9],
+            [False, False, False],
+            [True, False, False],
+            [False, True, False],
+            [True, True, False],
+            [False, False, True],
+            [True, True, True],
         ]
     )
-    selected_mask, selected_indices, active_mask = agent._select_sync_groups(
-        observations=torch.randn(2, 3),
-        critic_observations=torch.randn(2, 4),
-        dataset_actions=torch.randn(2, 4),
-        actor_actions=torch.randn(2, 4),
-        q_data_min=torch.randn(2),
-        group_drift=group_drift,
-    )
+    hashes = agent._selected_subset_hash(masks)
+    assert hashes.tolist() == [0, 1, 2, 3, 4, 7]
+    assert len(set(hashes.tolist())) == masks.shape[0]
 
-    assert active_mask.tolist() == [True, True]
-    assert selected_mask.sum(dim=1).tolist() == [2, 2]
-    assert selected_indices.shape == (2, 2)
-    assert 2 + 1 <= 2 + agent.config.sync_cql.K
+
+def test_sync_disabled_modes():
+    assert _minimal_agent(mode="none")._sync_disabled()
+    assert _minimal_agent(k=0)._sync_disabled()
+    assert not _minimal_agent(mode="topk", k=2)._sync_disabled()
 
 
 def test_density_drift_mode_placeholder_is_explicit():
-    agent = _minimal_agent(mode="topk")
+    agent = _minimal_agent()
     agent.config.sync_cql.drift_mode = "density"
-    agent.sync_action_std = torch.ones(4)
-
     with pytest.raises(NotImplementedError, match="CVAE"):
         agent._compute_group_drift(torch.zeros(2, 4), torch.ones(2, 4))
+
+
+def test_subset_composition_summary_names_groups():
+    agent = _minimal_agent()
+    mask = torch.tensor([[True, False, True], [True, False, True], [False, False, False]])
+    summary = agent._selected_subset_composition_summary(mask)
+    assert "g0+g23:0.667" in summary
+    assert "empty:0.333" in summary
