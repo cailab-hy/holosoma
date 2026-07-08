@@ -183,6 +183,39 @@ g1_29dof_cql = ExperimentConfig(
     ),
 )
 
+g1_29dof_iql = ExperimentConfig(
+    env_class="holosoma.envs.locomotion.locomotion_manager.LeggedRobotLocomotionManager",
+    training=TrainingConfig(
+        project="hv-g1-manager",
+        name="g1_29dof_iql_manager",
+        num_envs=512,
+        eval_num_episodes=1,
+    ),
+    algo=replace(
+        algo.iql,
+        config=replace(
+            algo.iql.config,
+            num_learning_iterations=50000,
+            use_symmetry=True,
+            offline_dataset_path="offline_data/g1_29dof_loco_fastsac_dataset_Replay64.h5",
+        ),
+    ),
+    simulator=simulator.isaacgym,
+    robot=robot.g1_29dof,
+    terrain=terrain.terrain_locomotion_mix,
+    observation=observation.g1_29dof_loco_single_wolinvel,
+    action=action.g1_29dof_joint_pos,
+    termination=termination.g1_29dof_termination,
+    randomization=randomization.g1_29dof_randomization,
+    command=command.g1_29dof_command,
+    curriculum=curriculum.g1_29dof_curriculum_fast_sac_data,
+    reward=reward.g1_29dof_loco_fast_sac,
+    nightly=NightlyConfig(
+        iterations=50000,
+        metrics={"Episode/rew_tracking_ang_vel": [0.8, "inf"], "Episode/rew_tracking_lin_vel": [0.95, "inf"]},
+    ),
+)
+
 g1_29dof_os_cql = ExperimentConfig(
     env_class="holosoma.envs.locomotion.locomotion_manager.LeggedRobotLocomotionManager",
     training=TrainingConfig(
@@ -316,6 +349,7 @@ __all__ = [
     "g1_29dof_fast_sac_episode_data",
     "g1_29dof_fixed_fast_sac_data",
     "g1_29dof_cql",
+    "g1_29dof_iql",
     "g1_29dof_os_cql",
     "g1_29dof_cal_ql",
     "g1_29dof_os_cal_ql",
