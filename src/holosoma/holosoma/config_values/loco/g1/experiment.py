@@ -268,6 +268,7 @@ g1_29dof_dcql = ExperimentConfig(
             use_symmetry=True,
             cql_weight=5.0,
             offline_dataset_path="offline_data/g1_29dof_loco_fastsac_dataset.h5",
+            t_grid=[1.0, 1.5, 2.0],
         ),
     ),
     simulator=simulator.isaacgym,
