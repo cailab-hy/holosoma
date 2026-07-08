@@ -695,8 +695,8 @@ class DCQLAgent(BaseAlgo):
                 q2_ray_lse = self._temperature * (
                     torch.logsumexp(q2_ray / self._temperature, dim=1) - log_num_rays
                 )
-                gap1 = q1_ray_lse - q1
-                gap2 = q2_ray_lse - q2
+                gap1 = torch.relu(q1_ray_lse - q1)
+                gap2 = torch.relu(q2_ray_lse - q2)
                 gate_float = dcql_active_mask.to(dtype=bellman_loss.dtype)
                 if dcql.gate_norm == "active":
                     gate_denominator = gate_float.sum().clamp_min(1.0)
