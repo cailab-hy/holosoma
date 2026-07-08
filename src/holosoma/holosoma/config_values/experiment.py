@@ -14,6 +14,7 @@ from holosoma.config_values.loco.g1.experiment import (
     g1_29dof_iql,
     g1_29dof_os_cql,
     g1_29dof_sync_cql,
+    g1_29dof_dcql,
 
 )
 from holosoma.config_values.loco.t1.experiment import t1_29dof, t1_29dof_fast_sac
@@ -26,6 +27,7 @@ from holosoma.config_values.wbt.g1.experiment import (
     g1_29dof_wbt_cql_gaussian,
     g1_29dof_wbt_bf_cql,
     g1_29dof_wbt_sync_cql,
+    g1_29dof_wbt_dcql,
     g1_29dof_wbt_pbf_cql,
     g1_29dof_wbt_fixed_fast_sac_data,
     g1_29dof_wbt_fast_sac,
@@ -52,6 +54,7 @@ DEFAULTS = {
     "g1_29dof_cql": g1_29dof_cql,
     "g1_29dof_iql": g1_29dof_iql,
     "g1_29dof_sync_cql": g1_29dof_sync_cql,
+    "g1_29dof_dcql": g1_29dof_dcql,
     "g1_29dof_os_cql" : g1_29dof_os_cql,
     "g1_29dof_cal_ql": g1_29dof_cal_ql,
     "g1_29dof_os_cal_ql": g1_29dof_os_cal_ql,
@@ -71,6 +74,7 @@ DEFAULTS = {
     "g1_29dof_wbt_cql_gaussian": g1_29dof_wbt_cql_gaussian,
     "g1_29dof_wbt_bf_cql": g1_29dof_wbt_bf_cql,
     "g1_29dof_wbt_sync_cql": g1_29dof_wbt_sync_cql,
+    "g1_29dof_wbt_dcql": g1_29dof_wbt_dcql,
     "g1_29dof_wbt_pbf_cql": g1_29dof_wbt_pbf_cql,
     "g1_29dof_wbt_bc": g1_29dof_wbt_bc,
     "g1_29dof_wbt_fast_sac_w_object": g1_29dof_wbt_fast_sac_w_object,

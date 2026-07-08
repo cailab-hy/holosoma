@@ -781,6 +781,44 @@ class SyncCQLSettings:
 
 
 @dataclass(frozen=True)
+class DCQLSettings:
+    """Configuration for escape-ray Directional Conservative Q-Learning."""
+
+    enabled: bool = True
+    """whether to replace CFCQL with escape-ray DCQL conservative regularization"""
+
+    t_grid: List[float] = field(default_factory=lambda: [0.5, 1.0, 1.5, 2.0])
+    """ray interpolation/extrapolation coefficients from dataset action to actor action"""
+
+    ray_noise_std: float = 0.05
+    """Gaussian noise std added to each ray action in normalized action space"""
+
+    delta_thr: float = 0.7
+    """minimum sigma-normalized actor-vs-reference drift required to activate DCQL"""
+
+    gate_norm: Literal["batch", "active"] = "batch"
+    """normalize gated DCQL by full batch size or active sample count"""
+
+    a_ref_mode: Literal["dataset", "knn"] = "dataset"
+    """reference on-support action source; knn is a reserved behavior-model stub"""
+
+    drift_std_momentum: float = 0.999
+    """momentum for running dataset action std used by the drift gate"""
+
+    freeze_drift_stats: bool = False
+    """whether to freeze running dataset action std updates"""
+
+    warmup_ballast_steps: int = 0
+    """number of initial critic updates using optional random-action ballast"""
+
+    ballast_alpha: float = 0.1
+    """relative weight for optional warmup random-action ballast"""
+
+    ballast_num_samples: int = 8
+    """number of random normalized actions per state for optional warmup ballast"""
+
+
+@dataclass(frozen=True)
 class SynDiagSettings:
     """Configuration for synergy-OOD diagnostic logging (BF-CQL, logging only).
 
@@ -884,6 +922,9 @@ class BFCQLConfig:
 
     sync_cql: SyncCQLSettings = field(default_factory=SyncCQLSettings)
     """SYNC-QL synergy regularization settings"""
+
+    dcql: DCQLSettings = field(default_factory=DCQLSettings)
+    """DCQL escape-ray conservative regularization settings"""
 
     pbf_cql: PBFCQLSettings = field(default_factory=PBFCQLSettings)
     """PBF-CQL all-pair synergy regularization settings"""

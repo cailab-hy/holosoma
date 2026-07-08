@@ -377,6 +377,11 @@ sync_cql = dataclasses.replace(
     _target_="holosoma.agents.sync_cql.sync_cql_agent.SyncCQLAgent",
 )
 
+dcql = dataclasses.replace(
+    bf_cql,
+    _target_="holosoma.agents.dcql.dcql_agent.DCQLAgent",
+)
+
 pbf_cql = dataclasses.replace(
     bf_cql,
     _target_="holosoma.agents.pbf_cql.pbf_cql_agent.PBFCQLAgent",
@@ -752,6 +757,7 @@ DEFAULTS = {
     "cql_gaussian": cql_gaussian,
     "bf_cql": bf_cql,
     "sync_cql": sync_cql,
+    "dcql": dcql,
     "pbf_cql": pbf_cql,
     "cal_ql": cal_ql,
     "cql_support_aware": cql_support_aware,

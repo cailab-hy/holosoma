@@ -647,6 +647,30 @@ g1_29dof_wbt_sync_cql = replace(
     ),
 )
 
+g1_29dof_wbt_dcql = replace(
+    g1_29dof_wbt_bf_cql,
+    training=replace(
+        g1_29dof_wbt_bf_cql.training,
+        name="g1_29dof_wbt_dcql_manager",
+    ),
+    algo=replace(
+        algo.dcql,
+        config=replace(
+            g1_29dof_wbt_bf_cql.algo.config,
+            dcql=replace(
+                g1_29dof_wbt_bf_cql.algo.config.dcql,
+                enabled=True,
+                t_grid=[0.5, 1.0, 1.5, 2.0],
+                ray_noise_std=0.05,
+                delta_thr=0.7,
+                gate_norm="batch",
+                a_ref_mode="dataset",
+                warmup_ballast_steps=0,
+            ),
+        ),
+    ),
+)
+
 g1_29dof_wbt_pbf_cql = replace(
     g1_29dof_wbt_bf_cql,
     training=replace(
@@ -1062,6 +1086,7 @@ __all__ = [
     "g1_29dof_wbt_cql_gaussian",
     "g1_29dof_wbt_bf_cql",
     "g1_29dof_wbt_sync_cql",
+    "g1_29dof_wbt_dcql",
     "g1_29dof_wbt_pbf_cql",
     "g1_29dof_wbt_bc",
     "g1_29dof_wbt_fast_sac_w_object",
