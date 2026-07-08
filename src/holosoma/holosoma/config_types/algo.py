@@ -1067,7 +1067,7 @@ class BFCQLConfig:
     q_max: float | None = None
     """maximum Bellman target Q value; None disables upper clipping"""
 
-    bellman_loss_type: Literal["mse", "huber"] = "huber"
+    bellman_loss_type: Literal["mse", "huber"] = "mse"
     """Bellman regression loss type for critic targets"""
 
     huber_beta: float = 10.0
