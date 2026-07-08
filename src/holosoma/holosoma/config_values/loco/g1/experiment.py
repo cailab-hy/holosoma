@@ -161,6 +161,7 @@ g1_29dof_cql = ExperimentConfig(
         config=replace(
             algo.cql.config,
             num_learning_iterations=50000,
+            normalized_action_training = False,
             use_symmetry=True,
             cql_weight=5.0,
             cql_num_action_samples=10,

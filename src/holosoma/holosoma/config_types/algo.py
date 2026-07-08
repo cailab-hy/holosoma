@@ -535,6 +535,9 @@ class CQLConfig:
     cql_weight: float = 5.0
     """weight of conservative quantile regularization"""
 
+    normalized_action_training: bool = True
+    """whether actor/critic train in normalized [-1, 1] action space; False restores legacy env-scaled action space"""
+
     cql_near_action_samples: int = 0
     """number of Gaussian-noised dataset-near actions per state for local conservative regularization"""
 
@@ -686,7 +689,7 @@ class CQLConfig:
     q_max: float | None = None
     """maximum Bellman target Q value; None disables upper clipping"""
 
-    bellman_loss_type: Literal["mse", "huber"] = "huber"
+    bellman_loss_type: Literal["mse", "huber"] = "mse"
     """Bellman regression loss type for critic targets"""
 
     huber_beta: float = 10.0

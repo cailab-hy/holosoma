@@ -83,7 +83,7 @@ class Actor(nn.Module):
         log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (log_std + 1)
 
         if self.use_tanh:
-            action = torch.tanh(mean)
+            action = torch.tanh(mean) * self.action_scale + self.action_bias
         else:
             action = mean
 
@@ -96,10 +96,12 @@ class Actor(nn.Module):
         raw_action = dist.rsample()
 
         if self.use_tanh:
-            action = torch.tanh(raw_action)
+            tanh_action = torch.tanh(raw_action)
+            action = tanh_action * self.action_scale + self.action_bias
 
             log_prob = dist.log_prob(raw_action)
-            log_prob -= torch.log(1 - action.pow(2) + 1e-6)
+            log_prob -= torch.log(1 - tanh_action.pow(2) + 1e-6)
+            log_prob -= torch.log(self.action_scale + 1e-6)
         else:
             action = raw_action
             log_prob = dist.log_prob(raw_action)
@@ -111,7 +113,7 @@ class Actor(nn.Module):
 
         Shapes:
         - obs: [B, actor_obs_dim]
-        - dataset_actions: [B, action_dim] in normalized action space
+        - dataset_actions: [B, action_dim] in the actor output action space
         - return: [B]
         """
         _, mean, log_std = self(obs)
@@ -119,7 +121,7 @@ class Actor(nn.Module):
         dist = torch.distributions.Normal(mean, std)
 
         if self.use_tanh:
-            normalized_action = dataset_actions
+            normalized_action = (dataset_actions - self.action_bias) / (self.action_scale + 1e-6)
             normalized_action = normalized_action.clamp(-1.0 + 1e-6, 1.0 - 1e-6)
 
             # atanh(x) = 0.5 * (log(1 + x) - log(1 - x))
@@ -127,6 +129,7 @@ class Actor(nn.Module):
 
             log_prob = dist.log_prob(raw_action)
             log_prob -= torch.log(1 - normalized_action.pow(2) + 1e-6)
+            log_prob -= torch.log(self.action_scale + 1e-6)
         else:
             log_prob = dist.log_prob(dataset_actions)
 
@@ -143,7 +146,7 @@ class Actor(nn.Module):
         _, mean, log_std = self(obs)
         if deterministic:
             if self.use_tanh:
-                return torch.tanh(mean)
+                return torch.tanh(mean) * self.action_scale + self.action_bias
             return mean
 
         std = log_std.exp()
@@ -151,7 +154,7 @@ class Actor(nn.Module):
         raw_action = dist.rsample()
 
         if self.use_tanh:
-            action = torch.tanh(raw_action)
+            action = torch.tanh(raw_action) * self.action_scale + self.action_bias
         else:
             action = raw_action
 
