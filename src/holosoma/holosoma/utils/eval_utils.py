@@ -62,6 +62,15 @@ class CheckpointConfig:
     checkpoint: str | None = None
     """Path to a local checkpoint file, or W&B URI in the format `wandb://<entity>/<project>/<run_id>[/<checkpoint_name>]`."""
 
+    q_gradient_diagnostic: bool = False
+    """Run frozen-critic action-gradient alignment diagnostic after loading the checkpoint."""
+
+    q_gradient_batch_size: int = 4096
+    """Offline batch size used for the Q-gradient diagnostic."""
+
+    q_gradient_num_batches: int = 1
+    """Number of offline batches used for the Q-gradient diagnostic."""
+
 
 def load_saved_experiment_config(checkpoint_cfg: CheckpointConfig) -> tuple[ExperimentConfig, str | None]:
     """Load checkpoint configuration from either W&B run or local checkpoint.

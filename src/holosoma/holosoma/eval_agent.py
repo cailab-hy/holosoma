@@ -22,6 +22,7 @@ from holosoma.utils.sim_utils import (
     close_simulation_app,
     setup_simulation_environment,
 )
+from holosoma.utils.safe_torch_import import torch
 from holosoma.utils.tyro_utils import TYRO_CONIFG
 
 
@@ -109,6 +110,260 @@ def _set_defer_eval_resets(algo: BaseAlgo, enabled: bool) -> bool:
             env.set_defer_resets(enabled)
             return True
     return False
+
+
+def _q_gradient_diagnostic_normalizer(normalizer):
+    def _normalize(x):
+        try:
+            return normalizer(x, update=False)
+        except TypeError:
+            return normalizer(x)
+
+    return _normalize
+
+
+def _actions_for_critic(algo: BaseAlgo, actions: torch.Tensor) -> torch.Tensor:
+    to_critic_actions = getattr(algo, "_to_critic_actions", None)
+    if callable(to_critic_actions):
+        return to_critic_actions(actions)
+
+    to_normalized_actions = getattr(algo, "_to_normalized_actions", None)
+    if callable(to_normalized_actions):
+        return to_normalized_actions(actions)
+
+    return actions
+
+
+def _tensor_stats(values: torch.Tensor) -> dict[str, float]:
+    if values.numel() == 0:
+        return {
+            "mean": 0.0,
+            "std": 0.0,
+            "min": 0.0,
+            "p01": 0.0,
+            "p05": 0.0,
+            "p10": 0.0,
+            "p25": 0.0,
+            "p50": 0.0,
+            "p75": 0.0,
+            "p90": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0,
+        }
+    values_f = values.detach().float()
+    quantiles = torch.quantile(
+        values_f,
+        torch.tensor([0.01, 0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95, 0.99], device=values_f.device),
+    )
+    return {
+        "mean": float(values_f.mean().item()),
+        "std": float(values_f.std(unbiased=False).item()) if values_f.numel() > 1 else 0.0,
+        "min": float(values_f.min().item()),
+        "p01": float(quantiles[0].item()),
+        "p05": float(quantiles[1].item()),
+        "p10": float(quantiles[2].item()),
+        "p25": float(quantiles[3].item()),
+        "p50": float(quantiles[4].item()),
+        "p75": float(quantiles[5].item()),
+        "p90": float(quantiles[6].item()),
+        "p95": float(quantiles[7].item()),
+        "p99": float(quantiles[8].item()),
+        "max": float(values_f.max().item()),
+    }
+
+
+def _format_stats(stats: dict[str, float]) -> str:
+    return (
+        "mean={mean:.4f} std={std:.4f} min={min:.4f} p01={p01:.4f} p05={p05:.4f} "
+        "p10={p10:.4f} p25={p25:.4f} p50={p50:.4f} p75={p75:.4f} p90={p90:.4f} "
+        "p95={p95:.4f} p99={p99:.4f} max={max:.4f}"
+    ).format(**stats)
+
+
+def _cosine_histogram(values: torch.Tensor, bins: int = 10) -> list[tuple[float, float, int, float]]:
+    if values.numel() == 0:
+        return []
+    values_cpu = values.detach().float().cpu().clamp(-1.0, 1.0)
+    hist = torch.histc(values_cpu, bins=bins, min=-1.0, max=1.0)
+    edges = torch.linspace(-1.0, 1.0, bins + 1)
+    total = max(1, int(values_cpu.numel()))
+    return [
+        (float(edges[idx].item()), float(edges[idx + 1].item()), int(hist[idx].item()), 100.0 * float(hist[idx].item()) / total)
+        for idx in range(bins)
+    ]
+
+
+def _log_cosine_histogram(prefix: str, values: torch.Tensor) -> None:
+    for low, high, count, pct in _cosine_histogram(values):
+        logger.info("{} hist [{:.1f}, {:.1f}] count={} percent={:.2f}%", prefix, low, high, count, pct)
+
+
+def _cosine_from_grad_and_direction(
+    grad_actions: torch.Tensor,
+    direction: torch.Tensor,
+    eps: float = 1e-8,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    grad_norm = grad_actions.norm(dim=1)
+    direction_norm = direction.norm(dim=1)
+    valid = (grad_norm > eps) & (direction_norm > eps)
+    cosine = (grad_actions * direction).sum(dim=1) / (grad_norm * direction_norm).clamp_min(eps)
+    return cosine[valid], valid
+
+
+def _run_q_gradient_diagnostic(algo: BaseAlgo, checkpoint_cfg: CheckpointConfig) -> bool:
+    actor = getattr(algo, "actor", None)
+    qnet = getattr(algo, "qnet", None)
+    sample_offline_batch = getattr(algo, "_sample_offline_batch", None)
+    if actor is None or qnet is None or not callable(sample_offline_batch):
+        logger.warning(
+            "[QGradDiag] skipped: algo={} does not expose actor/qnet/_sample_offline_batch.",
+            type(algo).__name__,
+        )
+        return False
+
+    batch_size = max(1, int(checkpoint_cfg.q_gradient_batch_size))
+    num_batches = max(1, int(checkpoint_cfg.q_gradient_num_batches))
+    logger.info(
+        "[QGradDiag] starting frozen-critic action-gradient diagnostic: batch_size={} num_batches={}",
+        batch_size,
+        num_batches,
+    )
+
+    was_actor_training = bool(getattr(actor, "training", False))
+    was_qnet_training = bool(getattr(qnet, "training", False))
+    obs_normalizer = getattr(algo, "obs_normalizer", None)
+    critic_obs_normalizer = getattr(algo, "critic_obs_normalizer", None)
+    was_obs_norm_training = bool(getattr(obs_normalizer, "training", False)) if obs_normalizer is not None else False
+    was_critic_obs_norm_training = (
+        bool(getattr(critic_obs_normalizer, "training", False)) if critic_obs_normalizer is not None else False
+    )
+
+    actor.eval()
+    qnet.eval()
+    if obs_normalizer is not None:
+        obs_normalizer.eval()
+    if critic_obs_normalizer is not None:
+        critic_obs_normalizer.eval()
+
+    normalize_obs = _q_gradient_diagnostic_normalizer(obs_normalizer) if obs_normalizer is not None else lambda x: x
+    normalize_critic_obs = (
+        _q_gradient_diagnostic_normalizer(critic_obs_normalizer) if critic_obs_normalizer is not None else lambda x: x
+    )
+
+    cosine_values: list[torch.Tensor] = []
+    q_pi_values: list[torch.Tensor] = []
+    q_data_values: list[torch.Tensor] = []
+    grad_norm_values: list[torch.Tensor] = []
+    direction_norm_values: list[torch.Tensor] = []
+    invalid_count = 0
+    total_count = 0
+    group_cosines: dict[str, list[torch.Tensor]] = {}
+    group_indices = getattr(algo, "bf_cql_group_indices", None)
+    group_names = getattr(algo, "bf_cql_group_names", None)
+    if group_indices is not None:
+        if not group_names:
+            group_names = [f"group_{idx}" for idx in range(len(group_indices))]
+        group_cosines = {str(name): [] for name in group_names}
+
+    try:
+        for _ in range(num_batches):
+            data = sample_offline_batch(
+                batch_size=batch_size,
+                normalize_obs=normalize_obs,
+                normalize_critic_obs=normalize_critic_obs,
+            )
+            observations = data["observations"]
+            critic_observations = data["critic_observations"]
+            dataset_actions = _actions_for_critic(algo, data["actions"]).detach()
+
+            with torch.no_grad():
+                # Actor.forward returns the deterministic policy action in the critic action space.
+                pi_actions = actor(observations)[0].detach()
+
+            pi_actions_for_grad = pi_actions.clone().detach().requires_grad_(True)
+            q1_pi, q2_pi = qnet(critic_observations, pi_actions_for_grad)
+            q_pi = torch.minimum(q1_pi, q2_pi)
+            grad_actions = torch.autograd.grad(
+                q_pi.sum(),
+                pi_actions_for_grad,
+                retain_graph=False,
+                create_graph=False,
+            )[0].detach()
+
+            direction = (dataset_actions - pi_actions).detach()
+            cosine, valid = _cosine_from_grad_and_direction(grad_actions, direction)
+            cosine_values.append(cosine.detach().cpu())
+            invalid_count += int((~valid).sum().item())
+            total_count += int(valid.numel())
+            grad_norm_values.append(grad_actions.norm(dim=1).detach().cpu())
+            direction_norm_values.append(direction.norm(dim=1).detach().cpu())
+
+            with torch.no_grad():
+                q1_data, q2_data = qnet(critic_observations, dataset_actions)
+                q_data = torch.minimum(q1_data, q2_data)
+                q_pi_values.append(q_pi.detach().cpu())
+                q_data_values.append(q_data.detach().cpu())
+
+            if group_indices is not None and group_names is not None:
+                for group_name, indices in zip(group_names, group_indices, strict=True):
+                    idx_tensor = torch.as_tensor(indices, device=direction.device, dtype=torch.long)
+                    group_cosine, _ = _cosine_from_grad_and_direction(
+                        grad_actions.index_select(1, idx_tensor),
+                        direction.index_select(1, idx_tensor),
+                    )
+                    group_cosines[str(group_name)].append(group_cosine.detach().cpu())
+    finally:
+        if was_actor_training:
+            actor.train()
+        if was_qnet_training:
+            qnet.train()
+        if obs_normalizer is not None and was_obs_norm_training:
+            obs_normalizer.train()
+        if critic_obs_normalizer is not None and was_critic_obs_norm_training:
+            critic_obs_normalizer.train()
+
+    if not cosine_values:
+        logger.warning("[QGradDiag] no valid batches were sampled.")
+        return False
+
+    cosines = torch.cat(cosine_values)
+    q_pi_all = torch.cat(q_pi_values)
+    q_data_all = torch.cat(q_data_values)
+    grad_norms = torch.cat(grad_norm_values)
+    direction_norms = torch.cat(direction_norm_values)
+    logger.info("[QGradDiag] valid_samples={} invalid_samples={} total={}", int(cosines.numel()), invalid_count, total_count)
+    logger.info("[QGradDiag] global cos(grad_a Q(a_pi), a_D-a_pi): {}", _format_stats(_tensor_stats(cosines)))
+    logger.info(
+        "[QGradDiag] ratios negative={:.2f}% near_zero(|cos|<0.1)={:.2f}% positive={:.2f}% aligned(cos>0.5)={:.2f}%",
+        100.0 * float((cosines < 0.0).float().mean().item()),
+        100.0 * float((cosines.abs() < 0.1).float().mean().item()),
+        100.0 * float((cosines > 0.0).float().mean().item()),
+        100.0 * float((cosines > 0.5).float().mean().item()),
+    )
+    logger.info("[QGradDiag] q_pi stats: {}", _format_stats(_tensor_stats(q_pi_all)))
+    logger.info("[QGradDiag] q_data stats: {}", _format_stats(_tensor_stats(q_data_all)))
+    logger.info("[QGradDiag] q_pi_minus_q_data_mean={:.4f}", float((q_pi_all - q_data_all).mean().item()))
+    logger.info("[QGradDiag] grad_norm stats: {}", _format_stats(_tensor_stats(grad_norms)))
+    logger.info("[QGradDiag] direction_norm stats: {}", _format_stats(_tensor_stats(direction_norms)))
+    _log_cosine_histogram("[QGradDiag] global cosine", cosines)
+
+    for group_name, tensors in group_cosines.items():
+        if not tensors:
+            continue
+        group_values = torch.cat(tensors)
+        if group_values.numel() == 0:
+            continue
+        logger.info(
+            "[QGradDiag][group={}] cos stats: {} negative={:.2f}% near_zero={:.2f}% aligned={:.2f}%",
+            group_name,
+            _format_stats(_tensor_stats(group_values)),
+            100.0 * float((group_values < 0.0).float().mean().item()),
+            100.0 * float((group_values.abs() < 0.1).float().mean().item()),
+            100.0 * float((group_values > 0.5).float().mean().item()),
+        )
+
+    return True
 
 
 def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) -> bool:
@@ -299,6 +554,8 @@ def run_eval_with_tyro(
     algo.setup()
     algo.attach_checkpoint_metadata(saved_config, saved_wandb_path)
     algo.load(checkpoint_path)
+    if checkpoint_cfg.q_gradient_diagnostic:
+        _run_q_gradient_diagnostic(algo, checkpoint_cfg)
 
     checkpoint_dir = os.path.dirname(checkpoint_path)
 
