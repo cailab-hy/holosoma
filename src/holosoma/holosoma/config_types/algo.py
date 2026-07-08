@@ -535,7 +535,7 @@ class CQLConfig:
     cql_weight: float = 5.0
     """weight of conservative quantile regularization"""
 
-    normalized_action_training: bool = True
+    normalized_action_training: bool = False
     """whether actor/critic train in normalized [-1, 1] action space; False restores legacy env-scaled action space"""
 
     cql_near_action_samples: int = 0
