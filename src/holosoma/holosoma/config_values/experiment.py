@@ -13,6 +13,7 @@ from holosoma.config_values.loco.g1.experiment import (
     g1_29dof_fixed_fast_sac_data,
     g1_29dof_iql,
     g1_29dof_os_cql,
+    g1_29dof_sync_cql,
 
 )
 from holosoma.config_values.loco.t1.experiment import t1_29dof, t1_29dof_fast_sac
@@ -50,6 +51,7 @@ DEFAULTS = {
     "g1_29dof_fixed_fast_sac_data": g1_29dof_fixed_fast_sac_data,
     "g1_29dof_cql": g1_29dof_cql,
     "g1_29dof_iql": g1_29dof_iql,
+    "g1_29dof_sync_cql": g1_29dof_sync_cql,
     "g1_29dof_os_cql" : g1_29dof_os_cql,
     "g1_29dof_cal_ql": g1_29dof_cal_ql,
     "g1_29dof_os_cal_ql": g1_29dof_os_cal_ql,
