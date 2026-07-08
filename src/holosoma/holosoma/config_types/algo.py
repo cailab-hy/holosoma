@@ -743,6 +743,9 @@ class SyncCQLSettings:
     selection_mode: Literal["topk", "greedy", "random", "none"] = "topk"
     """set to 'none' to disable drift gating and recover BF-CQL-style all-group CFCQL"""
 
+    gate_norm: Literal["batch", "active"] = "batch"
+    """normalize gated CFCQL by full batch size or active sample count"""
+
     drift_mode: Literal["rmse", "density"] = "rmse"
     """actor drift estimator used for candidate screening"""
 

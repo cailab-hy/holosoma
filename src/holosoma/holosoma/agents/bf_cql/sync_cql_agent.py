@@ -9,8 +9,8 @@ with a per-sample drift-gated sum:
 
 The inner logsumexp over random/current/next group counterfactuals, Lagrange
 handling, and normalized action training are unchanged from BF-CQL.  Groups with
-small actor-vs-dataset drift are skipped, and each sample is normalized by its
-number of active groups instead of the total number of groups.
+small actor-vs-dataset drift are skipped, and the gated penalty can be normalized
+by either the full batch or active samples via ``sync_cql.gate_norm``.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from holosoma.config_types.algo import BFCQLConfig
 from holosoma.data.hdf5_offline_dataset import GPUTransitionCache, HDF5BlockReader, RAMShuffleBuffer
 from holosoma.envs.base_task.base_task import BaseTask
 from holosoma.utils.average_meters import TensorAverageMeterDict
-from holosoma.utils.safe_torch_import import F, TensorDict, TensorboardSummaryWriter, optim, torch
+from holosoma.utils.safe_torch_import import F, TensorDict, TensorboardSummaryWriter, torch
 
 
 def build_group_to_action_mask(
@@ -47,58 +47,6 @@ def build_group_to_action_mask(
     for group_idx, indices in enumerate(group_indices):
         group_to_action[group_idx, list(indices)] = True
     return group_to_action
-
-
-def counterfactual_actions_from_group_masks(
-    dataset_actions: torch.Tensor,
-    actor_actions: torch.Tensor,
-    group_masks: torch.Tensor,
-    group_to_action_mask: torch.Tensor,
-) -> torch.Tensor:
-    """Construct a_cf(M)=(a_pi^M, a_D^{-M}) for each per-sample group mask.
-
-    Parameters
-    ----------
-    dataset_actions:
-        Dataset action a_D with shape [B, A].
-    actor_actions:
-        Actor action a_pi with shape [B, A].
-    group_masks:
-        Boolean selected-group masks with shape [B, N, G].
-    group_to_action_mask:
-        Boolean group-to-action mask with shape [G, A].
-
-    Returns
-    -------
-    torch.Tensor
-        Counterfactual actions with shape [B, N, A].
-    """
-
-    action_masks = torch.matmul(
-        group_masks.float(),
-        group_to_action_mask.to(device=group_masks.device, dtype=torch.float32),
-    )
-    action_masks = action_masks.to(dtype=torch.bool)
-    return torch.where(action_masks, actor_actions[:, None, :], dataset_actions[:, None, :])
-
-
-def synergy_residual(
-    q_data: torch.Tensor,
-    q_block: torch.Tensor,
-    q_singletons: torch.Tensor,
-    singleton_valid: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Compute Delta(M)=v(M)-sum_{g in M}v({g}).
-
-    q_data is detached by the caller when the residual is used as a conservative
-    penalty.  That keeps this term focused on chosen counterfactual Q-values
-    instead of re-weighting the dataset-anchor term already handled by CFCQL.
-    """
-
-    v_block = q_block - q_data
-    v_singletons = (q_singletons.detach() - q_data[:, None]) * singleton_valid.to(q_singletons.dtype)
-    v_singleton_sum = v_singletons.sum(dim=1)
-    return v_block - v_singleton_sum, v_block, v_singleton_sum
 
 
 class SyncCQLAgent(BaseAlgo):
@@ -241,6 +189,8 @@ class SyncCQLAgent(BaseAlgo):
             raise ValueError(f"sync_cql.K must be >= 0, got {sync.K}")
         if sync.delta_threshold < 0.0:
             raise ValueError(f"sync_cql.delta_threshold must be >= 0, got {sync.delta_threshold}")
+        if sync.gate_norm not in {"batch", "active"}:
+            raise ValueError(f"sync_cql.gate_norm must be 'batch' or 'active', got {sync.gate_norm!r}")
         if sync.alpha2 < 0.0:
             raise ValueError(f"sync_cql.alpha2 must be >= 0, got {sync.alpha2}")
         if sync.tau_syn < 0.0:
@@ -253,6 +203,11 @@ class SyncCQLAgent(BaseAlgo):
             raise ValueError(
                 f"sync_cql.drift_std_momentum must be in [0, 1), got {sync.drift_std_momentum}"
             )
+        if sync.selection_mode != "none" and sync.K != 0 and self.config.ood_actor_num != 1:
+            raise ValueError(
+                "SYNC-QL drift gating assumes each CFCQL group term replaces only its base group. "
+                "Set ood_actor_num=1, or disable gating with sync_cql.selection_mode='none'."
+            )
 
         self.sync_group_to_action_mask = build_group_to_action_mask(
             self.bf_cql_group_indices,
@@ -261,53 +216,16 @@ class SyncCQLAgent(BaseAlgo):
         )
         self.sync_action_std = torch.ones(action_dim, device=self.device)
         self.sync_group_drift_ema = torch.zeros(num_groups, device=self.device)
-        self.log_sync_alpha2: torch.Tensor | None = None
-        self.sync_alpha2_optimizer: optim.Optimizer | None = None
-        if sync.alpha2_lagrange:
-            init_alpha2 = max(float(sync.alpha2), 1e-8)
-            self.log_sync_alpha2 = torch.tensor([math.log(init_alpha2)], requires_grad=True, device=self.device)
-            self.sync_alpha2_optimizer = optim.AdamW(
-                [self.log_sync_alpha2],
-                lr=self.config.cql_lagrange_learning_rate,
-                fused=True,
-                betas=(0.9, 0.95),
-            )
 
         logger.info(
             "SYNC-QL drift-gated CFCQL enabled: "
             f"delta_threshold={sync.delta_threshold}, selection_mode={sync.selection_mode}, "
-            f"drift_mode={sync.drift_mode}, lambda_cf={sync.lambda_cf}"
+            f"gate_norm={sync.gate_norm}, drift_mode={sync.drift_mode}, lambda_cf={sync.lambda_cf}"
         )
 
     def _sync_disabled(self) -> bool:
         sync = self.config.sync_cql
         return sync.selection_mode == "none" or sync.K == 0
-
-    def _sync_alpha2_value(self, dtype: torch.dtype) -> torch.Tensor:
-        if self.config.sync_cql.alpha2_lagrange and self.log_sync_alpha2 is not None:
-            return self.log_sync_alpha2.exp().detach().to(dtype=dtype)
-        return torch.tensor(float(self.config.sync_cql.alpha2), device=self.device, dtype=dtype)
-
-    def _update_sync_alpha2_lagrange(self, sync_penalty: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        sync = self.config.sync_cql
-        if (
-            not sync.alpha2_lagrange
-            or self.log_sync_alpha2 is None
-            or self.sync_alpha2_optimizer is None
-        ):
-            return self._sync_alpha2_value(sync_penalty.dtype).detach(), torch.zeros((), device=self.device)
-
-        alpha2 = self.log_sync_alpha2.exp()
-        target = torch.tensor(sync.tau_syn, device=self.device, dtype=sync_penalty.dtype)
-        alpha2_loss = -alpha2 * (sync_penalty.detach() - target)
-
-        self.sync_alpha2_optimizer.zero_grad(set_to_none=True)
-        alpha2_loss.backward()
-        if self.is_multi_gpu and self.log_sync_alpha2.grad is not None:
-            torch.distributed.all_reduce(self.log_sync_alpha2.grad.data, op=torch.distributed.ReduceOp.SUM)
-            self.log_sync_alpha2.grad.data.copy_(self.log_sync_alpha2.grad.data / self.gpu_world_size)
-        self.sync_alpha2_optimizer.step()
-        return self.log_sync_alpha2.exp().detach(), alpha2_loss.detach()
 
     @torch.no_grad()
     def _update_sync_action_std(self, dataset_actions: torch.Tensor) -> None:
@@ -348,232 +266,6 @@ class SyncCQLAgent(BaseAlgo):
             self.sync_group_drift_ema.mul_(sync.drift_ema).add_(batch_mean, alpha=1.0 - sync.drift_ema)
             drift = (1.0 - sync.drift_ema) * drift + sync.drift_ema * self.sync_group_drift_ema[None, :]
         return drift
-
-    @torch.no_grad()
-    def _screen_sync_candidates(self, group_drift: torch.Tensor) -> torch.Tensor:
-        sync = self.config.sync_cql
-        batch_size, num_groups = group_drift.shape
-        screen_k = min(max(2 * int(sync.K), 1), num_groups)
-        candidate_mask = torch.zeros(batch_size, num_groups, device=group_drift.device, dtype=torch.bool)
-        top_indices = group_drift.topk(screen_k, dim=1).indices
-        candidate_mask.scatter_(1, top_indices, True)
-        candidate_mask &= group_drift >= float(sync.delta_threshold)
-        return candidate_mask
-
-    @torch.no_grad()
-    def _select_sync_groups(
-        self,
-        observations: torch.Tensor,
-        critic_observations: torch.Tensor,
-        dataset_actions: torch.Tensor,
-        actor_actions: torch.Tensor,
-        q_data_min: torch.Tensor,
-        group_drift: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Select M* per sample with detached tensors; no gradient flows through selection."""
-
-        sync = self.config.sync_cql
-        batch_size, num_groups = group_drift.shape
-        max_k = min(int(sync.K), num_groups)
-        selected_indices = torch.full((batch_size, max_k), -1, device=self.device, dtype=torch.long)
-        selected_mask = torch.zeros(batch_size, num_groups, device=self.device, dtype=torch.bool)
-
-        if max_k == 0 or sync.selection_mode == "none":
-            return selected_mask.detach(), selected_indices.detach(), torch.zeros(batch_size, device=self.device, dtype=torch.bool)
-
-        if sync.selection_mode == "random":
-            scores = torch.rand(batch_size, num_groups, device=self.device)
-            selected_indices = scores.topk(max_k, dim=1).indices
-            selected_mask.scatter_(1, selected_indices, True)
-            return selected_mask.detach(), selected_indices.detach(), torch.ones(batch_size, device=self.device, dtype=torch.bool)
-
-        candidate_mask = self._screen_sync_candidates(group_drift)
-        if sync.selection_mode == "topk":
-            masked_drift = group_drift.masked_fill(~candidate_mask, -torch.inf)
-            selected_values, selected_indices = masked_drift.topk(max_k, dim=1)
-            valid_selected = torch.isfinite(selected_values)
-            safe_indices = selected_indices.clamp_min(0)
-            selected_mask.scatter_(1, safe_indices, valid_selected)
-            selected_indices = torch.where(valid_selected, selected_indices, torch.full_like(selected_indices, -1))
-            return selected_mask.detach(), selected_indices.detach(), selected_mask.any(dim=1).detach()
-
-        if sync.selection_mode != "greedy":
-            raise ValueError(f"Unknown sync_cql.selection_mode={sync.selection_mode!r}")
-
-        screen_k = min(max(2 * max_k, 1), num_groups)
-        candidate_scores = group_drift.masked_fill(~candidate_mask, -torch.inf)
-        _, candidate_indices = candidate_scores.topk(screen_k, dim=1)
-        candidate_valid = torch.isfinite(candidate_scores.gather(1, candidate_indices))
-        current_v = torch.zeros(batch_size, device=self.device, dtype=q_data_min.dtype)
-
-        for stage in range(max_k):
-            available_valid = candidate_valid & ~selected_mask.gather(1, candidate_indices)
-            trial_masks = selected_mask[:, None, :].expand(batch_size, screen_k, num_groups).clone()
-            trial_masks.scatter_(2, candidate_indices[:, :, None], True)
-            trial_actions = counterfactual_actions_from_group_masks(
-                dataset_actions,
-                actor_actions,
-                trial_masks,
-                self.sync_group_to_action_mask,
-            )
-            trial_critic_obs = critic_observations[:, None, :].expand(batch_size, screen_k, -1).reshape(
-                batch_size * screen_k,
-                -1,
-            )
-            q1_trial, q2_trial = self.qnet(trial_critic_obs, trial_actions.reshape(batch_size * screen_k, -1))
-            trial_v = torch.minimum(q1_trial, q2_trial).view(batch_size, screen_k) - q_data_min[:, None]
-            marginal = (trial_v - current_v[:, None]).masked_fill(~available_valid, -torch.inf)
-            best_gain, best_pos = marginal.max(dim=1)
-            add_mask = torch.isfinite(best_gain) & (best_gain >= float(sync.eps_gain))
-            chosen_group = candidate_indices.gather(1, best_pos[:, None]).squeeze(1)
-            safe_group = chosen_group.clamp_min(0)
-            selected_mask[add_mask, safe_group[add_mask]] = True
-            selected_indices[:, stage] = torch.where(add_mask, chosen_group, torch.full_like(chosen_group, -1))
-            current_v = torch.where(add_mask, trial_v.gather(1, best_pos[:, None]).squeeze(1), current_v)
-
-        return selected_mask.detach(), selected_indices.detach(), selected_mask.any(dim=1).detach()
-
-    def _compute_sync_penalty(
-        self,
-        observations: torch.Tensor,
-        critic_observations: torch.Tensor,
-        dataset_actions: torch.Tensor,
-        q1_data: torch.Tensor,
-        q2_data: torch.Tensor,
-    ) -> tuple[
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-    ]:
-        """Compute alpha2 * E[relu(Delta(M*) - margin_m)].
-
-        The hinge is on Delta(M*) rather than v(M*) because singleton CFCQL
-        already suppresses one-group drift; this term should only target
-        inter-group interaction residuals.
-        """
-
-        sync = self.config.sync_cql
-        batch_size = dataset_actions.shape[0]
-        num_groups = len(self.bf_cql_group_indices)
-        max_k = min(max(int(sync.K), 0), num_groups)
-        zero = torch.zeros((), device=self.device, dtype=q1_data.dtype)
-        empty_selected = torch.zeros(batch_size, num_groups, device=self.device, dtype=torch.bool)
-        empty_vec = torch.zeros(num_groups, device=self.device, dtype=q1_data.dtype)
-
-        if self._sync_disabled():
-            return (
-                zero,
-                zero,
-                zero,
-                zero,
-                zero,
-                self._sync_alpha2_value(q1_data.dtype),
-                zero,
-                empty_vec,
-                empty_vec,
-                empty_selected,
-                zero,
-            )
-
-        with torch.no_grad():
-            actor_actions = self.actor(observations)[0]
-            self._update_sync_action_std(dataset_actions)
-            group_drift = self._compute_group_drift(dataset_actions, actor_actions)
-            q_data_min = torch.minimum(q1_data.detach(), q2_data.detach())
-            selected_mask, selected_indices, active_mask = self._select_sync_groups(
-                observations.detach(),
-                critic_observations.detach(),
-                dataset_actions.detach(),
-                actor_actions.detach(),
-                q_data_min,
-                group_drift,
-            )
-
-        active_float = active_mask.to(dtype=q1_data.dtype)
-        valid_count = active_float.sum().clamp_min(1.0)
-        drift_means = group_drift.mean(dim=0).detach()
-        selection_freq = selected_mask.to(dtype=q1_data.dtype).mean(dim=0).detach()
-
-        block_actions = counterfactual_actions_from_group_masks(
-            dataset_actions.detach(),
-            actor_actions.detach(),
-            selected_mask[:, None, :],
-            self.sync_group_to_action_mask,
-        ).squeeze(1)
-        q1_block, q2_block = self.qnet(critic_observations, block_actions)
-
-        if max_k > 0:
-            singleton_masks = torch.zeros(
-                batch_size,
-                max_k,
-                num_groups,
-                device=self.device,
-                dtype=torch.bool,
-            )
-            singleton_valid = selected_indices >= 0
-            safe_indices = selected_indices.clamp_min(0)
-            singleton_masks.scatter_(2, safe_indices[:, :, None], singleton_valid[:, :, None])
-            singleton_actions = counterfactual_actions_from_group_masks(
-                dataset_actions.detach(),
-                actor_actions.detach(),
-                singleton_masks,
-                self.sync_group_to_action_mask,
-            )
-            singleton_critic_obs = critic_observations[:, None, :].expand(batch_size, max_k, -1).reshape(
-                batch_size * max_k,
-                -1,
-            )
-            q1_single, q2_single = self.qnet(singleton_critic_obs, singleton_actions.reshape(batch_size * max_k, -1))
-            q1_single = q1_single.view(batch_size, max_k)
-            q2_single = q2_single.view(batch_size, max_k)
-        else:
-            singleton_valid = torch.zeros(batch_size, 0, device=self.device, dtype=torch.bool)
-            q1_single = torch.zeros(batch_size, 0, device=self.device, dtype=q1_data.dtype)
-            q2_single = torch.zeros_like(q1_single)
-
-        q1_data_anchor = q1_data.detach()
-        q2_data_anchor = q2_data.detach()
-        delta1, v_block1, v_single_sum1 = synergy_residual(q1_data_anchor, q1_block, q1_single, singleton_valid)
-        delta2, v_block2, v_single_sum2 = synergy_residual(q2_data_anchor, q2_block, q2_single, singleton_valid)
-        penalty1 = F.relu(delta1 - float(sync.margin_m)) * active_float
-        penalty2 = F.relu(delta2 - float(sync.margin_m)) * active_float
-        penalty_mean = 0.5 * ((penalty1.sum() / valid_count) + (penalty2.sum() / valid_count))
-        alpha2 = self._sync_alpha2_value(q1_data.dtype)
-        sync_loss = alpha2 * penalty_mean
-
-        delta_mean = 0.5 * (((delta1 * active_float).sum() / valid_count) + ((delta2 * active_float).sum() / valid_count))
-        v_block_mean = 0.5 * (
-            ((v_block1 * active_float).sum() / valid_count) + ((v_block2 * active_float).sum() / valid_count)
-        )
-        v_single_sum_mean = 0.5 * (
-            ((v_single_sum1 * active_float).sum() / valid_count)
-            + ((v_single_sum2 * active_float).sum() / valid_count)
-        )
-        active_frac = active_float.mean()
-        subset_hash = self._selected_subset_hash(selected_mask).to(dtype=q1_data.dtype)
-        subset_hash_mean = (subset_hash * active_float).sum() / valid_count
-
-        return (
-            sync_loss,
-            penalty_mean.detach(),
-            delta_mean.detach(),
-            v_block_mean.detach(),
-            v_single_sum_mean.detach(),
-            alpha2.detach().mean(),
-            active_frac.detach(),
-            drift_means,
-            selection_freq,
-            selected_mask.detach(),
-            subset_hash_mean.detach(),
-        )
 
     def _selected_subset_hash(self, selected_mask: torch.Tensor) -> torch.Tensor:
         powers = (2 ** torch.arange(selected_mask.shape[1], device=selected_mask.device)).to(torch.long)
@@ -685,16 +377,17 @@ class SyncCQLAgent(BaseAlgo):
             curr_logp_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             next_logp_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             random_density_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-            sync_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-            sync_penalty = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-            sync_delta = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-            sync_v_block = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-            sync_v_singleton_sum = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-            sync_alpha2 = self._sync_alpha2_value(bellman_loss.dtype).detach().mean()
             sync_active_frac = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            sync_active_group_frac = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            sync_drift_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            sync_drift_p95 = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            sync_drift_max = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             sync_subset_hash_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             num_groups_int = len(self.bf_cql_group_indices)
             sync_drift_means = torch.zeros(num_groups_int, device=self.device, dtype=bellman_loss.dtype)
+            sync_drift_p50s = torch.zeros(num_groups_int, device=self.device, dtype=bellman_loss.dtype)
+            sync_drift_p90s = torch.zeros(num_groups_int, device=self.device, dtype=bellman_loss.dtype)
+            sync_drift_p95s = torch.zeros(num_groups_int, device=self.device, dtype=bellman_loss.dtype)
             sync_selection_freq = torch.zeros(num_groups_int, device=self.device, dtype=bellman_loss.dtype)
             sync_selected_mask = torch.zeros(
                 dataset_actions.shape[0],
@@ -703,18 +396,35 @@ class SyncCQLAgent(BaseAlgo):
                 dtype=torch.bool,
             )
             with torch.no_grad():
+                # FactorizedActor.forward returns tanh(mean) when use_tanh=True, so this is
+                # the deterministic squashed action in normalized critic action space.
                 pi_actions_det = self.actor(observations)[0]
                 q1_pi_det, q2_pi_det = self.qnet(critic_observations, pi_actions_det)
                 q_pi_minus_q_data = (
                     torch.minimum(q1_pi_det, q2_pi_det) - torch.minimum(q1.detach(), q2.detach())
                 ).mean()
-                if self.config.sync_cql.selection_mode != "none":
+                if not self._sync_disabled():
                     self._update_sync_action_std(dataset_actions)
                     group_drift = self._compute_group_drift(dataset_actions, pi_actions_det)
+                    flat_group_drift = group_drift.reshape(-1).to(dtype=bellman_loss.dtype)
+                    group_drift_stats = group_drift.to(dtype=torch.float32)
                     sync_selected_mask = group_drift >= float(self.config.sync_cql.delta_threshold)
+                    sync_drift_mean = flat_group_drift.mean().detach()
+                    sync_drift_p95 = torch.quantile(flat_group_drift, 0.95).detach()
+                    sync_drift_max = flat_group_drift.max().detach()
                     sync_drift_means = group_drift.mean(dim=0).detach()
+                    sync_drift_p50s = torch.quantile(group_drift_stats, 0.50, dim=0).to(
+                        dtype=bellman_loss.dtype
+                    ).detach()
+                    sync_drift_p90s = torch.quantile(group_drift_stats, 0.90, dim=0).to(
+                        dtype=bellman_loss.dtype
+                    ).detach()
+                    sync_drift_p95s = torch.quantile(group_drift_stats, 0.95, dim=0).to(
+                        dtype=bellman_loss.dtype
+                    ).detach()
                     sync_selection_freq = sync_selected_mask.to(dtype=bellman_loss.dtype).mean(dim=0).detach()
                     sync_active_frac = sync_selected_mask.any(dim=1).to(dtype=bellman_loss.dtype).mean().detach()
+                    sync_active_group_frac = sync_selection_freq.mean().detach()
                     sync_subset_hash = self._selected_subset_hash(sync_selected_mask).to(dtype=bellman_loss.dtype)
                     sync_subset_hash_mean = sync_subset_hash.mean().detach()
                 else:
@@ -726,6 +436,7 @@ class SyncCQLAgent(BaseAlgo):
                     )
                     sync_selection_freq = torch.ones(num_groups_int, device=self.device, dtype=bellman_loss.dtype)
                     sync_active_frac = torch.ones((), device=self.device, dtype=bellman_loss.dtype)
+                    sync_active_group_frac = torch.ones((), device=self.device, dtype=bellman_loss.dtype)
 
             if self._cql_weight > 0.0:
                 batch_size = dataset_actions.shape[0]
@@ -767,7 +478,10 @@ class SyncCQLAgent(BaseAlgo):
                 active_group_denominator = active_group_count.clamp_min(1.0)
                 active_sample_mask = active_group_count > 0
                 active_sample_float = active_sample_mask.to(dtype=bellman_loss.dtype)
-                active_sample_denominator = active_sample_float.sum().clamp_min(1.0)
+                if args.sync_cql.gate_norm == "active":
+                    gate_denominator = active_sample_float.sum().clamp_min(1.0)
+                else:
+                    gate_denominator = torch.tensor(float(batch_size), device=self.device, dtype=bellman_loss.dtype)
                 for group_idx, group_indices in enumerate(self.bf_cql_group_indices):
                     group_active = sync_selected_mask[:, group_idx].to(dtype=bellman_loss.dtype)
                     group_dim = len(group_indices)
@@ -873,27 +587,27 @@ class SyncCQLAgent(BaseAlgo):
 
                 cql1_per_sample = cql1_loss_total / active_group_denominator
                 cql2_per_sample = cql2_loss_total / active_group_denominator
-                cql1_loss = (cql1_per_sample * active_sample_float).sum() / active_sample_denominator
-                cql2_loss = (cql2_per_sample * active_sample_float).sum() / active_sample_denominator
+                cql1_loss = (cql1_per_sample * active_sample_float).sum() / gate_denominator
+                cql2_loss = (cql2_per_sample * active_sample_float).sum() / gate_denominator
                 cql_gap = 0.5 * (cql1_loss + cql2_loss)
                 rand_q_mean = (
                     (rand_q_total / active_group_denominator) * active_sample_float
-                ).sum() / active_sample_denominator
+                ).sum() / gate_denominator
                 curr_q_mean = (
                     (curr_q_total / active_group_denominator) * active_sample_float
-                ).sum() / active_sample_denominator
+                ).sum() / gate_denominator
                 next_q_mean = (
                     (next_q_total / active_group_denominator) * active_sample_float
-                ).sum() / active_sample_denominator
+                ).sum() / gate_denominator
                 curr_logp_mean = (
                     (curr_logp_total / active_group_denominator) * active_sample_float
-                ).sum() / active_sample_denominator
+                ).sum() / gate_denominator
                 next_logp_mean = (
                     (next_logp_total / active_group_denominator) * active_sample_float
-                ).sum() / active_sample_denominator
+                ).sum() / gate_denominator
                 random_density_mean = (
                     (random_density_total / active_group_denominator) * active_sample_float
-                ).sum() / active_sample_denominator
+                ).sum() / gate_denominator
 
                 if args.use_lagrange and self.log_cql_alpha is not None:
                     cql_alpha = self.log_cql_alpha.exp().detach().clamp(max=args.cql_lagrange_max)
@@ -908,8 +622,6 @@ class SyncCQLAgent(BaseAlgo):
                 conservative_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 cql_gap = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
 
-            sync_loss = conservative_loss.detach()
-            sync_penalty = cql_gap.detach()
             q_loss = bellman_loss + conservative_loss
 
         self.q_optimizer.zero_grad(set_to_none=True)
@@ -961,14 +673,15 @@ class SyncCQLAgent(BaseAlgo):
             curr_logp_mean.detach(),
             next_logp_mean.detach(),
             random_density_mean.detach(),
-            sync_loss.detach(),
-            sync_penalty.detach(),
-            sync_delta.detach(),
-            sync_v_block.detach(),
-            sync_v_singleton_sum.detach(),
-            sync_alpha2.detach(),
             sync_active_frac.detach(),
+            sync_active_group_frac.detach(),
+            sync_drift_mean.detach(),
+            sync_drift_p95.detach(),
+            sync_drift_max.detach(),
             sync_drift_means.detach(),
+            sync_drift_p50s.detach(),
+            sync_drift_p90s.detach(),
+            sync_drift_p95s.detach(),
             sync_selection_freq.detach(),
             sync_selected_mask.detach(),
             sync_subset_hash_mean.detach(),
@@ -1116,14 +829,15 @@ class SyncCQLAgent(BaseAlgo):
                         curr_logp,
                         next_logp,
                         random_density,
-                        sync_loss,
-                        sync_penalty,
-                        sync_delta,
-                        sync_v_block,
-                        sync_v_singleton_sum,
-                        sync_alpha2,
                         sync_active_frac,
+                        sync_active_group_frac,
+                        sync_drift_mean,
+                        sync_drift_p95,
+                        sync_drift_max,
                         sync_drift_means,
+                        sync_drift_p50s,
+                        sync_drift_p90s,
+                        sync_drift_p95s,
                         sync_selection_freq,
                         sync_selected_mask,
                         sync_subset_hash_mean,
@@ -1131,8 +845,6 @@ class SyncCQLAgent(BaseAlgo):
                     last_selected_mask = sync_selected_mask
 
                     cql_alpha_value, cql_lagrange_loss = self._update_cql_lagrange(cql_gap)
-                    sync_alpha2_value = sync_alpha2
-                    sync_alpha2_lagrange_loss = torch.zeros((), device=self.device)
 
                     self._critic_update_step += 1
                     is_actor_warmup = self.global_step <= args.actor_warmup_steps
@@ -1158,21 +870,42 @@ class SyncCQLAgent(BaseAlgo):
 
                     action_ood_stats = self._compute_action_ood_stats(data)
                     sync_metric_dict = {
-                        "syncql/loss": sync_loss,
-                        "syncql/penalty": sync_penalty,
-                        "syncql/delta": sync_delta,
-                        "syncql/v_block": sync_v_block,
-                        "syncql/v_singleton_sum": sync_v_singleton_sum,
-                        "syncql/alpha2": sync_alpha2_value,
-                        "syncql/alpha2_lagrange_loss": sync_alpha2_lagrange_loss,
                         "syncql/active_frac": sync_active_frac,
-                        "syncql/active_group_frac": sync_selection_freq.mean(),
+                        "syncql/active_group_frac": sync_active_group_frac,
+                        "syncql/drift_mean": sync_drift_mean,
+                        "syncql/drift_p95": sync_drift_p95,
+                        "syncql/drift_max": sync_drift_max,
                         "syncql/actor_cf_loss": actor_cf_loss,
                         "syncql/selected_subset_hash_mean": sync_subset_hash_mean,
+                        "cfcql/gated_gap": cql_gap,
                         "cfcql/penalty": conservative_loss,
                     }
+                    if "motion_phase" in data:
+                        phase = data["motion_phase"].detach().view(-1).to(device=self.device, dtype=torch.float32)
+                        valid_phase = (phase >= 0.0) & (phase <= 1.0)
+                        if bool(valid_phase.any().item()):
+                            selected_float = sync_selected_mask.to(dtype=torch.float32)
+                            sample_active = sync_selected_mask.any(dim=1).to(dtype=torch.float32)
+                            for bin_idx in range(5):
+                                lower = bin_idx / 5.0
+                                upper = (bin_idx + 1) / 5.0
+                                if bin_idx == 4:
+                                    bin_mask = valid_phase & (phase >= lower) & (phase <= upper)
+                                else:
+                                    bin_mask = valid_phase & (phase >= lower) & (phase < upper)
+                                bin_float = bin_mask.to(dtype=torch.float32)
+                                bin_count = bin_float.sum().clamp_min(1.0)
+                                sync_metric_dict[f"syncql/phase_bin_{bin_idx}/active_frac"] = (
+                                    sample_active * bin_float
+                                ).sum() / bin_count
+                                sync_metric_dict[f"syncql/phase_bin_{bin_idx}/active_group_frac"] = (
+                                    selected_float.mean(dim=1) * bin_float
+                                ).sum() / bin_count
                     for group_idx, group_name in enumerate(self.bf_cql_group_names):
                         sync_metric_dict[f"drift/d_g_{group_name}"] = sync_drift_means[group_idx]
+                        sync_metric_dict[f"drift/p50_{group_name}"] = sync_drift_p50s[group_idx]
+                        sync_metric_dict[f"drift/p90_{group_name}"] = sync_drift_p90s[group_idx]
+                        sync_metric_dict[f"drift/p95_{group_name}"] = sync_drift_p95s[group_idx]
                         sync_metric_dict[f"select/freq_{group_name}"] = sync_selection_freq[group_idx]
 
                     self.training_metrics.add(
@@ -1251,6 +984,7 @@ class SyncCQLAgent(BaseAlgo):
             "K": self.config.sync_cql.K,
             "delta_threshold": self.config.sync_cql.delta_threshold,
             "selection_mode": self.config.sync_cql.selection_mode,
+            "gate_norm": self.config.sync_cql.gate_norm,
             "drift_mode": self.config.sync_cql.drift_mode,
             "eps_gain": self.config.sync_cql.eps_gain,
             "margin_m": self.config.sync_cql.margin_m,
@@ -1262,10 +996,6 @@ class SyncCQLAgent(BaseAlgo):
             "drift_std_momentum": self.config.sync_cql.drift_std_momentum,
             "freeze_drift_stats": self.config.sync_cql.freeze_drift_stats,
         }
-        if self.log_sync_alpha2 is not None:
-            metadata["sync_log_alpha2"] = self.log_sync_alpha2.detach().cpu()
-        if self.sync_alpha2_optimizer is not None:
-            metadata["sync_alpha2_optimizer_state_dict"] = self.sync_alpha2_optimizer.state_dict()
         save_params(
             self.global_step,
             self.actor,
@@ -1289,12 +1019,3 @@ class SyncCQLAgent(BaseAlgo):
 
     def load(self, ckpt_path: str | None) -> None:
         BFCQLAgent.load(self, ckpt_path)
-        if not ckpt_path:
-            return
-        if not self.config.sync_cql.alpha2_lagrange or self.log_sync_alpha2 is None:
-            return
-        torch_checkpoint = torch.load(ckpt_path, map_location=self.device, weights_only=False)
-        if "sync_log_alpha2" in torch_checkpoint:
-            self.log_sync_alpha2.data.copy_(torch_checkpoint["sync_log_alpha2"].to(self.device))
-        if self.sync_alpha2_optimizer is not None and "sync_alpha2_optimizer_state_dict" in torch_checkpoint:
-            self.sync_alpha2_optimizer.load_state_dict(torch_checkpoint["sync_alpha2_optimizer_state_dict"])

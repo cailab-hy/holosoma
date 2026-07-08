@@ -27,6 +27,7 @@ OPTIONAL_HDF5_KEYS: tuple[str, ...] = (
     "episode_return",
     "episode_length",
     "episode_data_complete",
+    "motion_phase",
 )
 
 OPTIONAL_HDF5_NEXT_KEYS: tuple[str, ...] = (
@@ -413,6 +414,9 @@ class HDF5ReplayReader:
         episode_data_complete = torch.from_numpy(
             self._read_optional_rows("episode_data_complete", row_indices, dtype=np.uint8)
         ).to(torch.bool)
+        motion_phase = torch.from_numpy(
+            self._read_optional_rows("motion_phase", row_indices, dtype=np.float32, default_value=-1.0)
+        ).to(torch.float32)
 
         batch = {
             "observations": _pin_if_possible(observations.contiguous(), enabled=self.pin_memory),
@@ -423,6 +427,7 @@ class HDF5ReplayReader:
             "episode_return": _pin_if_possible(episode_return.contiguous(), enabled=self.pin_memory),
             "episode_length": _pin_if_possible(episode_length.contiguous(), enabled=self.pin_memory),
             "episode_data_complete": _pin_if_possible(episode_data_complete.contiguous(), enabled=self.pin_memory),
+            "motion_phase": _pin_if_possible(motion_phase.contiguous(), enabled=self.pin_memory),
             "next": {
                 "observations": _pin_if_possible(next_observations.contiguous(), enabled=self.pin_memory),
                 "critic_observations": _pin_if_possible(next_critic_observations.contiguous(), enabled=self.pin_memory),
@@ -503,9 +508,9 @@ class HDF5BlockReader(HDF5ReplayReader):
         )
         dones = torch.from_numpy(np.asarray(self._datasets["dones"][start:end])).to(torch.bool).reshape(block_length)
 
-        def _optional_block(key: str, dtype: torch.dtype) -> torch.Tensor:
+        def _optional_block(key: str, dtype: torch.dtype, default_value: float | int = 0) -> torch.Tensor:
             if key not in self._datasets:
-                return torch.zeros(block_length, dtype=dtype)
+                return torch.full((block_length,), default_value, dtype=dtype)
             return torch.from_numpy(np.asarray(self._datasets[key][start:end])).to(dtype).reshape(block_length)
 
         block = {
@@ -517,6 +522,7 @@ class HDF5BlockReader(HDF5ReplayReader):
             "episode_return": _optional_block("episode_return", torch.float32).contiguous(),
             "episode_length": _optional_block("episode_length", torch.long).contiguous(),
             "episode_data_complete": _optional_block("episode_data_complete", torch.bool).contiguous(),
+            "motion_phase": _optional_block("motion_phase", torch.float32, -1.0).contiguous(),
             "next": {
                 "observations": next_observations.contiguous(),
                 "critic_observations": next_critic_observations.contiguous(),
@@ -864,6 +870,12 @@ class GPUTransitionCache:
                 "episode_data_complete": _load_scalar_tensor(
                     "episode_data_complete",
                     torch.bool,
+                    optional=True,
+                ),
+                "motion_phase": _load_scalar_tensor(
+                    "motion_phase",
+                    torch.float32,
+                    default_value=-1.0,
                     optional=True,
                 ),
                 "next": {
