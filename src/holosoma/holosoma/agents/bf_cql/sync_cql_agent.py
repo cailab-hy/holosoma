@@ -314,7 +314,8 @@ class SyncCQLAgent(BaseAlgo):
             # Truncated ends (timeout / d3 segment_ends) are not true terminals: the
             # exporter stores the final pre-reset observation in next.observations, so
             # bootstrap through them. Required for cross-segment value stitching.
-            bootstrap = (truncations | ~dones).float()
+            #bootstrap = (truncations | ~dones).float()
+            bootstrap = (~dones).float()
             alpha = self.log_alpha.exp().detach()
 
             with torch.no_grad():
