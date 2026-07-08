@@ -220,8 +220,9 @@ g1_29dof_wbt_fast_sac_d3_seg_a_data = replace(
         g1_29dof_wbt_fast_sac_data.algo,
         config=replace(
             g1_29dof_wbt_fast_sac_data.algo.config,
+            num_learning_iterations=20000,
             offline_dataset_path="offline_data/g1_29dof_wbt_d3_seg_a_dataset.h5",
-            save_env_num = 32,
+            save_env_num = 64,
         ),
     ),
     simulator=replace(
@@ -252,7 +253,9 @@ g1_29dof_wbt_fast_sac_d3_seg_b_data = replace(
         g1_29dof_wbt_fast_sac_data.algo,
         config=replace(
             g1_29dof_wbt_fast_sac_data.algo.config,
+            num_learning_iterations=20000,
             offline_dataset_path="offline_data/g1_29dof_wbt_d3_seg_b_dataset.h5",
+            save_env_num = 64,
         ),
     ),
     simulator=replace(
@@ -283,7 +286,9 @@ g1_29dof_wbt_fast_sac_d3_seg_c_data = replace(
         g1_29dof_wbt_fast_sac_data.algo,
         config=replace(
             g1_29dof_wbt_fast_sac_data.algo.config,
+            num_learning_iterations=20000,
             offline_dataset_path="offline_data/g1_29dof_wbt_d3_seg_c_dataset.h5",
+            save_env_num = 64,
         ),
     ),
     simulator=replace(

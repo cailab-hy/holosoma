@@ -732,34 +732,34 @@ class PBFCQLSettings:
 
 @dataclass(frozen=True)
 class SyncCQLSettings:
-    """Configuration for SYNC-QL synergy regularization."""
+    """Configuration for SYNC-QL drift-gated CFCQL regularization."""
 
     K: int = 2
-    """maximum selected group-block size"""
+    """legacy option kept for checkpoint/config compatibility; drift-gated CFCQL does not use K"""
 
     delta_threshold: float = 0.5
     """minimum normalized-RMSE drift required for a group to enter the candidate set"""
 
     selection_mode: Literal["topk", "greedy", "random", "none"] = "topk"
-    """block selection mode for synergy counterfactuals"""
+    """set to 'none' to disable drift gating and recover BF-CQL-style all-group CFCQL"""
 
     drift_mode: Literal["rmse", "density"] = "rmse"
     """actor drift estimator used for candidate screening"""
 
     eps_gain: float = 0.0
-    """minimum greedy marginal gain required to keep adding groups"""
+    """legacy option kept for config compatibility"""
 
     margin_m: float = 0.0
-    """hinge margin applied to the synergy residual Delta(M*)"""
+    """legacy option kept for config compatibility"""
 
     alpha2: float = 1.0
-    """fixed SYNC-QL synergy penalty weight or initial Lagrange multiplier"""
+    """legacy option kept for config compatibility; the active penalty uses cql_weight"""
 
     alpha2_lagrange: bool = False
-    """whether to auto-tune alpha2 to track tau_syn"""
+    """legacy option kept for config compatibility; CQL Lagrange remains controlled by use_lagrange"""
 
     tau_syn: float = 5.0
-    """target synergy hinge penalty for alpha2 Lagrange tuning"""
+    """legacy option kept for config compatibility"""
 
     lambda_cf: float = 0.0
     """weight of the actor counterfactual block objective"""

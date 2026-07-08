@@ -1,15 +1,16 @@
-"""SYNC-QL: synergy-aware conservative regularization for BF-CQL.
+"""SYNC-QL: drift-gated CFCQL for BF-CQL.
 
 SYNC-QL reuses BF-CQL's factorized actor, global twin critic, replay loader,
-normalization, target networks, and optimizers.  For a dataset action a_D and a
-current actor action a_pi, it builds counterfactual actions a_cf(M) that replace
-only a selected subset of body-part action groups M.  The coalition value is
-v(M)=Q(s,a_cf(M))-Q(s,a_D).  The conservative penalty is applied to the synergy
-residual Delta(M)=v(M)-sum_g v({g}), not directly to v(M), so the singleton
-CFCQL term is not double-counted.  M is selected per sample by a two-stage
-drift screen and top-k/greedy/random policy.  Actor updates keep the original
-SAC/BF-CQL objective by default and can optionally add a block counterfactual
-objective on the same selected M.
+normalization, target networks, and optimizers.  Its conservative term keeps the
+BF-CQL/CFCQL counterfactual structure unchanged, but replaces the full group sum
+with a per-sample drift-gated sum:
+
+    sum_g CQL_g(s, a_D)  ->  sum_{g: d_g(s,a_D) >= delta} CQL_g(s, a_D)
+
+The inner logsumexp over random/current/next group counterfactuals, Lagrange
+handling, and normalized action training are unchanged from BF-CQL.  Groups with
+small actor-vs-dataset drift are skipped, and each sample is normalized by its
+number of active groups instead of the total number of groups.
 """
 
 from __future__ import annotations
@@ -273,9 +274,9 @@ class SyncCQLAgent(BaseAlgo):
             )
 
         logger.info(
-            "SYNC-QL enabled: "
-            f"K={sync.K}, selection_mode={sync.selection_mode}, drift_mode={sync.drift_mode}, "
-            f"alpha2={sync.alpha2}, lambda_cf={sync.lambda_cf}"
+            "SYNC-QL drift-gated CFCQL enabled: "
+            f"delta_threshold={sync.delta_threshold}, selection_mode={sync.selection_mode}, "
+            f"drift_mode={sync.drift_mode}, lambda_cf={sync.lambda_cf}"
         )
 
     def _sync_disabled(self) -> bool:
@@ -684,12 +685,47 @@ class SyncCQLAgent(BaseAlgo):
             curr_logp_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             next_logp_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             random_density_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            sync_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            sync_penalty = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            sync_delta = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            sync_v_block = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            sync_v_singleton_sum = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            sync_alpha2 = self._sync_alpha2_value(bellman_loss.dtype).detach().mean()
+            sync_active_frac = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            sync_subset_hash_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            num_groups_int = len(self.bf_cql_group_indices)
+            sync_drift_means = torch.zeros(num_groups_int, device=self.device, dtype=bellman_loss.dtype)
+            sync_selection_freq = torch.zeros(num_groups_int, device=self.device, dtype=bellman_loss.dtype)
+            sync_selected_mask = torch.zeros(
+                dataset_actions.shape[0],
+                num_groups_int,
+                device=self.device,
+                dtype=torch.bool,
+            )
             with torch.no_grad():
                 pi_actions_det = self.actor(observations)[0]
                 q1_pi_det, q2_pi_det = self.qnet(critic_observations, pi_actions_det)
                 q_pi_minus_q_data = (
                     torch.minimum(q1_pi_det, q2_pi_det) - torch.minimum(q1.detach(), q2.detach())
                 ).mean()
+                if self.config.sync_cql.selection_mode != "none":
+                    self._update_sync_action_std(dataset_actions)
+                    group_drift = self._compute_group_drift(dataset_actions, pi_actions_det)
+                    sync_selected_mask = group_drift >= float(self.config.sync_cql.delta_threshold)
+                    sync_drift_means = group_drift.mean(dim=0).detach()
+                    sync_selection_freq = sync_selected_mask.to(dtype=bellman_loss.dtype).mean(dim=0).detach()
+                    sync_active_frac = sync_selected_mask.any(dim=1).to(dtype=bellman_loss.dtype).mean().detach()
+                    sync_subset_hash = self._selected_subset_hash(sync_selected_mask).to(dtype=bellman_loss.dtype)
+                    sync_subset_hash_mean = sync_subset_hash.mean().detach()
+                else:
+                    sync_selected_mask = torch.ones(
+                        dataset_actions.shape[0],
+                        num_groups_int,
+                        device=self.device,
+                        dtype=torch.bool,
+                    )
+                    sync_selection_freq = torch.ones(num_groups_int, device=self.device, dtype=bellman_loss.dtype)
+                    sync_active_frac = torch.ones((), device=self.device, dtype=bellman_loss.dtype)
 
             if self._cql_weight > 0.0:
                 batch_size = dataset_actions.shape[0]
@@ -719,17 +755,21 @@ class SyncCQLAgent(BaseAlgo):
                     curr_group_logps_stacked = torch.stack(curr_group_logps, dim=1)
                     next_group_logps_stacked = torch.stack(next_group_logps, dim=1)
 
-                cql1_loss_total = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-                cql2_loss_total = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-                rand_q_total = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-                curr_q_total = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-                next_q_total = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-                curr_logp_total = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-                next_logp_total = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-                random_density_total = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-
-                num_groups_int = len(self.bf_cql_group_indices)
+                cql1_loss_total = torch.zeros(batch_size, device=self.device, dtype=bellman_loss.dtype)
+                cql2_loss_total = torch.zeros(batch_size, device=self.device, dtype=bellman_loss.dtype)
+                rand_q_total = torch.zeros(batch_size, device=self.device, dtype=bellman_loss.dtype)
+                curr_q_total = torch.zeros(batch_size, device=self.device, dtype=bellman_loss.dtype)
+                next_q_total = torch.zeros(batch_size, device=self.device, dtype=bellman_loss.dtype)
+                curr_logp_total = torch.zeros(batch_size, device=self.device, dtype=bellman_loss.dtype)
+                next_logp_total = torch.zeros(batch_size, device=self.device, dtype=bellman_loss.dtype)
+                random_density_total = torch.zeros(batch_size, device=self.device, dtype=bellman_loss.dtype)
+                active_group_count = sync_selected_mask.to(dtype=bellman_loss.dtype).sum(dim=1)
+                active_group_denominator = active_group_count.clamp_min(1.0)
+                active_sample_mask = active_group_count > 0
+                active_sample_float = active_sample_mask.to(dtype=bellman_loss.dtype)
+                active_sample_denominator = active_sample_float.sum().clamp_min(1.0)
                 for group_idx, group_indices in enumerate(self.bf_cql_group_indices):
+                    group_active = sync_selected_mask[:, group_idx].to(dtype=bellman_loss.dtype)
                     group_dim = len(group_indices)
                     rand_group_actions = torch.empty(
                         batch_size * num_repeat,
@@ -806,63 +846,71 @@ class SyncCQLAgent(BaseAlgo):
                         dim=1,
                     )
 
-                    cql1_loss_total = cql1_loss_total + (
+                    cql1_group_loss = (
                         torch.logsumexp(q1_terms / self._temperature, dim=1) * self._temperature - q1
-                    ).mean()
-                    cql2_loss_total = cql2_loss_total + (
-                        torch.logsumexp(q2_terms / self._temperature, dim=1) * self._temperature - q2
-                    ).mean()
-                    rand_q_total = rand_q_total + 0.5 * (
-                        (q1_rand - random_density).mean() + (q2_rand - random_density).mean()
                     )
-                    curr_q_total = curr_q_total + 0.5 * (q1_curr.mean() + q2_curr.mean())
-                    next_q_total = next_q_total + 0.5 * (q1_next.mean() + q2_next.mean())
-                    curr_logp_total = curr_logp_total + curr_actor_logp.mean()
-                    next_logp_total = next_logp_total + next_actor_logp.mean()
-                    random_density_total = random_density_total + torch.tensor(
+                    cql2_group_loss = (
+                        torch.logsumexp(q2_terms / self._temperature, dim=1) * self._temperature - q2
+                    )
+                    cql1_loss_total = cql1_loss_total + cql1_group_loss * group_active
+                    cql2_loss_total = cql2_loss_total + cql2_group_loss * group_active
+                    rand_q_group = 0.5 * (
+                        (q1_rand - random_density).mean(dim=1) + (q2_rand - random_density).mean(dim=1)
+                    )
+                    curr_q_group = 0.5 * (q1_curr.mean(dim=1) + q2_curr.mean(dim=1))
+                    next_q_group = 0.5 * (q1_next.mean(dim=1) + q2_next.mean(dim=1))
+                    rand_q_total = rand_q_total + rand_q_group * group_active
+                    curr_q_total = curr_q_total + curr_q_group * group_active
+                    next_q_total = next_q_total + next_q_group * group_active
+                    curr_logp_total = curr_logp_total + curr_actor_logp.mean(dim=1) * group_active
+                    next_logp_total = next_logp_total + next_actor_logp.mean(dim=1) * group_active
+                    random_density_total = random_density_total + torch.full(
+                        (batch_size,),
                         random_density,
                         device=self.device,
                         dtype=bellman_loss.dtype,
-                    )
+                    ) * group_active
 
-                num_groups_float = float(len(self.bf_cql_group_indices))
-                cql1_loss = cql1_loss_total / num_groups_float
-                cql2_loss = cql2_loss_total / num_groups_float
+                cql1_per_sample = cql1_loss_total / active_group_denominator
+                cql2_per_sample = cql2_loss_total / active_group_denominator
+                cql1_loss = (cql1_per_sample * active_sample_float).sum() / active_sample_denominator
+                cql2_loss = (cql2_per_sample * active_sample_float).sum() / active_sample_denominator
                 cql_gap = 0.5 * (cql1_loss + cql2_loss)
-                rand_q_mean = rand_q_total / num_groups_float
-                curr_q_mean = curr_q_total / num_groups_float
-                next_q_mean = next_q_total / num_groups_float
-                curr_logp_mean = curr_logp_total / num_groups_float
-                next_logp_mean = next_logp_total / num_groups_float
-                random_density_mean = random_density_total / num_groups_float
+                rand_q_mean = (
+                    (rand_q_total / active_group_denominator) * active_sample_float
+                ).sum() / active_sample_denominator
+                curr_q_mean = (
+                    (curr_q_total / active_group_denominator) * active_sample_float
+                ).sum() / active_sample_denominator
+                next_q_mean = (
+                    (next_q_total / active_group_denominator) * active_sample_float
+                ).sum() / active_sample_denominator
+                curr_logp_mean = (
+                    (curr_logp_total / active_group_denominator) * active_sample_float
+                ).sum() / active_sample_denominator
+                next_logp_mean = (
+                    (next_logp_total / active_group_denominator) * active_sample_float
+                ).sum() / active_sample_denominator
+                random_density_mean = (
+                    (random_density_total / active_group_denominator) * active_sample_float
+                ).sum() / active_sample_denominator
 
                 if args.use_lagrange and self.log_cql_alpha is not None:
                     cql_alpha = self.log_cql_alpha.exp().detach().clamp(max=args.cql_lagrange_max)
                     target_gap = torch.tensor(args.cql_target_action_gap, device=self.device, dtype=bellman_loss.dtype)
+                    has_active_sample = (active_sample_float.sum() > 0).to(dtype=bellman_loss.dtype)
                     conservative_loss = cql_alpha * self._cql_weight * 0.5 * (
                         (cql1_loss - target_gap) + (cql2_loss - target_gap)
-                    )
+                    ) * has_active_sample
                 else:
                     conservative_loss = self._cql_weight * 0.5 * (cql1_loss + cql2_loss)
             else:
                 conservative_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 cql_gap = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
 
-            (
-                sync_loss,
-                sync_penalty,
-                sync_delta,
-                sync_v_block,
-                sync_v_singleton_sum,
-                sync_alpha2,
-                sync_active_frac,
-                sync_drift_means,
-                sync_selection_freq,
-                sync_selected_mask,
-                sync_subset_hash_mean,
-            ) = self._compute_sync_penalty(observations, critic_observations, dataset_actions, q1, q2)
-
-            q_loss = bellman_loss + conservative_loss + sync_loss
+            sync_loss = conservative_loss.detach()
+            sync_penalty = cql_gap.detach()
+            q_loss = bellman_loss + conservative_loss
 
         self.q_optimizer.zero_grad(set_to_none=True)
         scaler.scale(q_loss).backward()
@@ -1083,7 +1131,8 @@ class SyncCQLAgent(BaseAlgo):
                     last_selected_mask = sync_selected_mask
 
                     cql_alpha_value, cql_lagrange_loss = self._update_cql_lagrange(cql_gap)
-                    sync_alpha2_value, sync_alpha2_lagrange_loss = self._update_sync_alpha2_lagrange(sync_penalty)
+                    sync_alpha2_value = sync_alpha2
+                    sync_alpha2_lagrange_loss = torch.zeros((), device=self.device)
 
                     self._critic_update_step += 1
                     is_actor_warmup = self.global_step <= args.actor_warmup_steps
@@ -1117,6 +1166,7 @@ class SyncCQLAgent(BaseAlgo):
                         "syncql/alpha2": sync_alpha2_value,
                         "syncql/alpha2_lagrange_loss": sync_alpha2_lagrange_loss,
                         "syncql/active_frac": sync_active_frac,
+                        "syncql/active_group_frac": sync_selection_freq.mean(),
                         "syncql/actor_cf_loss": actor_cf_loss,
                         "syncql/selected_subset_hash_mean": sync_subset_hash_mean,
                         "cfcql/penalty": conservative_loss,
