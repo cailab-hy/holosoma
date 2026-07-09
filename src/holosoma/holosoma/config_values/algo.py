@@ -350,6 +350,7 @@ bf_cql = BFCQLAlgoConfig(
         alpha_init=0.001,
         use_autotune=True,
         use_tanh=True,
+        normalized_action_training=False,
         log_std_max=0.0,
         log_std_min=-5.0,
         compile=True,

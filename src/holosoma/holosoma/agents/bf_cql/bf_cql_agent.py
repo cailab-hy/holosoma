@@ -365,14 +365,22 @@ class BFCQLAgent(BaseAlgo):
 
         n_act = self.env.robot_config.actions_dim
         if not args.use_tanh:
-            raise ValueError("BF-CQL requires use_tanh=True because actor/critic training uses normalized actions.")
+            raise ValueError("BF-CQL requires use_tanh=True for bounded action training.")
         env_action_scale = env._action_boundaries
         env_action_bias = torch.zeros(n_act, device=device)
         self.env_action_scale = env_action_scale
         self.env_action_bias = env_action_bias
-        action_scale = torch.ones(n_act, device=device)
-        action_bias = torch.zeros(n_act, device=device)
-        logger.info("BF-CQL action semantics: actor/critic always use normalized u-space [-1, 1].")
+        self.normalized_action_training = bool(args.normalized_action_training)
+        if self.normalized_action_training:
+            action_scale = torch.ones(n_act, device=device)
+            action_bias = torch.zeros(n_act, device=device)
+            self.action_space_mode = "normalized_action_training_v1"
+            logger.info("BF-CQL action semantics: actor/critic use normalized u-space [-1, 1].")
+        else:
+            action_scale = env_action_scale
+            action_bias = env_action_bias
+            self.action_space_mode = "env_scaled_action_training_v1"
+            logger.info("BF-CQL action semantics: actor/critic use legacy env-scaled action space.")
 
         actor_obs_keys = list(args.actor_obs_keys)
         group_names, group_indices = resolve_action_groups(args.bf_cql_action_grouping, env.robot_config.dof_names)
@@ -575,7 +583,7 @@ class BFCQLAgent(BaseAlgo):
         cfg = self._syndiag_cfg
         self._syndiag_tick_count += 1
 
-        a_data = self._to_normalized_actions(data["actions"]).float()
+        a_data = self._to_critic_actions(data["actions"]).float()
         a_pi = pi_actions.float()
         q_data_min = q_data_min.float()
 
@@ -773,15 +781,35 @@ class BFCQLAgent(BaseAlgo):
         action_bias = self.env_action_bias.to(device=actions.device, dtype=actions.dtype)
         return ((actions - action_bias) / (action_scale + 1e-6)).clamp(-1.0, 1.0)
 
+    def _to_critic_actions(self, actions: torch.Tensor) -> torch.Tensor:
+        if self.normalized_action_training:
+            return self._to_normalized_actions(actions)
+        return actions
+
     def _to_env_actions(self, actions: torch.Tensor) -> torch.Tensor:
+        if not self.normalized_action_training:
+            return actions
         action_scale = self.env_action_scale.to(device=actions.device, dtype=actions.dtype)
         action_bias = self.env_action_bias.to(device=actions.device, dtype=actions.dtype)
         return actions * action_scale + action_bias
 
+    def _sync_actor_action_space_buffers(self) -> None:
+        with torch.no_grad():
+            if self.normalized_action_training:
+                self.actor.action_scale.fill_(1.0)
+                self.actor.action_bias.zero_()
+            else:
+                self.actor.action_scale.copy_(
+                    self.env_action_scale.to(device=self.actor.action_scale.device, dtype=self.actor.action_scale.dtype)
+                )
+                self.actor.action_bias.copy_(
+                    self.env_action_bias.to(device=self.actor.action_bias.device, dtype=self.actor.action_bias.dtype)
+                )
+
     @torch.no_grad()
     def _compute_action_ood_stats(self, data: TensorDict) -> dict[str, torch.Tensor]:
         """Compute per-dimension dataset-vs-policy action coverage stats in critic action space."""
-        dataset_actions = self._to_normalized_actions(data["actions"])  # [B, action_dim]
+        dataset_actions = self._to_critic_actions(data["actions"])  # [B, action_dim]
         actor_observations = data["observations"]  # [B, actor_obs_dim]
 
         policy_actions = self.actor(actor_observations)[0]  # [B, action_dim] in critic action space
@@ -900,7 +928,7 @@ class BFCQLAgent(BaseAlgo):
             next_observations = data["next"]["observations"]
             critic_observations = data["critic_observations"]
             next_critic_observations = data["next"]["critic_observations"]
-            dataset_actions = self._to_normalized_actions(data["actions"])
+            dataset_actions = self._to_critic_actions(data["actions"])
             rewards = reward_scale * data["next"]["rewards"]
             dones = data["next"]["dones"].bool()
             truncations = data["next"]["truncations"].bool()
@@ -1036,13 +1064,26 @@ class BFCQLAgent(BaseAlgo):
                 num_groups_int = len(self.bf_cql_group_indices)
                 for group_idx, group_indices in enumerate(self.bf_cql_group_indices):
                     group_dim = len(group_indices)
+                    group_index_tensor = torch.as_tensor(group_indices, device=self.device, dtype=torch.long)
+                    group_action_scale = self.actor.action_scale.to(
+                        device=self.device,
+                        dtype=dataset_actions.dtype,
+                    ).index_select(0, group_index_tensor)
+                    group_action_bias = self.actor.action_bias.to(
+                        device=self.device,
+                        dtype=dataset_actions.dtype,
+                    ).index_select(0, group_index_tensor)
                     rand_group_actions = torch.empty(
                         batch_size * num_repeat,
                         group_dim,
                         device=self.device,
                         dtype=dataset_actions.dtype,
                     ).uniform_(-1.0, 1.0)
-                    random_density = math.log(0.5) * group_dim
+                    rand_group_actions = rand_group_actions * group_action_scale + group_action_bias
+                    random_density = (
+                        torch.tensor(math.log(0.5) * group_dim, device=self.device, dtype=dataset_actions.dtype)
+                        - torch.log(group_action_scale + 1e-6).sum()
+                    )
 
                     rand_counterfactual_actions = self._counterfactual_group_actions(
                         expanded_dataset_actions,
@@ -1124,11 +1165,7 @@ class BFCQLAgent(BaseAlgo):
                     next_q_total = next_q_total + 0.5 * (q1_next.mean() + q2_next.mean())
                     curr_logp_total = curr_logp_total + curr_actor_logp.mean()
                     next_logp_total = next_logp_total + next_actor_logp.mean()
-                    random_density_total = random_density_total + torch.tensor(
-                        random_density,
-                        device=self.device,
-                        dtype=bellman_loss.dtype,
-                    )
+                    random_density_total = random_density_total + random_density.to(dtype=bellman_loss.dtype)
 
                 num_groups = float(len(self.bf_cql_group_indices))
                 cql1_loss = cql1_loss_total / num_groups
@@ -1387,10 +1424,14 @@ class BFCQLAgent(BaseAlgo):
 
         torch_checkpoint = torch.load(ckpt_path, map_location=self.device, weights_only=False)
         checkpoint_action_mode = torch_checkpoint.get("action_space_mode", "legacy")
-        if checkpoint_action_mode != "normalized_action_training_v1":
+        compatible_checkpoint_action_mode = (
+            "env_scaled_action_training_v1" if checkpoint_action_mode == "legacy" else checkpoint_action_mode
+        )
+        expected_action_mode = getattr(self, "action_space_mode", "normalized_action_training_v1")
+        if compatible_checkpoint_action_mode != expected_action_mode:
             logger.warning(
                 "Loading a legacy checkpoint with different BF-CQL action semantics "
-                f"(action_space_mode={checkpoint_action_mode})."
+                f"(checkpoint action_space_mode={checkpoint_action_mode}, current={expected_action_mode})."
             )
 
         checkpoint_args = torch_checkpoint.get("args", {})
@@ -1411,6 +1452,7 @@ class BFCQLAgent(BaseAlgo):
             )
 
         self.actor.load_state_dict(torch_checkpoint["actor_state_dict"])
+        self._sync_actor_action_space_buffers()
         self.qnet.load_state_dict(torch_checkpoint["qnet_state_dict"])
 
         if "qnet_target_state_dict" in torch_checkpoint:
@@ -1641,7 +1683,7 @@ class BFCQLAgent(BaseAlgo):
     def save(self, path: str) -> None:  # type: ignore[override]
         env_state = self._collect_env_state()
         metadata = self._checkpoint_metadata(iteration=self.global_step)
-        metadata["action_space_mode"] = "normalized_action_training_v1"
+        metadata["action_space_mode"] = self.action_space_mode
         metadata["algo"] = "bf_cql"
         metadata["bf_cql_action_grouping"] = self.config.bf_cql_action_grouping
         save_params(
@@ -1733,6 +1775,7 @@ class BFCQLAgent(BaseAlgo):
         obs_normalizer = copy.deepcopy(self.obs_normalizer).to("cpu")
         env_action_scale = copy.deepcopy(self.env_action_scale).to("cpu")
         env_action_bias = copy.deepcopy(self.env_action_bias).to("cpu")
+        normalized_action_training = bool(self.normalized_action_training)
 
         class ActorWrapper(nn.Module):
             def __init__(
@@ -1741,10 +1784,12 @@ class BFCQLAgent(BaseAlgo):
                 obs_normalizer,
                 env_action_scale,
                 env_action_bias,
+                normalized_action_training,
             ):
                 super().__init__()
                 self.actor = actor
                 self.obs_normalizer = obs_normalizer
+                self.normalized_action_training = normalized_action_training
                 self.register_buffer("env_action_scale", env_action_scale)
                 self.register_buffer("env_action_bias", env_action_bias)
 
@@ -1754,6 +1799,8 @@ class BFCQLAgent(BaseAlgo):
                 else:
                     normalized_obs = actor_obs
                 actions = self.actor(normalized_obs)[0]
+                if not self.normalized_action_training:
+                    return actions
                 return actions * self.env_action_scale + self.env_action_bias
 
         return ActorWrapper(
@@ -1761,6 +1808,7 @@ class BFCQLAgent(BaseAlgo):
             obs_normalizer if self.obs_normalization else None,
             env_action_scale,
             env_action_bias,
+            normalized_action_training,
         )
 
     def export(self, onnx_file_path: str) -> None:
@@ -1798,7 +1846,7 @@ class BFCQLAgent(BaseAlgo):
             "command_ranges": cmd_ranges,
             "robot_urdf": urdf_str,
             "robot_urdf_path": urdf_file_path,
-            "action_space_mode": "normalized_action_training_v1",
+            "action_space_mode": self.action_space_mode,
         }
         metadata.update(self._checkpoint_metadata(iteration=self.global_step))
 

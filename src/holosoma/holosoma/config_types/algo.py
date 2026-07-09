@@ -914,7 +914,7 @@ class BFCQLConfig:
     cql_masked_inactive_std: float = 0.01
     """small Gaussian std used on inactive action dimensions for Gaussian CQL current/next samples"""
 
-    bf_cql_action_grouping: Literal["functional_9", "coarse_5", "symmetric_14"] = "functional_9"
+    bf_cql_action_grouping: Literal["functional_9", "coarse_5", "symmetric_14", "nonphysical_9"] = "functional_9"
     """semantic action grouping preset used by body-part factorized CQL"""
 
     ood_actor_num: int = 1
@@ -991,6 +991,9 @@ class BFCQLConfig:
 
     use_tanh: bool = True
     """whether to use tanh for the action"""
+
+    normalized_action_training: bool = False
+    """whether actor/critic train in normalized [-1, 1] action space and only scale actions for env rollout"""
 
     log_std_max: float = 0.0
     """the maximum value of the log std"""

@@ -382,10 +382,89 @@ G1_SYMMETRIC_14_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
+G1_NONPHYSICAL_9_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "mix0",
+        (
+            "left_hip_pitch_joint",
+            "right_knee_joint",
+            "waist_yaw_joint",
+            "left_wrist_yaw_joint",
+        ),
+    ),
+    (
+        "mix1",
+        (
+            "left_knee_joint",
+            "right_shoulder_pitch_joint",
+            "waist_roll_joint",
+        ),
+    ),
+    (
+        "mix2",
+        (
+            "right_hip_roll_joint",
+            "left_elbow_joint",
+            "left_ankle_roll_joint",
+        ),
+    ),
+    (
+        "mix3",
+        (
+            "left_shoulder_pitch_joint",
+            "right_ankle_pitch_joint",
+            "right_wrist_yaw_joint",
+        ),
+    ),
+    (
+        "mix4",
+        (
+            "left_hip_roll_joint",
+            "right_shoulder_yaw_joint",
+            "waist_pitch_joint",
+        ),
+    ),
+    (
+        "mix5",
+        (
+            "right_hip_pitch_joint",
+            "left_wrist_roll_joint",
+            "right_ankle_roll_joint",
+        ),
+    ),
+    (
+        "mix6",
+        (
+            "left_shoulder_roll_joint",
+            "right_elbow_joint",
+            "left_ankle_pitch_joint",
+        ),
+    ),
+    (
+        "mix7",
+        (
+            "left_hip_yaw_joint",
+            "right_wrist_roll_joint",
+            "right_shoulder_roll_joint",
+        ),
+    ),
+    (
+        "mix8",
+        (
+            "right_hip_yaw_joint",
+            "left_shoulder_yaw_joint",
+            "left_wrist_pitch_joint",
+            "right_wrist_pitch_joint",
+        ),
+    ),
+)
+
+
 GROUP_PRESETS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "functional_9": G1_FUNCTIONAL_9_GROUPS,
     "coarse_5": G1_COARSE_5_GROUPS,
     "symmetric_14": G1_SYMMETRIC_14_GROUPS,
+    "nonphysical_9": G1_NONPHYSICAL_9_GROUPS,
 }
 
 

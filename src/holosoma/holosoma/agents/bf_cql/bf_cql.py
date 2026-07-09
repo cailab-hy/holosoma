@@ -84,7 +84,7 @@ class Actor(nn.Module):
         log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (log_std + 1)
 
         if self.use_tanh:
-            action = torch.tanh(mean)
+            action = torch.tanh(mean) * self.action_scale + self.action_bias
         else:
             action = mean
 
@@ -97,9 +97,11 @@ class Actor(nn.Module):
         raw_action = dist.rsample()
 
         if self.use_tanh:
-            action = torch.tanh(raw_action)
+            tanh_action = torch.tanh(raw_action)
+            action = tanh_action * self.action_scale + self.action_bias
             log_prob = dist.log_prob(raw_action)
-            log_prob -= torch.log(1 - action.pow(2) + 1e-6)
+            log_prob -= torch.log(1 - tanh_action.pow(2) + 1e-6)
+            log_prob -= torch.log(self.action_scale + 1e-6)
         else:
             action = raw_action
             log_prob = dist.log_prob(raw_action)
@@ -112,10 +114,12 @@ class Actor(nn.Module):
         dist = torch.distributions.Normal(mean, std)
 
         if self.use_tanh:
-            normalized_action = dataset_actions.clamp(-1.0 + 1e-6, 1.0 - 1e-6)
+            normalized_action = (dataset_actions - self.action_bias) / (self.action_scale + 1e-6)
+            normalized_action = normalized_action.clamp(-1.0 + 1e-6, 1.0 - 1e-6)
             raw_action = 0.5 * (torch.log1p(normalized_action) - torch.log1p(-normalized_action))
             log_prob = dist.log_prob(raw_action)
             log_prob -= torch.log(1 - normalized_action.pow(2) + 1e-6)
+            log_prob -= torch.log(self.action_scale + 1e-6)
         else:
             log_prob = dist.log_prob(dataset_actions)
 
@@ -131,7 +135,7 @@ class Actor(nn.Module):
         _, mean, log_std = self(obs)
         if deterministic:
             if self.use_tanh:
-                return torch.tanh(mean)
+                return torch.tanh(mean) * self.action_scale + self.action_bias
             return mean
 
         std = log_std.exp()
@@ -139,7 +143,7 @@ class Actor(nn.Module):
         raw_action = dist.rsample()
 
         if self.use_tanh:
-            return torch.tanh(raw_action)
+            return torch.tanh(raw_action) * self.action_scale + self.action_bias
         return raw_action
 
     def process_obs(self, obs: torch.Tensor) -> torch.Tensor:
@@ -382,10 +386,89 @@ G1_SYMMETRIC_14_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
+G1_NONPHYSICAL_9_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "mix0",
+        (
+            "left_hip_pitch_joint",
+            "right_knee_joint",
+            "waist_yaw_joint",
+            "left_wrist_yaw_joint",
+        ),
+    ),
+    (
+        "mix1",
+        (
+            "left_knee_joint",
+            "right_shoulder_pitch_joint",
+            "waist_roll_joint",
+        ),
+    ),
+    (
+        "mix2",
+        (
+            "right_hip_roll_joint",
+            "left_elbow_joint",
+            "left_ankle_roll_joint",
+        ),
+    ),
+    (
+        "mix3",
+        (
+            "left_shoulder_pitch_joint",
+            "right_ankle_pitch_joint",
+            "right_wrist_yaw_joint",
+        ),
+    ),
+    (
+        "mix4",
+        (
+            "left_hip_roll_joint",
+            "right_shoulder_yaw_joint",
+            "waist_pitch_joint",
+        ),
+    ),
+    (
+        "mix5",
+        (
+            "right_hip_pitch_joint",
+            "left_wrist_roll_joint",
+            "right_ankle_roll_joint",
+        ),
+    ),
+    (
+        "mix6",
+        (
+            "left_shoulder_roll_joint",
+            "right_elbow_joint",
+            "left_ankle_pitch_joint",
+        ),
+    ),
+    (
+        "mix7",
+        (
+            "left_hip_yaw_joint",
+            "right_wrist_roll_joint",
+            "right_shoulder_roll_joint",
+        ),
+    ),
+    (
+        "mix8",
+        (
+            "right_hip_yaw_joint",
+            "left_shoulder_yaw_joint",
+            "left_wrist_pitch_joint",
+            "right_wrist_pitch_joint",
+        ),
+    ),
+)
+
+
 GROUP_PRESETS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "functional_9": G1_FUNCTIONAL_9_GROUPS,
     "coarse_5": G1_COARSE_5_GROUPS,
     "symmetric_14": G1_SYMMETRIC_14_GROUPS,
+    "nonphysical_9": G1_NONPHYSICAL_9_GROUPS,
 }
 
 
@@ -483,7 +566,7 @@ class FactorizedActor(Actor):
             log_std[..., group_index_list] = group_log_std
 
         if self.use_tanh:
-            action = torch.tanh(mean)
+            action = torch.tanh(mean) * self.action_scale + self.action_bias
         else:
             action = mean
 
@@ -499,9 +582,11 @@ class FactorizedActor(Actor):
         raw_action = dist.rsample()
 
         if self.use_tanh:
-            action = torch.tanh(raw_action)
+            tanh_action = torch.tanh(raw_action)
+            action = tanh_action * self.action_scale + self.action_bias
             log_prob_per_dim = dist.log_prob(raw_action)
-            log_prob_per_dim -= torch.log(1 - action.pow(2) + 1e-6)
+            log_prob_per_dim -= torch.log(1 - tanh_action.pow(2) + 1e-6)
+            log_prob_per_dim -= torch.log(self.action_scale + 1e-6)
         else:
             action = raw_action
             log_prob_per_dim = dist.log_prob(raw_action)
