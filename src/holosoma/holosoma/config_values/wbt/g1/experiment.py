@@ -694,6 +694,77 @@ g1_29dof_wbt_pbf_cql = replace(
     ),
 )
 
+# PSC: BF-CQL with eigen-space counterfactual blocks (data geometry). Reference
+# config per PSC spec: env-scaled actions (no normalization) + target_entropy_ratio
+# 0.5. Requires a basis from scripts/psc_spectrum.py (--space env).
+g1_29dof_wbt_psc = replace(
+    g1_29dof_wbt_bf_cql,
+    training=replace(
+        g1_29dof_wbt_bf_cql.training,
+        name="g1_29dof_wbt_psc_manager",
+    ),
+    algo=replace(
+        algo.psc,
+        config=replace(
+            g1_29dof_wbt_bf_cql.algo.config,
+            normalized_action_training=False,
+            target_entropy_ratio=0.5,
+            psc=replace(
+                g1_29dof_wbt_bf_cql.algo.config.psc,
+                enabled=True,
+                basis_path="offline_data/psc_basis_wbt.pt",
+                block_sizes=(3, 3, 3, 3, 3, 3, 4, 3, 4),
+                rand_range_mult=2.0,
+                scale_floor_quantile=0.5,
+                recompute_check=True,
+            ),
+        ),
+    ),
+)
+
+# RSC-QL: identical to the BF-CQL experiment except the conservative partition is
+# re-drawn per critic update (random subspaces, same block sizes). Actor heads stay
+# physically grouped.
+g1_29dof_wbt_rscql = replace(
+    g1_29dof_wbt_bf_cql,
+    training=replace(
+        g1_29dof_wbt_bf_cql.training,
+        name="g1_29dof_wbt_rscql_manager",
+    ),
+    algo=replace(
+        algo.rscql,
+        config=replace(
+            g1_29dof_wbt_bf_cql.algo.config,
+            rscql=replace(
+                g1_29dof_wbt_bf_cql.algo.config.rscql,
+                resample_interval=1,
+            ),
+        ),
+    ),
+)
+
+# AF-CQL: plain-CQL critic + BCPA actor. All parameters (incl. action grouping)
+# identical to the BF-CQL experiment; only the algo target and BCPA settings differ.
+g1_29dof_wbt_af_cql = replace(
+    g1_29dof_wbt_bf_cql,
+    training=replace(
+        g1_29dof_wbt_bf_cql.training,
+        name="g1_29dof_wbt_af_cql_manager",
+    ),
+    algo=replace(
+        algo.af_cql,
+        config=replace(
+            g1_29dof_wbt_bf_cql.algo.config,
+            af_cql=replace(
+                g1_29dof_wbt_bf_cql.algo.config.af_cql,
+                bcpa_lambda=1.0,
+                num_active_groups=1,
+                mask_per_sample=False,
+            ),
+        ),
+    ),
+)
+
 
 
 ##for offline rL
@@ -1088,6 +1159,9 @@ __all__ = [
     "g1_29dof_wbt_sync_cql",
     "g1_29dof_wbt_dcql",
     "g1_29dof_wbt_pbf_cql",
+    "g1_29dof_wbt_af_cql",
+    "g1_29dof_wbt_rscql",
+    "g1_29dof_wbt_psc",
     "g1_29dof_wbt_bc",
     "g1_29dof_wbt_fast_sac_w_object",
     "g1_29dof_wbt_fast_sac_w_object_episode_data",

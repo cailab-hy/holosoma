@@ -388,6 +388,21 @@ pbf_cql = dataclasses.replace(
     _target_="holosoma.agents.pbf_cql.pbf_cql_agent.PBFCQLAgent",
 )
 
+af_cql = dataclasses.replace(
+    bf_cql,
+    _target_="holosoma.agents.af_cql.af_cql_agent.AFCQLAgent",
+)
+
+rscql = dataclasses.replace(
+    bf_cql,
+    _target_="holosoma.agents.rscql.rscql_agent.RSCQLAgent",
+)
+
+psc = dataclasses.replace(
+    bf_cql,
+    _target_="holosoma.agents.psc.psc_agent.PSCAgent",
+)
+
 cal_ql = CALQLAlgoConfig(
     _target_="holosoma.agents.cal_ql.cal_ql_agent.CALQLAgent",
     _recursive_=False,

@@ -850,6 +850,80 @@ class SynDiagSettings:
 
 
 @dataclass(frozen=True)
+class PSCSettings:
+    """Configuration for PSC (Principal-Subspace Conservatism).
+
+    BF-CQL with ONE change: counterfactual blocks live over the eigen-directions
+    of the dataset action covariance (data geometry) instead of joint-index
+    groups. Blocks are indexed in DESCENDING-eigenvalue order (block 0 = top
+    eigen-directions). The basis comes from scripts/psc_spectrum.py.
+    """
+
+    enabled: bool = True
+    """whether the conservative term uses principal-subspace blocks"""
+
+    basis_path: str = ""
+    """.pt from scripts/psc_spectrum.py ({mu, U, eigvals, meta}); REQUIRED when enabled"""
+
+    block_sizes: tuple[int, ...] = (3, 3, 3, 3, 3, 3, 4, 3, 4)
+    """block sizes over eigen-index (descending eigenvalue order); must sum to action_dim"""
+
+    rand_scale_mode: Literal["sqrt_eig_floored"] = "sqrt_eig_floored"
+    """per-direction random-perturbation scale rule"""
+
+    rand_range_mult: float = 2.0
+    """rand coefficient ~ Uniform(-m * s_i, +m * s_i)"""
+
+    scale_floor_quantile: float = 0.5
+    """s_i = max(sqrt(eig_i), quantile(sqrt(eig), q)) — keeps near-null directions probed"""
+
+    block_weighting: Literal["uniform"] = "uniform"
+    """v0: uniform block weighting (inv_var reserved for ablation)"""
+
+    recompute_check: bool = True
+    """at setup, recompute Sigma_D on a <=100k subsample and hard-fail if the top-k
+    projection energy against the loaded basis is below 0.95"""
+
+
+@dataclass(frozen=True)
+class RSCQLSettings:
+    """Configuration for RSC-QL (Random Subspace Conservatism).
+
+    The conservative counterfactual partition is re-drawn every critic update
+    as a random permutation of the action dims split into the same block sizes
+    as the physical grouping preset. resample_interval is the fixed<->dynamic
+    knob: 1 = fresh partition every update, large values approach fixed BF-CQL.
+    Actor heads stay physically grouped.
+    """
+
+    resample_interval: int = 1
+    """critic updates between partition re-draws (1 = every update)"""
+
+
+@dataclass(frozen=True)
+class AFCQLSettings:
+    """Configuration for the AF-CQL BCPA actor update.
+
+    BCPA (block-coordinate policy ascent) modifies ONLY the actor's Q-ascent:
+
+        L_A = alpha * log pi(a|s) - bcpa_lambda * Q(s, m * a_pi + (1 - m) * a_D)
+
+    where m is a block mask over action dimensions built from the physical
+    action groups (same grouping preset as BF-CQL). Critic losses are the
+    plain CQL(H) terms, unmodified.
+    """
+
+    bcpa_lambda: float = 1.0
+    """weight on the masked Q-ascent term"""
+
+    num_active_groups: int = 1
+    """number of action groups ascended per update (block size in groups)"""
+
+    mask_per_sample: bool = False
+    """sample an independent block per batch sample instead of one block per update step"""
+
+
+@dataclass(frozen=True)
 class BFCQLConfig:
     num_learning_iterations: int = 25000
     """total timesteps of the experiments"""
@@ -928,6 +1002,15 @@ class BFCQLConfig:
 
     pbf_cql: PBFCQLSettings = field(default_factory=PBFCQLSettings)
     """PBF-CQL all-pair synergy regularization settings"""
+
+    af_cql: AFCQLSettings = field(default_factory=AFCQLSettings)
+    """AF-CQL BCPA (block-coordinate policy ascent) actor-update settings"""
+
+    rscql: RSCQLSettings = field(default_factory=RSCQLSettings)
+    """RSC-QL random-subspace conservatism settings"""
+
+    psc: PSCSettings = field(default_factory=PSCSettings)
+    """PSC principal-subspace conservatism settings"""
 
     syndiag: SynDiagSettings = field(default_factory=SynDiagSettings)
     """synergy-OOD diagnostic logging settings (logging only, no loss changes)"""

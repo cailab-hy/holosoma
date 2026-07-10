@@ -252,6 +252,122 @@ g1_29dof_sync_cql = ExperimentConfig(
     ),
 )
 
+# PSC: eigen-space conservative blocks; same loco params. Basis from
+# scripts/psc_spectrum.py --space env on the loco dataset.
+g1_29dof_psc = ExperimentConfig(
+    env_class="holosoma.envs.locomotion.locomotion_manager.LeggedRobotLocomotionManager",
+    training=TrainingConfig(
+        project="hv-g1-manager",
+        name="g1_29dof_psc_manager",
+        num_envs=512,
+        eval_num_episodes=1,
+    ),
+    algo=replace(
+        algo.psc,
+        config=replace(
+            algo.psc.config,
+            num_learning_iterations=50000,
+            normalized_action_training=False,
+            target_entropy_ratio=0.5,
+            use_symmetry=True,
+            cql_weight=5.0,
+            cql_num_action_samples=10,
+            offline_dataset_path="offline_data/g1_29dof_loco_fastsac_dataset.h5",
+            psc=replace(
+                algo.psc.config.psc,
+                enabled=True,
+                basis_path="offline_data/psc_basis_loco.pt",
+            ),
+        ),
+    ),
+    simulator=simulator.isaacgym,
+    robot=robot.g1_29dof,
+    terrain=terrain.terrain_locomotion_mix,
+    observation=observation.g1_29dof_loco_single_wolinvel,
+    action=action.g1_29dof_joint_pos,
+    termination=termination.g1_29dof_termination,
+    randomization=randomization.g1_29dof_randomization,
+    command=command.g1_29dof_command,
+    curriculum=curriculum.g1_29dof_curriculum_fast_sac_data,
+    reward=reward.g1_29dof_loco_fast_sac,
+    nightly=NightlyConfig(
+        iterations=50000,
+        metrics={"Episode/rew_tracking_ang_vel": [0.8, "inf"], "Episode/rew_tracking_lin_vel": [0.95, "inf"]},
+    ),
+)
+
+# RSC-QL: BF-CQL with a per-step random conservative partition; same loco params.
+g1_29dof_rscql = ExperimentConfig(
+    env_class="holosoma.envs.locomotion.locomotion_manager.LeggedRobotLocomotionManager",
+    training=TrainingConfig(
+        project="hv-g1-manager",
+        name="g1_29dof_rscql_manager",
+        num_envs=512,
+        eval_num_episodes=1,
+    ),
+    algo=replace(
+        algo.rscql,
+        config=replace(
+            algo.rscql.config,
+            num_learning_iterations=50000,
+            use_symmetry=True,
+            cql_weight=5.0,
+            cql_num_action_samples=10,
+            offline_dataset_path="offline_data/g1_29dof_loco_fastsac_dataset.h5",
+        ),
+    ),
+    simulator=simulator.isaacgym,
+    robot=robot.g1_29dof,
+    terrain=terrain.terrain_locomotion_mix,
+    observation=observation.g1_29dof_loco_single_wolinvel,
+    action=action.g1_29dof_joint_pos,
+    termination=termination.g1_29dof_termination,
+    randomization=randomization.g1_29dof_randomization,
+    command=command.g1_29dof_command,
+    curriculum=curriculum.g1_29dof_curriculum_fast_sac_data,
+    reward=reward.g1_29dof_loco_fast_sac,
+    nightly=NightlyConfig(
+        iterations=50000,
+        metrics={"Episode/rew_tracking_ang_vel": [0.8, "inf"], "Episode/rew_tracking_lin_vel": [0.95, "inf"]},
+    ),
+)
+
+# AF-CQL: plain-CQL critic + BCPA actor; parameters mirror the sync/bf-cql loco setup.
+g1_29dof_af_cql = ExperimentConfig(
+    env_class="holosoma.envs.locomotion.locomotion_manager.LeggedRobotLocomotionManager",
+    training=TrainingConfig(
+        project="hv-g1-manager",
+        name="g1_29dof_af_cql_manager",
+        num_envs=512,
+        eval_num_episodes=1,
+    ),
+    algo=replace(
+        algo.af_cql,
+        config=replace(
+            algo.af_cql.config,
+            num_learning_iterations=50000,
+            use_symmetry=True,
+            cql_weight=5.0,
+            cql_num_action_samples=10,
+            offline_dataset_path="offline_data/g1_29dof_loco_fastsac_dataset.h5",
+        ),
+    ),
+    simulator=simulator.isaacgym,
+    robot=robot.g1_29dof,
+    terrain=terrain.terrain_locomotion_mix,
+    observation=observation.g1_29dof_loco_single_wolinvel,
+    action=action.g1_29dof_joint_pos,
+    termination=termination.g1_29dof_termination,
+    randomization=randomization.g1_29dof_randomization,
+    command=command.g1_29dof_command,
+    curriculum=curriculum.g1_29dof_curriculum_fast_sac_data,
+    reward=reward.g1_29dof_loco_fast_sac,
+    nightly=NightlyConfig(
+        iterations=50000,
+        metrics={"Episode/rew_tracking_ang_vel": [0.8, "inf"], "Episode/rew_tracking_lin_vel": [0.95, "inf"]},
+    ),
+)
+
 g1_29dof_dcql = ExperimentConfig(
     env_class="holosoma.envs.locomotion.locomotion_manager.LeggedRobotLocomotionManager",
     training=TrainingConfig(
@@ -422,6 +538,9 @@ __all__ = [
     "g1_29dof_cql",
     "g1_29dof_iql",
     "g1_29dof_sync_cql",
+    "g1_29dof_af_cql",
+    "g1_29dof_rscql",
+    "g1_29dof_psc",
     "g1_29dof_dcql",
     "g1_29dof_os_cql",
     "g1_29dof_cal_ql",
