@@ -174,7 +174,7 @@ g1_29dof_wbt_command_d3_seg_c = replace(
 
 __all__ = [
     "g1_29dof_wbt_command",
-    "g1_29dof_wbt_command_offline_collect",
+    # "g1_29dof_wbt_command_offline_collect",
     "g1_29dof_wbt_command_d3_seg_a",
     "g1_29dof_wbt_command_d3_seg_b",
     "g1_29dof_wbt_command_d3_seg_c",

@@ -122,14 +122,14 @@ class Actor(nn.Module):
         dist = torch.distributions.Normal(mean, std)
 
         if self.use_tanh:
-            normalized_action = (dataset_actions - self.action_bias) / (self.action_scale + 1e-6)
-            normalized_action = normalized_action.clamp(-1.0 + 1e-6, 1.0 - 1e-6)
+            squashed_action = (dataset_actions - self.action_bias) / (self.action_scale + 1e-6)
+            squashed_action = squashed_action.clamp(-1.0 + 1e-6, 1.0 - 1e-6)
 
             # atanh(x) = 0.5 * (log(1 + x) - log(1 - x))
-            raw_action = 0.5 * (torch.log1p(normalized_action) - torch.log1p(-normalized_action))
+            raw_action = 0.5 * (torch.log1p(squashed_action) - torch.log1p(-squashed_action))
 
             log_prob = dist.log_prob(raw_action)
-            log_prob -= torch.log(1 - normalized_action.pow(2) + 1e-6)
+            log_prob -= torch.log(1 - squashed_action.pow(2) + 1e-6)
             log_prob -= torch.log(self.action_scale + 1e-6)
         else:
             log_prob = dist.log_prob(dataset_actions)

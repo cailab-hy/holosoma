@@ -20,14 +20,12 @@ from holosoma.config_types.algo import (
     BFCQLConfig,
     CQLAlgoConfig,
     CALQLAlgoConfig,
-    OS_CALQLAlgoConfig,
     OS_CQLAlgoConfig,
-    CQLSupportAwareAlgoConfig,
+    OS_CALQLAlgoConfig,
     CQLConfig,
     CALQLConfig,
     OS_CQLConfig,
     OS_CALQLConfig,
-    CQLSupportAwareConfig,
     TD3BCAlgoConfig,
     TD3BCConfig,
 )
@@ -307,10 +305,6 @@ cql = CQLAlgoConfig(
     ),
 )
 
-cql_gaussian = dataclasses.replace(
-    cql,
-    _target_="holosoma.agents.cql.cql_gaussian_agent.CQLGaussianAgent",
-)
 
 bf_cql = BFCQLAlgoConfig(
     _target_="holosoma.agents.bf_cql.bf_cql_agent.BFCQLAgent",
@@ -350,7 +344,6 @@ bf_cql = BFCQLAlgoConfig(
         alpha_init=0.001,
         use_autotune=True,
         use_tanh=True,
-        normalized_action_training=False,
         log_std_max=0.0,
         log_std_min=-5.0,
         compile=True,
@@ -373,35 +366,6 @@ bf_cql = BFCQLAlgoConfig(
     ),
 )
 
-sync_cql = dataclasses.replace(
-    bf_cql,
-    _target_="holosoma.agents.sync_cql.sync_cql_agent.SyncCQLAgent",
-)
-
-dcql = dataclasses.replace(
-    bf_cql,
-    _target_="holosoma.agents.dcql.dcql_agent.DCQLAgent",
-)
-
-pbf_cql = dataclasses.replace(
-    bf_cql,
-    _target_="holosoma.agents.pbf_cql.pbf_cql_agent.PBFCQLAgent",
-)
-
-af_cql = dataclasses.replace(
-    bf_cql,
-    _target_="holosoma.agents.af_cql.af_cql_agent.AFCQLAgent",
-)
-
-rscql = dataclasses.replace(
-    bf_cql,
-    _target_="holosoma.agents.rscql.rscql_agent.RSCQLAgent",
-)
-
-psc = dataclasses.replace(
-    bf_cql,
-    _target_="holosoma.agents.psc.psc_agent.PSCAgent",
-)
 
 cal_ql = CALQLAlgoConfig(
     _target_="holosoma.agents.cal_ql.cal_ql_agent.CALQLAgent",
@@ -632,19 +596,6 @@ os_cal_ql = OS_CALQLAlgoConfig(
 )
 
 
-cql_support_aware = CQLSupportAwareAlgoConfig(
-    _target_="holosoma.agents.cql_support_aware.cql_agent.CQLSupportAwareAgent",
-    _recursive_=False,
-    config=CQLSupportAwareConfig(
-        **dataclasses.asdict(cql.config),
-        use_support_aware_backup=True,
-        backup_support_penalty=1.0,
-        backup_mode="project_select",
-        support_percentile_low=1.0,
-        support_percentile_high=99.0,
-    ),
-)
-
 
 iql = IQLAlgoConfig(
     _target_="holosoma.agents.iql.iql_agent.IQLAgent",
@@ -770,13 +721,10 @@ DEFAULTS = {
     "offline_sac": offline_sac,
     "codac": codac,
     "cql": cql,
-    "cql_gaussian": cql_gaussian,
-    "bf_cql": bf_cql,
-    "sync_cql": sync_cql,
-    "dcql": dcql,
-    "pbf_cql": pbf_cql,
     "cal_ql": cal_ql,
-    "cql_support_aware": cql_support_aware,
+    "os_cql": os_cql,
+    "os_cal_ql": os_cal_ql,
+    "bf_cql": bf_cql,
     "iql": iql,
     "bc": bc,
     "td3_bc": td3_bc,

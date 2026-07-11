@@ -535,14 +535,11 @@ class CQLConfig:
     cql_weight: float = 5.0
     """weight of conservative quantile regularization"""
 
-    normalized_action_training: bool = False
-    """whether actor/critic train in normalized [-1, 1] action space; False restores legacy env-scaled action space"""
-
     cql_near_action_samples: int = 0
     """number of Gaussian-noised dataset-near actions per state for local conservative regularization"""
 
     cql_near_noise_std: float = 0.05
-    """standard deviation of Gaussian noise added to normalized dataset actions for q_near samples"""
+    """standard deviation of Gaussian noise added to dataset actions for q_near samples"""
 
     cql_near_weight: float = 0.05
     """cql near loss weight"""
@@ -683,12 +680,6 @@ class CQLConfig:
     actor_warmup_steps: int = 500
     """number of initial global steps where actor update is skipped"""
 
-    q_min: float | None = None
-    """minimum Bellman target Q value; None disables lower clipping"""
-
-    q_max: float | None = None
-    """maximum Bellman target Q value; None disables upper clipping"""
-
     bellman_loss_type: Literal["mse", "huber"] = "mse"
     """Bellman regression loss type for critic targets"""
 
@@ -706,116 +697,6 @@ class CQLConfig:
 
     cql_max_target_backup_samples : int = 10
 
-
-@dataclass(frozen=True)
-class PBFCQLSettings:
-    """Configuration for pair-synergy BF-CQL regularization."""
-
-    enabled: bool = True
-    """whether to add the all-pair PBF-CQL conservative penalty"""
-
-    alpha: float = 0.05
-    """weight applied to the PBF-CQL pair-synergy penalty"""
-
-    margin: float = 0.0
-    """hinge/softplus margin applied to Delta_ij"""
-
-    use_softplus: bool = False
-    """use beta-scaled softplus instead of ReLU hinge"""
-
-    softplus_beta: float = 1.0
-    """temperature-like beta for the softplus penalty"""
-
-    detach_singletons: bool = True
-    """kept for config visibility; PBF-CQL always detaches singleton values"""
-
-    log_pair_stats: bool = True
-    """whether to log aggregate pair residual diagnostics"""
-
-
-@dataclass(frozen=True)
-class SyncCQLSettings:
-    """Configuration for SYNC-QL drift-gated CFCQL regularization."""
-
-    K: int = 2
-    """legacy option kept for checkpoint/config compatibility; drift-gated CFCQL does not use K"""
-
-    delta_threshold: float = 0.5
-    """minimum normalized-RMSE drift required for a group to enter the candidate set"""
-
-    selection_mode: Literal["topk", "greedy", "random", "none"] = "topk"
-    """set to 'none' to disable drift gating and recover BF-CQL-style all-group CFCQL"""
-
-    gate_norm: Literal["batch", "active"] = "batch"
-    """normalize gated CFCQL by full batch size or active sample count"""
-
-    drift_mode: Literal["rmse", "density"] = "rmse"
-    """actor drift estimator used for candidate screening"""
-
-    eps_gain: float = 0.0
-    """legacy option kept for config compatibility"""
-
-    margin_m: float = 0.0
-    """legacy option kept for config compatibility"""
-
-    alpha2: float = 1.0
-    """legacy option kept for config compatibility; the active penalty uses cql_weight"""
-
-    alpha2_lagrange: bool = False
-    """legacy option kept for config compatibility; CQL Lagrange remains controlled by use_lagrange"""
-
-    tau_syn: float = 5.0
-    """legacy option kept for config compatibility"""
-
-    lambda_cf: float = 0.0
-    """weight of the actor counterfactual block objective"""
-
-    drift_ema: float = 0.0
-    """EMA blending for per-group drift selection stability; 0.0 uses current-batch drift only"""
-
-    drift_std_momentum: float = 0.999
-    """momentum for running dataset action std used by RMSE drift"""
-
-    freeze_drift_stats: bool = False
-    """whether to freeze running dataset action std updates"""
-
-
-@dataclass(frozen=True)
-class DCQLSettings:
-    """Configuration for escape-ray Directional Conservative Q-Learning."""
-
-    enabled: bool = True
-    """whether to replace CFCQL with escape-ray DCQL conservative regularization"""
-
-    t_grid: List[float] = field(default_factory=lambda: [0.5, 1.0, 1.5, 2.0])
-    """ray interpolation/extrapolation coefficients from dataset action to actor action"""
-
-    ray_noise_std: float = 0.05
-    """Gaussian noise std added to each ray action in normalized action space"""
-
-    delta_thr: float = 0.7
-    """minimum sigma-normalized actor-vs-reference drift required to activate DCQL"""
-
-    gate_norm: Literal["batch", "active"] = "batch"
-    """normalize gated DCQL by full batch size or active sample count"""
-
-    a_ref_mode: Literal["dataset", "knn"] = "dataset"
-    """reference on-support action source; knn is a reserved behavior-model stub"""
-
-    drift_std_momentum: float = 0.999
-    """momentum for running dataset action std used by the drift gate"""
-
-    freeze_drift_stats: bool = False
-    """whether to freeze running dataset action std updates"""
-
-    warmup_ballast_steps: int = 0
-    """number of initial critic updates using optional random-action ballast"""
-
-    ballast_alpha: float = 0.1
-    """relative weight for optional warmup random-action ballast"""
-
-    ballast_num_samples: int = 8
-    """number of random normalized actions per state for optional warmup ballast"""
 
 
 @dataclass(frozen=True)
@@ -848,79 +729,6 @@ class SynDiagSettings:
     dump_max_rows: int = 2048
     """subsample cap on rows per raw dump file (keeps files well under ~50MB)"""
 
-
-@dataclass(frozen=True)
-class PSCSettings:
-    """Configuration for PSC (Principal-Subspace Conservatism).
-
-    BF-CQL with ONE change: counterfactual blocks live over the eigen-directions
-    of the dataset action covariance (data geometry) instead of joint-index
-    groups. Blocks are indexed in DESCENDING-eigenvalue order (block 0 = top
-    eigen-directions). The basis comes from scripts/psc_spectrum.py.
-    """
-
-    enabled: bool = True
-    """whether the conservative term uses principal-subspace blocks"""
-
-    basis_path: str = ""
-    """.pt from scripts/psc_spectrum.py ({mu, U, eigvals, meta}); REQUIRED when enabled"""
-
-    block_sizes: tuple[int, ...] = (3, 3, 3, 3, 3, 3, 4, 3, 4)
-    """block sizes over eigen-index (descending eigenvalue order); must sum to action_dim"""
-
-    rand_scale_mode: Literal["sqrt_eig_floored"] = "sqrt_eig_floored"
-    """per-direction random-perturbation scale rule"""
-
-    rand_range_mult: float = 2.0
-    """rand coefficient ~ Uniform(-m * s_i, +m * s_i)"""
-
-    scale_floor_quantile: float = 0.5
-    """s_i = max(sqrt(eig_i), quantile(sqrt(eig), q)) — keeps near-null directions probed"""
-
-    block_weighting: Literal["uniform"] = "uniform"
-    """v0: uniform block weighting (inv_var reserved for ablation)"""
-
-    recompute_check: bool = True
-    """at setup, recompute Sigma_D on a <=100k subsample and hard-fail if the top-k
-    projection energy against the loaded basis is below 0.95"""
-
-
-@dataclass(frozen=True)
-class RSCQLSettings:
-    """Configuration for RSC-QL (Random Subspace Conservatism).
-
-    The conservative counterfactual partition is re-drawn every critic update
-    as a random permutation of the action dims split into the same block sizes
-    as the physical grouping preset. resample_interval is the fixed<->dynamic
-    knob: 1 = fresh partition every update, large values approach fixed BF-CQL.
-    Actor heads stay physically grouped.
-    """
-
-    resample_interval: int = 1
-    """critic updates between partition re-draws (1 = every update)"""
-
-
-@dataclass(frozen=True)
-class AFCQLSettings:
-    """Configuration for the AF-CQL BCPA actor update.
-
-    BCPA (block-coordinate policy ascent) modifies ONLY the actor's Q-ascent:
-
-        L_A = alpha * log pi(a|s) - bcpa_lambda * Q(s, m * a_pi + (1 - m) * a_D)
-
-    where m is a block mask over action dimensions built from the physical
-    action groups (same grouping preset as BF-CQL). Critic losses are the
-    plain CQL(H) terms, unmodified.
-    """
-
-    bcpa_lambda: float = 1.0
-    """weight on the masked Q-ascent term"""
-
-    num_active_groups: int = 1
-    """number of action groups ascended per update (block size in groups)"""
-
-    mask_per_sample: bool = False
-    """sample an independent block per batch sample instead of one block per update step"""
 
 
 @dataclass(frozen=True)
@@ -977,7 +785,7 @@ class BFCQLConfig:
     """number of Gaussian-noised dataset-near actions per state for local conservative regularization"""
 
     cql_near_noise_std: float = 0.05
-    """standard deviation of Gaussian noise added to normalized dataset actions for q_near samples"""
+    """standard deviation of Gaussian noise added to dataset actions for q_near samples"""
 
     cql_near_weight: float = 0.05
     """cql near loss weight"""
@@ -994,23 +802,11 @@ class BFCQLConfig:
     ood_actor_num: int = 1
     """number of action groups replaced by actor samples in each BF-CQL actor OOD candidate"""
 
-    sync_cql: SyncCQLSettings = field(default_factory=SyncCQLSettings)
-    """SYNC-QL synergy regularization settings"""
 
-    dcql: DCQLSettings = field(default_factory=DCQLSettings)
-    """DCQL escape-ray conservative regularization settings"""
 
-    pbf_cql: PBFCQLSettings = field(default_factory=PBFCQLSettings)
-    """PBF-CQL all-pair synergy regularization settings"""
 
-    af_cql: AFCQLSettings = field(default_factory=AFCQLSettings)
-    """AF-CQL BCPA (block-coordinate policy ascent) actor-update settings"""
 
-    rscql: RSCQLSettings = field(default_factory=RSCQLSettings)
-    """RSC-QL random-subspace conservatism settings"""
 
-    psc: PSCSettings = field(default_factory=PSCSettings)
-    """PSC principal-subspace conservatism settings"""
 
     syndiag: SynDiagSettings = field(default_factory=SynDiagSettings)
     """synergy-OOD diagnostic logging settings (logging only, no loss changes)"""
@@ -1075,9 +871,6 @@ class BFCQLConfig:
     use_tanh: bool = True
     """whether to use tanh for the action"""
 
-    normalized_action_training: bool = False
-    """whether actor/critic train in normalized [-1, 1] action space and only scale actions for env rollout"""
-
     log_std_max: float = 0.0
     """the maximum value of the log std"""
 
@@ -1147,12 +940,6 @@ class BFCQLConfig:
     actor_warmup_steps: int = 500
     """number of initial global steps where actor update is skipped"""
 
-    q_min: float | None = None
-    """minimum Bellman target Q value; None disables lower clipping"""
-
-    q_max: float | None = None
-    """maximum Bellman target Q value; None disables upper clipping"""
-
     bellman_loss_type: Literal["mse", "huber"] = "mse"
     """Bellman regression loss type for critic targets"""
 
@@ -1169,6 +956,7 @@ class BFCQLConfig:
     backup_entropy : bool = False
 
     cql_max_target_backup_samples : int = 10
+
 
 
 @dataclass(frozen=True)
@@ -1843,25 +1631,6 @@ class OS_CALQLConfig:
 
 
 
-@dataclass(frozen=True)
-class CQLSupportAwareConfig(CQLConfig):
-    """CQL config with support-aware Bellman backup selection."""
-
-    use_support_aware_backup: bool = True
-    """whether to use support-aware Bellman backup action selection"""
-
-    backup_support_penalty: float = 1.0
-    """lambda_support used in score = Q_target - lambda_support * overflow"""
-
-    backup_mode: str = "project_select"
-    """support-aware backup mode. currently only 'project_select' is supported"""
-
-    support_percentile_low: float = 1.0
-    """low percentile used for action support band in normalized u-space"""
-
-    support_percentile_high: float = 99.0
-    """high percentile used for action support band in normalized u-space"""
-
 
 @dataclass(frozen=True)
 class IQLConfig:
@@ -2234,6 +2003,7 @@ class BFCQLAlgoConfig:
     """Algorithm-specific configuration."""
 
 
+
 @dataclass(frozen=True)
 class CALQLAlgoConfig:
     """Configuration for O2O/CAL-QL algorithm wrapper."""
@@ -2275,19 +2045,6 @@ class OS_CALQLAlgoConfig:
     config: OS_CALQLConfig
     """Algorithm-specific configuration."""
 
-
-@dataclass(frozen=True)
-class CQLSupportAwareAlgoConfig:
-    """Configuration for support-aware CQL algorithm wrapper."""
-
-    _target_: str
-    """Target algorithm class."""
-
-    _recursive_: bool
-    """Whether to recursively instantiate."""
-
-    config: CQLSupportAwareConfig
-    """Algorithm-specific configuration."""
 
 
 @dataclass(frozen=True)
@@ -2342,7 +2099,6 @@ AlgoInitConfig = Union[
     CALQLConfig,
     OS_CQLConfig,
     OS_CALQLConfig,
-    CQLSupportAwareConfig,
     IQLConfig,
     BCConfig,
     TD3BCConfig,
@@ -2358,7 +2114,6 @@ AlgoConfig = Union[
     CALQLAlgoConfig,
     OS_CQLAlgoConfig,
     OS_CALQLAlgoConfig,
-    CQLSupportAwareAlgoConfig,
     IQLAlgoConfig,
     BCAlgoConfig,
     TD3BCAlgoConfig,

@@ -126,11 +126,6 @@ def _actions_for_critic(algo: BaseAlgo, actions: torch.Tensor) -> torch.Tensor:
     to_critic_actions = getattr(algo, "_to_critic_actions", None)
     if callable(to_critic_actions):
         return to_critic_actions(actions)
-
-    to_normalized_actions = getattr(algo, "_to_normalized_actions", None)
-    if callable(to_normalized_actions):
-        return to_normalized_actions(actions)
-
     return actions
 
 

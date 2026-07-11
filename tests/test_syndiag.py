@@ -72,7 +72,6 @@ def _skeleton_agent(
     agent.bf_cql_group_indices = [tuple(g) for g in group_indices]
     agent.env_action_scale = torch.ones(n_act)
     agent.env_action_bias = torch.zeros(n_act)
-    agent.normalized_action_training = True
     agent.qnet = critic
     agent._offline_dataset_path = Path("offline_data/fake_dataset.h5")
     agent.config = SimpleNamespace(amp=False, amp_dtype="bf16", syndiag=cfg)

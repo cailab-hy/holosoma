@@ -165,8 +165,8 @@ g1_29dof_wbt_fast_sac_data = ExperimentConfig(
             target_entropy_ratio=0.5,
             tau=0.05,
             use_symmetry=False,
-            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_offline_collect_5m_dataset.h5",
-            save_env_num = 64,
+            offline_dataset_path="offline_data/g1_29dof_wbt_5m_step_32_env_dataset.h5",
+            save_env_num = 32,
         ),
     ),
     simulator=replace(
@@ -192,11 +192,11 @@ g1_29dof_wbt_fast_sac_data = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
-    termination=termination.g1_29dof_wbt_termination_offline_collect,
+    termination=termination.g1_29dof_wbt_termination,
     randomization=randomization.g1_29dof_wbt_randomization,
-    command=command.g1_29dof_wbt_command_offline_collect,
+    command=command.g1_29dof_wbt_command,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
+    reward=reward.g1_29dof_wbt_fast_sac_reward,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
@@ -358,11 +358,11 @@ g1_29dof_wbt_fast_sac_episode_data = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
-    termination=termination.g1_29dof_wbt_termination_offline_collect,
+    termination=termination.g1_29dof_wbt_termination,
     randomization=randomization.g1_29dof_wbt_randomization,
-    command=command.g1_29dof_wbt_command_offline_collect,
+    command=command.g1_29dof_wbt_command,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
+    reward=reward.g1_29dof_wbt_fast_sac_reward,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
@@ -426,11 +426,11 @@ g1_29dof_wbt_fixed_fast_sac_data = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
-    termination=termination.g1_29dof_wbt_termination_offline_collect,
+    termination=termination.g1_29dof_wbt_termination,
     randomization=randomization.g1_29dof_wbt_randomization,
-    command=command.g1_29dof_wbt_command_offline_collect,
+    command=command.g1_29dof_wbt_command,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
+    reward=reward.g1_29dof_wbt_fast_sac_reward,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
@@ -462,22 +462,20 @@ g1_29dof_wbt_cql = ExperimentConfig(
             gamma=0.99,  # For motion tracking, high gamma + high num_steps is better
             num_updates=4,
             policy_frequency=1,
-            target_entropy_ratio=1.0,
+            target_entropy_ratio=0.5,
             tau=0.05,
-            cql_weight = 1.0,
+            cql_weight = 5.0,
             cql_num_action_samples=32,
             use_symmetry=False,
             use_lagrange=False,
             batch_size=1024,
             cql_target_action_gap=0.0,
-            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_strict_5m_dataset.h5",
+            offline_dataset_path="offline_data/g1_29dof_wbt_5m_step_32_env_dataset.h5",
             use_gpu_cache=True,
             reward_scale = 5.0,
-            q_min=-100.0,
-            q_max=100.0,
             bellman_loss_type="mse",
             huber_beta=5.0,
-            cql_max_target_backup = True,
+            cql_max_target_backup = False,
 
         ),
     ),
@@ -507,9 +505,9 @@ g1_29dof_wbt_cql = ExperimentConfig(
     # Eval must replay the dataset's motion timeline (1s default-pose prepend):
     # raw frame 0 carries a retargeting velocity spike and never appears as an
     # episode-start state in the collected data.
-    command=command.g1_29dof_wbt_command_offline_collect,
+    command=command.g1_29dof_wbt_command,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
+    reward=reward.g1_29dof_wbt_fast_sac_reward,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
@@ -520,23 +518,6 @@ g1_29dof_wbt_cql = ExperimentConfig(
             "Episode/rew_motion_global_body_lin_vel": [0.45, "inf"],
             "Episode/rew_motion_global_body_ang_vel": [0.15, "inf"],
         },
-    ),
-)
-
-
-g1_29dof_wbt_cql_gaussian = replace(
-    g1_29dof_wbt_cql,
-    training=replace(
-        g1_29dof_wbt_cql.training,
-        name="g1_29dof_wbt_cql_gaussian_manager",
-    ),
-    algo=replace(
-        algo.cql_gaussian,
-        config=replace(
-            g1_29dof_wbt_cql.algo.config,
-            cql_masked_active_dim=8,
-            cql_masked_inactive_std=0.01,
-        ),
     ),
 )
 
@@ -570,8 +551,6 @@ g1_29dof_wbt_bf_cql = ExperimentConfig(
             offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_strict_5m_dataset.h5",
             use_gpu_cache=True,
             reward_scale=5.0,
-            q_min=-100.0,
-            q_max=100.0,
             bellman_loss_type="mse",
             huber_beta=5.0,
             cql_max_target_backup=True,
@@ -596,16 +575,11 @@ g1_29dof_wbt_bf_cql = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
-    # Strict (original) termination for eval: deployment-grade success criterion,
-    # deliberately tighter than the loose collection thresholds.
     termination=termination.g1_29dof_wbt_termination,
     randomization=randomization.g1_29dof_wbt_randomization,
-    # Eval must replay the dataset's motion timeline (1s default-pose prepend):
-    # raw frame 0 carries a retargeting velocity spike and never appears as an
-    # episode-start state in the collected data.
-    command=command.g1_29dof_wbt_command_offline_collect,
+    command=command.g1_29dof_wbt_command,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
+    reward=reward.g1_29dof_wbt_fast_sac_reward,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
@@ -618,154 +592,6 @@ g1_29dof_wbt_bf_cql = ExperimentConfig(
         },
     ),
 )
-
-g1_29dof_wbt_sync_cql = replace(
-    g1_29dof_wbt_bf_cql,
-    training=replace(
-        g1_29dof_wbt_bf_cql.training,
-        name="g1_29dof_wbt_sync_cql_manager",
-    ),
-    algo=replace(
-        algo.sync_cql,
-        config=replace(
-            g1_29dof_wbt_bf_cql.algo.config,
-            sync_cql=replace(
-                g1_29dof_wbt_bf_cql.algo.config.sync_cql,
-                K=2,
-                delta_threshold=0.5,
-                selection_mode="topk",
-                drift_mode="rmse",
-                eps_gain=0.0,
-                margin_m=0.0,
-                alpha2=1.0,
-                alpha2_lagrange=False,
-                tau_syn=5.0,
-                lambda_cf=0.0,
-                drift_ema=0.0,
-            ),
-        ),
-    ),
-)
-
-g1_29dof_wbt_dcql = replace(
-    g1_29dof_wbt_bf_cql,
-    training=replace(
-        g1_29dof_wbt_bf_cql.training,
-        name="g1_29dof_wbt_dcql_manager",
-    ),
-    algo=replace(
-        algo.dcql,
-        config=replace(
-            g1_29dof_wbt_bf_cql.algo.config,
-            dcql=replace(
-                g1_29dof_wbt_bf_cql.algo.config.dcql,
-                enabled=True,
-                t_grid=[0.5, 1.0, 1.5, 2.0],
-                ray_noise_std=0.05,
-                delta_thr=0.7,
-                gate_norm="batch",
-                a_ref_mode="dataset",
-                warmup_ballast_steps=0,
-            ),
-        ),
-    ),
-)
-
-g1_29dof_wbt_pbf_cql = replace(
-    g1_29dof_wbt_bf_cql,
-    training=replace(
-        g1_29dof_wbt_bf_cql.training,
-        name="g1_29dof_wbt_pbf_cql_manager",
-    ),
-    algo=replace(
-        algo.pbf_cql,
-        config=replace(
-            g1_29dof_wbt_bf_cql.algo.config,
-            ood_actor_num=1,
-            pbf_cql=replace(
-                g1_29dof_wbt_bf_cql.algo.config.pbf_cql,
-                enabled=True,
-                alpha=0.05,
-                margin=0.0,
-                use_softplus=False,
-                softplus_beta=1.0,
-            ),
-        ),
-    ),
-)
-
-# PSC: BF-CQL with eigen-space counterfactual blocks (data geometry). Reference
-# config per PSC spec: env-scaled actions (no normalization) + target_entropy_ratio
-# 0.5. Requires a basis from scripts/psc_spectrum.py (--space env).
-g1_29dof_wbt_psc = replace(
-    g1_29dof_wbt_bf_cql,
-    training=replace(
-        g1_29dof_wbt_bf_cql.training,
-        name="g1_29dof_wbt_psc_manager",
-    ),
-    algo=replace(
-        algo.psc,
-        config=replace(
-            g1_29dof_wbt_bf_cql.algo.config,
-            normalized_action_training=False,
-            target_entropy_ratio=0.5,
-            psc=replace(
-                g1_29dof_wbt_bf_cql.algo.config.psc,
-                enabled=True,
-                basis_path="offline_data/psc_basis_wbt.pt",
-                block_sizes=(3, 3, 3, 3, 3, 3, 4, 3, 4),
-                rand_range_mult=2.0,
-                scale_floor_quantile=0.5,
-                recompute_check=True,
-            ),
-        ),
-    ),
-)
-
-# RSC-QL: identical to the BF-CQL experiment except the conservative partition is
-# re-drawn per critic update (random subspaces, same block sizes). Actor heads stay
-# physically grouped.
-g1_29dof_wbt_rscql = replace(
-    g1_29dof_wbt_bf_cql,
-    training=replace(
-        g1_29dof_wbt_bf_cql.training,
-        name="g1_29dof_wbt_rscql_manager",
-    ),
-    algo=replace(
-        algo.rscql,
-        config=replace(
-            g1_29dof_wbt_bf_cql.algo.config,
-            rscql=replace(
-                g1_29dof_wbt_bf_cql.algo.config.rscql,
-                resample_interval=1,
-            ),
-        ),
-    ),
-)
-
-# AF-CQL: plain-CQL critic + BCPA actor. All parameters (incl. action grouping)
-# identical to the BF-CQL experiment; only the algo target and BCPA settings differ.
-g1_29dof_wbt_af_cql = replace(
-    g1_29dof_wbt_bf_cql,
-    training=replace(
-        g1_29dof_wbt_bf_cql.training,
-        name="g1_29dof_wbt_af_cql_manager",
-    ),
-    algo=replace(
-        algo.af_cql,
-        config=replace(
-            g1_29dof_wbt_bf_cql.algo.config,
-            af_cql=replace(
-                g1_29dof_wbt_bf_cql.algo.config.af_cql,
-                bcpa_lambda=1.0,
-                num_active_groups=1,
-                mask_per_sample=False,
-            ),
-        ),
-    ),
-)
-
-
 
 ##for offline rL
 g1_29dof_wbt_iql = ExperimentConfig(
@@ -809,16 +635,11 @@ g1_29dof_wbt_iql = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
-    # Strict (original) termination for eval: deployment-grade success criterion,
-    # deliberately tighter than the loose collection thresholds.
     termination=termination.g1_29dof_wbt_termination,
     randomization=randomization.g1_29dof_wbt_randomization,
-    # Eval must replay the dataset's motion timeline (1s default-pose prepend):
-    # raw frame 0 carries a retargeting velocity spike and never appears as an
-    # episode-start state in the collected data.
-    command=command.g1_29dof_wbt_command_offline_collect,
+    command=command.g1_29dof_wbt_command,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
+    reward=reward.g1_29dof_wbt_fast_sac_reward,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
@@ -872,16 +693,11 @@ g1_29dof_wbt_bc = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
-    # Strict (original) termination for eval: deployment-grade success criterion,
-    # deliberately tighter than the loose collection thresholds.
     termination=termination.g1_29dof_wbt_termination,
     randomization=randomization.g1_29dof_wbt_randomization,
-    # Eval must replay the dataset's motion timeline (1s default-pose prepend):
-    # raw frame 0 carries a retargeting velocity spike and never appears as an
-    # episode-start state in the collected data.
-    command=command.g1_29dof_wbt_command_offline_collect,
+    command=command.g1_29dof_wbt_command,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
+    reward=reward.g1_29dof_wbt_fast_sac_reward,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
@@ -930,16 +746,11 @@ g1_29dof_wbt_td3_bc = ExperimentConfig(
     terrain=terrain.terrain_locomotion_plane,
     observation=observation.g1_29dof_wbt_observation,
     action=action.g1_29dof_joint_pos,
-    # Strict (original) termination for eval: deployment-grade success criterion,
-    # deliberately tighter than the loose collection thresholds.
     termination=termination.g1_29dof_wbt_termination,
     randomization=randomization.g1_29dof_wbt_randomization,
-    # Eval must replay the dataset's motion timeline (1s default-pose prepend):
-    # raw frame 0 carries a retargeting velocity spike and never appears as an
-    # episode-start state in the collected data.
-    command=command.g1_29dof_wbt_command_offline_collect,
+    command=command.g1_29dof_wbt_command,
     curriculum=curriculum.g1_29dof_wbt_curriculum,
-    reward=reward.g1_29dof_wbt_fast_sac_reward_offline_collect,
+    reward=reward.g1_29dof_wbt_fast_sac_reward,
     nightly=NightlyConfig(
         iterations=200000,
         metrics={
@@ -1154,14 +965,7 @@ __all__ = [
     "g1_29dof_wbt_fast_sac_episode_data",
     "g1_29dof_wbt_iql",
     "g1_29dof_wbt_cql",
-    "g1_29dof_wbt_cql_gaussian",
     "g1_29dof_wbt_bf_cql",
-    "g1_29dof_wbt_sync_cql",
-    "g1_29dof_wbt_dcql",
-    "g1_29dof_wbt_pbf_cql",
-    "g1_29dof_wbt_af_cql",
-    "g1_29dof_wbt_rscql",
-    "g1_29dof_wbt_psc",
     "g1_29dof_wbt_bc",
     "g1_29dof_wbt_fast_sac_w_object",
     "g1_29dof_wbt_fast_sac_w_object_episode_data",

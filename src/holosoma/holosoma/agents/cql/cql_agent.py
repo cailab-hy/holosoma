@@ -199,8 +199,6 @@ class CQLAgent(BaseAlgo):
                 raise ValueError(f"cql_lagrange_max must be > 0, got {config.cql_lagrange_max}")
         if config.gamma <= 0.0 or config.gamma > 1.0:
             raise ValueError(f"gamma must be in (0, 1], got {config.gamma}")
-        if config.q_min is not None and config.q_max is not None and config.q_min > config.q_max:
-            raise ValueError(f"q_min must be <= q_max, got q_min={config.q_min}, q_max={config.q_max}")
         if config.huber_beta <= 0.0:
             raise ValueError(f"huber_beta must be > 0, got {config.huber_beta}")
         if config.tau <= 0.0 or config.tau > 1.0:
@@ -333,17 +331,10 @@ class CQLAgent(BaseAlgo):
         env_action_bias = torch.zeros(n_act, device=device)
         self.env_action_scale = env_action_scale
         self.env_action_bias = env_action_bias
-        self.normalized_action_training = bool(args.normalized_action_training)
-        if self.normalized_action_training:
-            action_scale = torch.ones(n_act, device=device)
-            action_bias = torch.zeros(n_act, device=device)
-            self.action_space_mode = "normalized_action_training_v1"
-            logger.info("CQL action semantics: actor/critic use normalized u-space [-1, 1].")
-        else:
-            action_scale = env_action_scale
-            action_bias = env_action_bias
-            self.action_space_mode = "env_scaled_action_training_v1"
-            logger.info("CQL action semantics: actor/critic use legacy env-scaled action space.")
+        action_scale = env_action_scale
+        action_bias = env_action_bias
+        self.action_space_mode = "env_scaled_action_training_v1"
+        logger.info("CQL action semantics: actor/critic use env-scaled action space.")
 
         actor_obs_keys = list(args.actor_obs_keys)
         if args.use_cnn_encoder:
@@ -476,35 +467,20 @@ class CQLAgent(BaseAlgo):
             torch._foreach_mul_(tgt_ps, 1.0 - self.config.tau)
             torch._foreach_add_(tgt_ps, src_ps, alpha=self.config.tau)
 
-    def _to_normalized_actions(self, actions: torch.Tensor) -> torch.Tensor:
-        action_scale = self.env_action_scale.to(device=actions.device, dtype=actions.dtype)
-        action_bias = self.env_action_bias.to(device=actions.device, dtype=actions.dtype)
-        return ((actions - action_bias) / (action_scale + 1e-6)).clamp(-1.0, 1.0)
-
     def _to_critic_actions(self, actions: torch.Tensor) -> torch.Tensor:
-        if self.normalized_action_training:
-            return self._to_normalized_actions(actions)
         return actions
 
     def _to_env_actions(self, actions: torch.Tensor) -> torch.Tensor:
-        if not self.normalized_action_training:
-            return actions
-        action_scale = self.env_action_scale.to(device=actions.device, dtype=actions.dtype)
-        action_bias = self.env_action_bias.to(device=actions.device, dtype=actions.dtype)
-        return actions * action_scale + action_bias
+        return actions
 
     def _sync_actor_action_space_buffers(self) -> None:
         with torch.no_grad():
-            if self.normalized_action_training:
-                self.actor.action_scale.fill_(1.0)
-                self.actor.action_bias.zero_()
-            else:
-                self.actor.action_scale.copy_(
-                    self.env_action_scale.to(device=self.actor.action_scale.device, dtype=self.actor.action_scale.dtype)
-                )
-                self.actor.action_bias.copy_(
-                    self.env_action_bias.to(device=self.actor.action_bias.device, dtype=self.actor.action_bias.dtype)
-                )
+            self.actor.action_scale.copy_(
+                self.env_action_scale.to(device=self.actor.action_scale.device, dtype=self.actor.action_scale.dtype)
+            )
+            self.actor.action_bias.copy_(
+                self.env_action_bias.to(device=self.actor.action_bias.device, dtype=self.actor.action_bias.dtype)
+            )
 
     @torch.no_grad()
     def _compute_action_ood_stats(self, data: TensorDict) -> dict[str, torch.Tensor]:
@@ -657,9 +633,6 @@ class CQLAgent(BaseAlgo):
                     next_v = next_target_min_q
 
                 q_target = rewards_ + discount_ * bootstrap_ * next_v
-
-                if args.q_min is not None or args.q_max is not None:
-                    q_target = q_target.clamp(min=args.q_min, max=args.q_max)
 
                 target_value_max = q_target.max()
                 target_value_min = q_target.min()
@@ -989,10 +962,10 @@ class CQLAgent(BaseAlgo):
         compatible_checkpoint_action_mode = (
             "env_scaled_action_training_v1" if checkpoint_action_mode == "legacy" else checkpoint_action_mode
         )
-        expected_action_mode = getattr(self, "action_space_mode", "normalized_action_training_v1")
+        expected_action_mode = getattr(self, "action_space_mode", "env_scaled_action_training_v1")
         if compatible_checkpoint_action_mode != expected_action_mode:
             logger.warning(
-                "Loading a legacy checkpoint with different CQL action semantics "
+                "Loading a checkpoint with different CQL action semantics "
                 f"(checkpoint action_space_mode={checkpoint_action_mode}, current={expected_action_mode})."
             )
 
@@ -1323,42 +1296,27 @@ class CQLAgent(BaseAlgo):
     def actor_onnx_wrapper(self):
         actor = copy.deepcopy(self.actor).to("cpu")
         obs_normalizer = copy.deepcopy(self.obs_normalizer).to("cpu")
-        env_action_scale = copy.deepcopy(self.env_action_scale).to("cpu")
-        env_action_bias = copy.deepcopy(self.env_action_bias).to("cpu")
-        normalized_action_training = bool(self.normalized_action_training)
 
         class ActorWrapper(nn.Module):
             def __init__(
                 self,
                 actor,
                 obs_normalizer,
-                env_action_scale,
-                env_action_bias,
-                normalized_action_training,
             ):
                 super().__init__()
                 self.actor = actor
                 self.obs_normalizer = obs_normalizer
-                self.normalized_action_training = normalized_action_training
-                self.register_buffer("env_action_scale", env_action_scale)
-                self.register_buffer("env_action_bias", env_action_bias)
 
             def forward(self, actor_obs):
                 if self.obs_normalizer is not None:
                     normalized_obs = self.obs_normalizer(actor_obs, update=False)
                 else:
                     normalized_obs = actor_obs
-                actions = self.actor(normalized_obs)[0]
-                if not self.normalized_action_training:
-                    return actions
-                return actions * self.env_action_scale + self.env_action_bias
+                return self.actor(normalized_obs)[0]
 
         return ActorWrapper(
             actor,
             obs_normalizer if self.obs_normalization else None,
-            env_action_scale,
-            env_action_bias,
-            normalized_action_training,
         )
 
     def export(self, onnx_file_path: str) -> None:
