@@ -963,6 +963,11 @@ class BFCQLAgent(BaseAlgo):
                     next_v = next_target_min_q
 
                 q_target = rewards_ + discount_ * bootstrap_ * next_v
+                q_target_raw_p01 = torch.quantile(q_target.float(), 0.01)
+                q_target_raw_p99 = torch.quantile(q_target.float(), 0.99)
+                q_target_legacy_clip_low_frac = (q_target < -10000.0).float().mean()
+                q_target_legacy_clip_high_frac = (q_target > 10000.0).float().mean()
+                q_target = q_target.clamp(min=-10000.0, max=10000.0)
                 target_value_max = q_target.max()
                 target_value_min = q_target.min()
 
@@ -1203,6 +1208,10 @@ class BFCQLAgent(BaseAlgo):
             q_loss.detach(),
             target_value_max.detach(),
             target_value_min.detach(),
+            q_target_raw_p01.detach(),
+            q_target_raw_p99.detach(),
+            q_target_legacy_clip_low_frac.detach(),
+            q_target_legacy_clip_high_frac.detach(),
             alpha_loss.detach(),
             conservative_loss.detach(),
             bellman_loss.detach(),
@@ -1547,6 +1556,10 @@ class BFCQLAgent(BaseAlgo):
                         q_loss,
                         q_target_max,
                         q_target_min,
+                        q_target_raw_p01,
+                        q_target_raw_p99,
+                        q_target_legacy_clip_low_frac,
+                        q_target_legacy_clip_high_frac,
                         alpha_loss,
                         conservative_loss,
                         bellman_loss,
@@ -1599,6 +1612,10 @@ class BFCQLAgent(BaseAlgo):
                             "q_loss": q_loss,
                             "q_target_max": q_target_max,
                             "q_target_min": q_target_min,
+                            "q_target_raw_p01": q_target_raw_p01,
+                            "q_target_raw_p99": q_target_raw_p99,
+                            "q_target_legacy_clip_low_frac": q_target_legacy_clip_low_frac,
+                            "q_target_legacy_clip_high_frac": q_target_legacy_clip_high_frac,
                             "alpha_loss": alpha_loss,
                             "alpha_value": self.log_alpha.exp().detach().mean(),
                             "actor_grad_norm": actor_grad_norm,
