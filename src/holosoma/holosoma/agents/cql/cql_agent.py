@@ -640,7 +640,6 @@ class CQLAgent(BaseAlgo):
                 q_target_raw_p99 = torch.quantile(q_target.float(), 0.99)
                 q_target_legacy_clip_low_frac = (q_target < -10000.0).float().mean()
                 q_target_legacy_clip_high_frac = (q_target > 10000.0).float().mean()
-                q_target = q_target.clamp(min=-10000.0, max=10000.0)
                 target_value_max = q_target.max()
                 target_value_min = q_target.min()
 
