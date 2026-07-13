@@ -27,6 +27,22 @@ Reading the scan table
   actor's actions are genuinely rated bad; a row sinking for all action
   sources j -> that critic is deflated.
 
+Gradient-leakage columns (--grad-leak, on by default)
+=====================================================
+Per checkpoint, the critic loss is split into components computed exactly as
+in training on a fixed probe slice, and each component's first-order effect
+on the probe-set mean data-Q is predicted as -lr * <grad qbar_data, grad L_c>:
+
+- leak_pred_dqdata_cql < 0 with |cql| > |bellman|  -> "penalty leakage"
+  confirmed: the CQL term pushes Q(s, a_D) down harder than Bellman restores
+  it (the -Q(s,a_D) push-up inside the CQL loss is included, so this is the
+  honest net effect of the conservative term).
+- leak_pred_dqdata_net tracks the actual per-step drift of q_data_min_mean.
+- ntk_featcos_pearson high (and hi-cos quartile leakage >> lo-cos quartile)
+  -> the "cosine channel" is real: parameter-gradient leakage between
+  Q(s, a_D) and Q(s, a_rand) rides on penultimate-feature similarity.
+AdamW rescales per-parameter, so read signs/ratios, not absolute magnitudes.
+
 Observations are stored raw because EmpiricalNormalization statistics evolve
 during training; each checkpoint re-normalizes the raw obs with its own
 restored normalizer state, reproducing exactly what that critic saw.
@@ -74,6 +90,7 @@ from __future__ import annotations
 
 import csv
 import glob as _glob
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -142,6 +159,18 @@ class QProbeCLI:
 
     cross_q: bool = True
     """Also compute the full cross matrix Q_i(s', a_j) over scanned checkpoints (second load pass)."""
+
+    grad_leak: bool = True
+    """Per-checkpoint gradient-leakage diagnostic: split the critic loss into components
+    (bellman / CQL conservative / dr3) and predict each component's first-order effect on
+    the probe-set data-Q via -lr * <grad_theta q_data, grad_theta L_c>, plus a pairwise
+    NTK-vs-feature-cosine correlation ("cosine channel" test)."""
+
+    leak_rows: int = 512
+    """Probe rows used for the component-gradient measurement (first K rows, fixed)."""
+
+    leak_pairs: int = 128
+    """Sample pairs for the per-sample NTK <grad Q(s,a_D), grad Q(s,a_rand)> vs feature-cosine test."""
 
 
 # ---------------------------------------------------------------------------
@@ -495,6 +524,214 @@ def compute_cross_q(
 
 
 # ---------------------------------------------------------------------------
+# gradient-leakage diagnostic: does the CQL penalty's parameter gradient push
+# the data-Q down harder than the Bellman term restores it, and does the
+# leakage travel through feature similarity (the "cosine channel")?
+# ---------------------------------------------------------------------------
+
+
+def _flat_dot(grads_a: tuple[torch.Tensor, ...], grads_b: tuple[torch.Tensor, ...]) -> float:
+    total = torch.zeros((), dtype=torch.float64)
+    for grad_a, grad_b in zip(grads_a, grads_b):
+        total += (grad_a.double() * grad_b.double()).sum().cpu()
+    return float(total)
+
+
+def _grad_cosine(grads_a: tuple[torch.Tensor, ...], grads_b: tuple[torch.Tensor, ...]) -> float:
+    dot = _flat_dot(grads_a, grads_b)
+    norm_a = _flat_dot(grads_a, grads_a) ** 0.5
+    norm_b = _flat_dot(grads_b, grads_b) ** 0.5
+    if norm_a <= 0.0 or norm_b <= 0.0:
+        return float("nan")
+    return dot / (norm_a * norm_b)
+
+
+@torch.enable_grad()
+def run_grad_leak_probe(
+    algo: Any,
+    tensors: dict[str, torch.Tensor],
+    num_rows: int,
+    num_pairs: int,
+    seed: int,
+) -> dict[str, float]:
+    """Component-wise first-order effect of the critic loss on the fixed data-Q.
+
+    For each loss component L_c (bellman, weighted CQL conservative incl. its
+    -Q(s,a_D) push-up part, dr3 when active) computed EXACTLY as in training on
+    the first ``num_rows`` probe transitions:
+
+        leak_pred_dqdata_<c> = -critic_lr * <grad_theta qbar_data, grad_theta L_c>
+
+    i.e. the predicted change of the probe-set mean data-Q after one SGD step
+    of that component alone (AdamW rescales per-parameter, so read signs and
+    ratios, not absolute magnitudes). qbar_data = mean 0.5*(Q1+Q2)(s, a_D).
+
+    The cosine-channel test computes, for ``num_pairs`` samples, the NTK entry
+    k_i = <grad_theta Q1(s_i, a_D_i), grad_theta Q1(s_i, a_rand_i)> and its
+    Pearson correlation with the penultimate-feature cosine of the same pair.
+    Sampling noise (actor samples, random actions) is fixed by ``seed`` so
+    every checkpoint is measured with the same ruler.
+    """
+    _set_eval_mode(algo)
+    args = algo.config
+    device = tensors["observations"].device
+    torch.manual_seed(seed)
+
+    rows = min(num_rows, int(tensors["observations"].shape[0]))
+    observations = algo.obs_normalizer(tensors["observations"][:rows])
+    next_observations = algo.obs_normalizer(tensors["next_observations"][:rows])
+    critic_observations = algo.critic_obs_normalizer(tensors["critic_observations"][:rows])
+    next_critic_observations = algo.critic_obs_normalizer(tensors["next_critic_observations"][:rows])
+    dataset_actions = _to_critic_actions(algo, tensors["actions"][:rows]).detach()
+    reward_scale = float(getattr(algo, "reward_scale", 1.0))
+    rewards = reward_scale * tensors["rewards"][:rows]
+    discount = float(args.gamma) ** tensors["effective_n_steps"][:rows]
+
+    params = [p for p in algo.qnet.parameters() if p.requires_grad]
+
+    def _qnet_grads(scalar: torch.Tensor) -> tuple[torch.Tensor, ...]:
+        return torch.autograd.grad(scalar, params, retain_graph=False, create_graph=False)
+
+    # Direction of the quantity we care about: the probe-set mean data-Q.
+    q1_data, q2_data = algo.qnet(critic_observations, dataset_actions)
+    grads_data = _qnet_grads((0.5 * (q1_data + q2_data)).mean())
+
+    # --- Bellman component, mirroring the training target exactly.
+    with torch.no_grad():
+        next_actions, next_log_probs = algo.actor.get_actions_and_log_probs(next_observations)
+        next_q1_t, next_q2_t = algo.qnet_target(next_critic_observations, next_actions)
+        next_v = torch.minimum(next_q1_t, next_q2_t).view(-1)
+        if bool(getattr(args, "backup_entropy", False)):
+            alpha = algo.log_alpha.exp().detach()
+            next_v = next_v - alpha * next_log_probs.view(-1)
+        q_target = (rewards.view(-1) + discount.view(-1) * next_v).clamp(min=-10000.0, max=10000.0)
+    q1_b, q2_b = algo.qnet(critic_observations, dataset_actions)
+    if getattr(args, "bellman_loss_type", "mse") == "huber":
+        beta = float(getattr(args, "huber_beta", 1.0))
+        bellman_loss = torch.nn.functional.smooth_l1_loss(q1_b, q_target, beta=beta) + torch.nn.functional.smooth_l1_loss(q2_b, q_target, beta=beta)
+    else:
+        bellman_loss = torch.nn.functional.mse_loss(q1_b, q_target) + torch.nn.functional.mse_loss(q2_b, q_target)
+    grads_bellman = _qnet_grads(bellman_loss)
+
+    learning_rate = float(getattr(args, "critic_learning_rate", 3e-4))
+    row: dict[str, float] = {
+        "leak_pred_dqdata_bellman": -learning_rate * _flat_dot(grads_data, grads_bellman),
+        "leak_cos_bellman": _grad_cosine(grads_data, grads_bellman),
+        "leak_gnorm_data": _flat_dot(grads_data, grads_data) ** 0.5,
+        "leak_gnorm_bellman": _flat_dot(grads_bellman, grads_bellman) ** 0.5,
+        "leak_rows": float(rows),
+    }
+    net_pred = row["leak_pred_dqdata_bellman"]
+
+    # --- CQL conservative component (weighted, incl. the -Q(s,a_D) push-up part).
+    cql_weight = float(getattr(algo, "_cql_weight", getattr(args, "cql_weight", 0.0)))
+    if cql_weight > 0.0:
+        if int(getattr(algo, "_num_near_actions", 0)) > 0:
+            logger.warning("[QProbe][leak] cql_near_action_samples > 0 is not replicated; CQL component omits it.")
+        num_repeat = int(getattr(algo, "_num_repeat_actions", getattr(args, "cql_num_action_samples", 10)))
+        temperature = float(getattr(algo, "_temperature", getattr(args, "cql_temperature", 1.0)))
+        batch = dataset_actions.shape[0]
+        expanded_obs = observations[:, None, :].expand(batch, num_repeat, -1).reshape(batch * num_repeat, -1)
+        expanded_cobs = critic_observations[:, None, :].expand(batch, num_repeat, -1).reshape(batch * num_repeat, -1)
+        expanded_next_obs = next_observations[:, None, :].expand(batch, num_repeat, -1).reshape(batch * num_repeat, -1)
+        with torch.no_grad():
+            curr_actions, curr_logp = algo.actor.get_actions_and_log_probs(expanded_obs)
+            next_actions_rep, next_logp = algo.actor.get_actions_and_log_probs(expanded_next_obs)
+            action_scale = algo.actor.action_scale.to(device=device, dtype=dataset_actions.dtype)
+            action_bias = algo.actor.action_bias.to(device=device, dtype=dataset_actions.dtype)
+            rand_actions = torch.empty(batch * num_repeat, dataset_actions.shape[-1], device=device, dtype=dataset_actions.dtype).uniform_(-1.0, 1.0)
+            rand_actions = rand_actions * action_scale + action_bias
+            random_density = math.log(0.5) * dataset_actions.shape[-1] - torch.log(action_scale + 1e-6).sum()
+
+        q1_c, q2_c = algo.qnet(critic_observations, dataset_actions)
+        q1_rand, q2_rand = algo.qnet(expanded_cobs, rand_actions)
+        q1_curr, q2_curr = algo.qnet(expanded_cobs, curr_actions)
+        q1_next, q2_next = algo.qnet(expanded_cobs, next_actions_rep)
+        cat_q1 = torch.cat(
+            [
+                (q1_rand - random_density).view(batch, num_repeat),
+                q1_curr.view(batch, num_repeat) - curr_logp.view(batch, num_repeat),
+                q1_next.view(batch, num_repeat) - next_logp.view(batch, num_repeat),
+            ],
+            dim=1,
+        )
+        cat_q2 = torch.cat(
+            [
+                (q2_rand - random_density).view(batch, num_repeat),
+                q2_curr.view(batch, num_repeat) - curr_logp.view(batch, num_repeat),
+                q2_next.view(batch, num_repeat) - next_logp.view(batch, num_repeat),
+            ],
+            dim=1,
+        )
+        cql1_loss = (torch.logsumexp(cat_q1 / temperature, dim=1) * temperature - q1_c).mean()
+        cql2_loss = (torch.logsumexp(cat_q2 / temperature, dim=1) * temperature - q2_c).mean()
+        conservative_loss = cql_weight * 0.5 * (cql1_loss + cql2_loss)
+        log_cql_alpha = getattr(algo, "log_cql_alpha", None)
+        if bool(getattr(args, "use_lagrange", False)) and log_cql_alpha is not None:
+            conservative_loss = conservative_loss * log_cql_alpha.exp().detach().clamp(
+                max=float(getattr(args, "cql_lagrange_max", 1e6))
+            )
+        grads_cql = _qnet_grads(conservative_loss)
+        row["leak_pred_dqdata_cql"] = -learning_rate * _flat_dot(grads_data, grads_cql)
+        row["leak_cos_cql"] = _grad_cosine(grads_data, grads_cql)
+        row["leak_gnorm_cql"] = _flat_dot(grads_cql, grads_cql) ** 0.5
+        row["leak_cql_vs_bellman"] = (
+            row["leak_pred_dqdata_cql"] / abs(row["leak_pred_dqdata_bellman"])
+            if row["leak_pred_dqdata_bellman"] != 0.0
+            else float("nan")
+        )
+        net_pred += row["leak_pred_dqdata_cql"]
+    else:
+        row["leak_pred_dqdata_cql"] = float("nan")
+        row["leak_cos_cql"] = float("nan")
+
+    # --- DR3 component when active.
+    if float(getattr(args, "dr3_weight", 0.0)) > 0.0:
+        with torch.no_grad():
+            dr3_next_actions, _ = algo.actor.get_actions_and_log_probs(next_observations)
+        f1, f2 = algo.qnet.features(critic_observations, dataset_actions)
+        nf1, nf2 = algo.qnet.features(next_critic_observations, dr3_next_actions)
+        if bool(getattr(args, "dr3_normalize_features", False)):
+            f1, f2 = torch.nn.functional.normalize(f1, dim=-1), torch.nn.functional.normalize(f2, dim=-1)
+            nf1, nf2 = torch.nn.functional.normalize(nf1, dim=-1), torch.nn.functional.normalize(nf2, dim=-1)
+        dr3_loss = float(args.dr3_weight) * (0.5 * ((f1 * nf1).sum(-1) + (f2 * nf2).sum(-1))).mean()
+        grads_dr3 = _qnet_grads(dr3_loss)
+        row["leak_pred_dqdata_dr3"] = -learning_rate * _flat_dot(grads_data, grads_dr3)
+        net_pred += row["leak_pred_dqdata_dr3"]
+    row["leak_pred_dqdata_net"] = net_pred
+
+    # --- Cosine-channel test: per-sample NTK vs penultimate-feature cosine.
+    q1_net = getattr(algo.qnet, "q1", None)
+    if num_pairs > 0 and q1_net is not None and hasattr(q1_net, "features"):
+        pairs = min(num_pairs, rows)
+        with torch.no_grad():
+            action_scale = algo.actor.action_scale.to(device=device, dtype=dataset_actions.dtype)
+            action_bias = algo.actor.action_bias.to(device=device, dtype=dataset_actions.dtype)
+            pair_rand = torch.empty(pairs, dataset_actions.shape[-1], device=device, dtype=dataset_actions.dtype).uniform_(-1.0, 1.0)
+            pair_rand = pair_rand * action_scale + action_bias
+            feat_data = q1_net.features(critic_observations[:pairs], dataset_actions[:pairs])
+            feat_rand = q1_net.features(critic_observations[:pairs], pair_rand)
+            feature_cos = torch.nn.functional.cosine_similarity(feat_data, feat_rand, dim=-1).cpu().numpy()
+        q1_params = [p for p in q1_net.parameters() if p.requires_grad]
+        ntk = np.zeros(pairs, dtype=np.float64)
+        for i in range(pairs):
+            grad_d = torch.autograd.grad(q1_net(critic_observations[i : i + 1], dataset_actions[i : i + 1]).squeeze(), q1_params)
+            grad_r = torch.autograd.grad(q1_net(critic_observations[i : i + 1], pair_rand[i : i + 1]).squeeze(), q1_params)
+            ntk[i] = _flat_dot(grad_d, grad_r)
+        row["ntk_pair_dot_mean"] = float(ntk.mean())
+        row["ntk_featcos_mean"] = float(feature_cos.mean())
+        if pairs >= 8 and np.std(ntk) > 0 and np.std(feature_cos) > 0:
+            row["ntk_featcos_pearson"] = float(np.corrcoef(feature_cos, ntk)[0, 1])
+        else:
+            row["ntk_featcos_pearson"] = float("nan")
+        order = np.argsort(feature_cos)
+        quartile = max(1, pairs // 4)
+        row["ntk_dot_locos_mean"] = float(ntk[order[:quartile]].mean())
+        row["ntk_dot_hicos_mean"] = float(ntk[order[-quartile:]].mean())
+    return row
+
+
+# ---------------------------------------------------------------------------
 # incremental persistence: the CSV/npz are updated after EVERY checkpoint, so
 # a killed scan keeps everything measured so far, and re-runs merge by step.
 # ---------------------------------------------------------------------------
@@ -657,6 +894,16 @@ def run_probe_scan(probe_cli: QProbeCLI, tyro_config: ExperimentConfig) -> None:
             step = _step_from_path(checkpoint_path)
             algo.load(str(checkpoint_path))
             row, arrays = run_probe(algo, tensors, a_frozen)
+            if probe_cli.grad_leak:
+                row.update(
+                    run_grad_leak_probe(
+                        algo,
+                        tensors,
+                        num_rows=probe_cli.leak_rows,
+                        num_pairs=probe_cli.leak_pairs,
+                        seed=probe_cli.probe_seed,
+                    )
+                )
             row = {"step": float(step), "frozen_step": float(frozen_step), **row}
             rows.append(row)
             scanned_steps.append(step)
@@ -683,6 +930,25 @@ def run_probe_scan(probe_cli: QProbeCLI, tyro_config: ExperimentConfig) -> None:
                 total_rows,
                 csv_path.name,
             )
+            if probe_cli.grad_leak:
+                leak_cql = row.get("leak_pred_dqdata_cql", float("nan"))
+                leak_bell = row.get("leak_pred_dqdata_bellman", float("nan"))
+                verdict = ""
+                if leak_cql == leak_cql and leak_cql < 0.0 and abs(leak_cql) > abs(leak_bell):
+                    verdict = "  <-- CQL penalty leakage dominates the Bellman restoring force"
+                logger.info(
+                    "[QProbe][leak] step={} pred_dq_data/step: bellman={:+.5f} cql={:+.5f} net={:+.5f} "
+                    "grad_cos(data,cql)={:.3f} ntk_featcos_pearson={:.3f} ntk hi/lo cos quartile={:.4g}/{:.4g}{}",
+                    step,
+                    leak_bell,
+                    leak_cql,
+                    row.get("leak_pred_dqdata_net", float("nan")),
+                    row.get("leak_cos_cql", float("nan")),
+                    row.get("ntk_featcos_pearson", float("nan")),
+                    row.get("ntk_dot_hicos_mean", float("nan")),
+                    row.get("ntk_dot_locos_mean", float("nan")),
+                    verdict,
+                )
 
         cross = None
         if probe_cli.cross_q and len(checkpoints) > 1:

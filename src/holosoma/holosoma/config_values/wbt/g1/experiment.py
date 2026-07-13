@@ -543,6 +543,7 @@ g1_29dof_wbt_mcq = replace(
             use_symmetry=False,
             use_lagrange=False,
             batch_size=1024,
+            cql_weight = 5.0,
             offline_dataset_path="offline_data/g1_29dof_wbt_5m_step_32_env_dataset.h5",
             use_gpu_cache=True,
             reward_scale=5.0,
