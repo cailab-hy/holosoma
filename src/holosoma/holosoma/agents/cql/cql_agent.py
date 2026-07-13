@@ -683,6 +683,9 @@ class CQLAgent(BaseAlgo):
             rand_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             curr_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             next_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            curr_logp = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            next_logp = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            random_density = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             with torch.no_grad():
                 pi_actions_det = self.actor(observations)[0]
                 q1_pi_det, q2_pi_det = self.qnet(critic_observations, pi_actions_det)

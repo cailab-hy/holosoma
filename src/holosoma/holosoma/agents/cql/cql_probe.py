@@ -33,13 +33,27 @@ restored normalizer state, reproducing exactly what that critic saw.
 
 Usage
 =====
-    python -m holosoma.agents.cql.cql_probe \\
-        --checkpoint "logs/WholeBodyTracking/<run>/model_00*.pt" \\
-        --frozen-checkpoint logs/WholeBodyTracking/<run>/model_0050000.pt
+Point at the run directory and select steps numerically — no per-checkpoint
+paths needed:
 
-``--checkpoint`` accepts a single .pt file, a glob, a run directory, or a
-comma-separated list mixing local paths and ``wandb://entity/project/run/model_*.pt``
-URIs (downloaded via the shared checkpoint cache).
+    # every 10k-th checkpoint, anchored at the 50k actor
+    python -m holosoma.agents.cql.cql_probe \\
+        --checkpoint logs/WholeBodyTracking/<run> \\
+        --step-stride 10000 --frozen-step 50000
+
+    # or an explicit step list / range
+    python -m holosoma.agents.cql.cql_probe \\
+        --checkpoint logs/WholeBodyTracking/<run> \\
+        --steps 30000,40000,50000,70000,90000 --frozen-step 50000
+    python -m holosoma.agents.cql.cql_probe \\
+        --checkpoint logs/WholeBodyTracking/<run> \\
+        --step-min 30000 --step-max 90000 --step-stride 10000 --frozen-step 50000
+
+``--checkpoint`` accepts a single .pt file, a glob (quote it), a run
+directory, or a comma-separated list mixing local paths and
+``wandb://entity/project/run/model_*.pt`` URIs (downloaded via the shared
+checkpoint cache). ``--frozen-checkpoint`` (a path/URI) is still supported
+and wins over ``--frozen-step``.
 Extra CLI args are applied as overrides on top of the experiment config
 embedded in the first checkpoint (same two-stage mechanism as eval_agent.py),
 e.g. ``--training.eval-num-envs 1`` to keep the env small — the env is only
@@ -48,6 +62,12 @@ needed to construct the agent; the probe never steps it.
 Outputs (default: ``<checkpoint_dir>/probe/``): ``probe_set.npz`` (reused
 across scans), ``probe_scan.csv`` (one row per checkpoint), and
 ``probe_scan.npz`` (per-sample arrays, per-checkpoint actions, cross-Q matrix).
+
+Both scan files are rewritten atomically after EVERY checkpoint, so an
+interrupted scan keeps all rows measured so far. Re-running merges into the
+existing CSV by step: re-measured steps replace their old row, other rows are
+kept, and each row records the ``frozen_step`` anchor it was measured against
+(a warning is logged when mixing anchors).
 """
 
 from __future__ import annotations
@@ -88,6 +108,24 @@ class QProbeCLI:
     frozen_checkpoint: str | None = None
     """Reference checkpoint (local path or wandb:// URI) whose actor supplies a_frozen
     (e.g. the best-eval step). Defaults to the highest-step checkpoint in the scan list."""
+
+    frozen_step: int | None = None
+    """Pick the anchor by step number from the resolved checkpoint pool instead of a path
+    (e.g. --frozen-step 50000). Ignored when --frozen-checkpoint is given."""
+
+    steps: str | None = None
+    """Explicit comma-separated steps to scan, e.g. "30000,40000,90000". Overrides the
+    stride/range filters below."""
+
+    step_min: int | None = None
+    """Only scan checkpoints with step >= this."""
+
+    step_max: int | None = None
+    """Only scan checkpoints with step <= this."""
+
+    step_stride: int = 0
+    """Only scan steps divisible by this, e.g. 10000 keeps model_0030000/0040000/...
+    out of a directory full of every-1k checkpoints. 0 scans everything matched."""
 
     probe_set: str | None = None
     """Path to the fixed probe-set npz. Built (and saved) on first run if missing.
@@ -135,10 +173,58 @@ def _resolve_checkpoints(spec: str) -> list[str]:
             matches = list(candidate.glob("model_*.pt"))
         else:
             matches = [Path(p) for p in _glob.glob(str(candidate))]
-        references.extend(str(p) for p in matches if p.suffix == ".pt")
+        matched = [str(p) for p in matches if p.suffix == ".pt"]
+        if not matched:
+            raise FileNotFoundError(f"--checkpoint item {part!r} matched no .pt files")
+        references.extend(matched)
     if not references:
         raise FileNotFoundError(f"No checkpoints matched --checkpoint {spec!r}")
     return sorted(set(references), key=lambda r: (_step_from_path(r), r))
+
+
+def _parse_steps(spec: str | None) -> list[int] | None:
+    if not spec:
+        return None
+    steps = sorted({int(part) for part in re.split(r"[,\s]+", spec.strip()) if part})
+    return steps or None
+
+
+def _filter_references(
+    references: list[str],
+    steps: list[int] | None,
+    step_min: int | None,
+    step_max: int | None,
+    step_stride: int,
+) -> list[str]:
+    """Narrow the resolved checkpoint pool by step; raises with the available steps on an empty result."""
+    annotated = [(_step_from_path(reference), reference) for reference in references]
+    available = sorted({step for step, _ in annotated if step >= 0})
+    if steps is not None:
+        wanted = set(steps)
+        missing = wanted - {step for step, _ in annotated}
+        if missing:
+            raise FileNotFoundError(f"--steps {sorted(missing)} not found; available steps: {available}")
+        return [reference for step, reference in annotated if step in wanted]
+    picked = []
+    for step, reference in annotated:
+        if step_min is not None and step < step_min:
+            continue
+        if step_max is not None and step > step_max:
+            continue
+        if step_stride and (step < 0 or step % step_stride != 0):
+            continue
+        picked.append(reference)
+    if not picked:
+        raise FileNotFoundError(f"step filters removed every checkpoint; available steps: {available}")
+    return picked
+
+
+def _find_reference_by_step(references: list[str], step: int) -> str:
+    matches = [reference for reference in references if _step_from_path(reference) == step]
+    if not matches:
+        available = sorted({_step_from_path(reference) for reference in references} - {-1})
+        raise FileNotFoundError(f"--frozen-step {step} not among resolved checkpoints; available steps: {available}")
+    return matches[0]
 
 
 def _default_output_dir(explicit: str | None, first_reference: str) -> Path:
@@ -339,6 +425,7 @@ def run_probe(
         qt1_frz, qt2_frz = _chunked_pair(algo.qnet_target, ncobs, a_frozen)
         row.update(_q_group("next_q_frozen", q1_frz, q2_frz))
         row["next_q_frozen_target_min_mean"] = float(torch.minimum(qt1_frz, qt2_frz).mean().item())
+        row["next_q_current_minus_frozen_mean"] = row["next_q_current_min_mean"] - row["next_q_frozen_min_mean"]
         row["action_rms_current_vs_frozen"] = float((a_current - a_frozen).pow(2).mean().sqrt().item())
         arrays["next_q_frozen_min"] = torch.minimum(q1_frz, q2_frz).float().cpu().numpy()
     row["action_rms_current_vs_data"] = float((a_current - a_data).pow(2).mean().sqrt().item())
@@ -408,12 +495,69 @@ def compute_cross_q(
 
 
 # ---------------------------------------------------------------------------
+# incremental persistence: the CSV/npz are updated after EVERY checkpoint, so
+# a killed scan keeps everything measured so far, and re-runs merge by step.
+# ---------------------------------------------------------------------------
+
+
+def _read_existing_rows(csv_path: Path) -> list[dict[str, str]]:
+    if not csv_path.exists():
+        return []
+    try:
+        with open(csv_path, newline="") as handle:
+            return list(csv.DictReader(handle))
+    except (OSError, csv.Error) as error:
+        logger.warning("[QProbe] could not read existing {} ({}); starting a fresh table", csv_path, error)
+        return []
+
+
+def _row_step(row: dict[str, Any]) -> float:
+    try:
+        return float(row.get("step", "nan"))
+    except (TypeError, ValueError):
+        return float("nan")
+
+
+def _write_scan_csv(csv_path: Path, existing_rows: list[dict[str, str]], new_rows: list[dict[str, float]]) -> int:
+    """Merge new rows over existing ones by step and atomically rewrite the CSV."""
+    merged: dict[float, dict[str, Any]] = {}
+    for row in existing_rows:
+        merged[_row_step(row)] = dict(row)
+    for row in new_rows:
+        merged[_row_step(row)] = dict(row)
+    ordered = sorted(merged.values(), key=_row_step)
+    fieldnames = sorted({key for row in ordered for key in row}, key=lambda k: (k != "step", k != "frozen_step", k))
+    tmp_path = csv_path.with_name(csv_path.name + ".tmp")
+    with open(tmp_path, "w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, restval="")
+        writer.writeheader()
+        writer.writerows(ordered)
+    tmp_path.replace(csv_path)
+    return len(ordered)
+
+
+def _write_npz_atomic(npz_path: Path, payload: dict[str, np.ndarray]) -> None:
+    tmp_path = npz_path.with_name(npz_path.stem + ".tmp.npz")
+    np.savez_compressed(tmp_path, **payload)
+    tmp_path.replace(npz_path)
+
+
+# ---------------------------------------------------------------------------
 # entry point
 # ---------------------------------------------------------------------------
 
 
 def run_probe_scan(probe_cli: QProbeCLI, tyro_config: ExperimentConfig) -> None:
-    references = _resolve_checkpoints(probe_cli.checkpoint)
+    all_references = _resolve_checkpoints(probe_cli.checkpoint)
+    references = _filter_references(
+        all_references,
+        _parse_steps(probe_cli.steps),
+        probe_cli.step_min,
+        probe_cli.step_max,
+        probe_cli.step_stride,
+    )
+    if len(references) != len(all_references):
+        logger.info("[QProbe] step filter selected {}/{} matched checkpoints", len(references), len(all_references))
     output_dir = _default_output_dir(probe_cli.output_dir, references[0])
     output_dir.mkdir(parents=True, exist_ok=True)
     probe_set_path = Path(probe_cli.probe_set).expanduser() if probe_cli.probe_set else output_dir / "probe_set.npz"
@@ -421,10 +565,30 @@ def run_probe_scan(probe_cli: QProbeCLI, tyro_config: ExperimentConfig) -> None:
     # Materialize wandb:// references into local files (no-op for local paths).
     checkpoints = [Path(load_checkpoint(reference, str(output_dir))) for reference in references]
     if probe_cli.frozen_checkpoint is not None:
-        frozen_path = Path(load_checkpoint(probe_cli.frozen_checkpoint, str(output_dir)))
+        if probe_cli.frozen_step is not None:
+            logger.info("[QProbe] both --frozen-checkpoint and --frozen-step given; using --frozen-checkpoint")
+        frozen_ref = probe_cli.frozen_checkpoint
+        if not frozen_ref.startswith(_WANDB_PREFIX):
+            frozen_ref = str(Path(frozen_ref).expanduser())
+        frozen_path = Path(load_checkpoint(frozen_ref, str(output_dir)))
+    elif probe_cli.frozen_step is not None:
+        # Anchor is looked up in the FULL pool, so it does not have to be among the scanned steps.
+        frozen_ref = _find_reference_by_step(all_references, probe_cli.frozen_step)
+        frozen_path = Path(load_checkpoint(frozen_ref, str(output_dir)))
     else:
         frozen_path = checkpoints[-1]
-        logger.warning("[QProbe] --frozen-checkpoint not given; using the last scanned checkpoint: {}", frozen_path)
+        logger.warning(
+            "[QProbe] no --frozen-checkpoint/--frozen-step given; using the last scanned checkpoint as anchor: {}",
+            frozen_path,
+        )
+
+    # Fail fast on path typos BEFORE paying for simulator startup.
+    missing = [str(p) for p in {*checkpoints, frozen_path} if not p.is_file()]
+    if missing:
+        raise FileNotFoundError(
+            f"Checkpoint file(s) not found: {missing} "
+            "(check for a missing leading '/' or a typo in --checkpoint/--frozen-checkpoint)"
+        )
 
     logger.info("[QProbe] scanning {} checkpoints; outputs -> {}", len(checkpoints), output_dir)
     for path in checkpoints:
@@ -448,65 +612,88 @@ def run_probe_scan(probe_cli: QProbeCLI, tyro_config: ExperimentConfig) -> None:
             probe = build_probe_set(algo, probe_cli.probe_size, probe_cli.probe_seed, probe_set_path)
         tensors = _probe_tensors(probe, device)
 
-        logger.info("[QProbe] computing a_frozen from {}", frozen_path)
+        logger.info("[QProbe] computing a_frozen (anchor) from {}", frozen_path)
         algo.load(str(frozen_path))
         a_frozen = compute_frozen_actions(algo, tensors)
+        frozen_step = _step_from_path(frozen_path)
+
+        csv_path = output_dir / "probe_scan.csv"
+        npz_path = output_dir / "probe_scan.npz"
+        existing_rows = _read_existing_rows(csv_path)
+        if existing_rows:
+            logger.info(
+                "[QProbe] {} existing rows in {}; re-measured steps replace their old row, others are kept",
+                len(existing_rows),
+                csv_path,
+            )
+            previous_anchors = {row.get("frozen_step", "") for row in existing_rows} - {"", None}
+            if previous_anchors - {str(float(frozen_step))}:
+                logger.warning(
+                    "[QProbe] existing rows were measured against a different anchor (frozen_step={}); "
+                    "current anchor is {}. Rows are distinguishable via the frozen_step column.",
+                    sorted(previous_anchors),
+                    frozen_step,
+                )
+
+        def _flush_npz(actions: list[np.ndarray], arrays: dict[str, list[np.ndarray]], steps: list[int], cross: np.ndarray | None) -> None:
+            payload: dict[str, np.ndarray] = {
+                "steps": np.asarray(steps, dtype=np.int64),
+                "a_frozen": a_frozen.float().cpu().numpy(),
+                "a_current": np.stack(actions),
+                "frozen_checkpoint": np.asarray(str(frozen_path)),
+                "probe_set_path": np.asarray(str(probe_set_path)),
+            }
+            for key, values in arrays.items():
+                payload[key] = np.stack(values)
+            if cross is not None:
+                payload["cross_q_min_mean"] = cross
+            _write_npz_atomic(npz_path, payload)
 
         rows: list[dict[str, float]] = []
         actions_by_checkpoint: list[np.ndarray] = []
         per_step_arrays: dict[str, list[np.ndarray]] = {}
-        for checkpoint_path in checkpoints:
+        scanned_steps: list[int] = []
+        for index, checkpoint_path in enumerate(checkpoints):
             step = _step_from_path(checkpoint_path)
             algo.load(str(checkpoint_path))
             row, arrays = run_probe(algo, tensors, a_frozen)
-            row = {"step": float(step), **row}
+            row = {"step": float(step), "frozen_step": float(frozen_step), **row}
             rows.append(row)
+            scanned_steps.append(step)
             actions_by_checkpoint.append(arrays.pop("a_current"))
             for key, value in arrays.items():
                 per_step_arrays.setdefault(key, []).append(value)
+
+            # Persist after every checkpoint: a killed scan keeps all rows so far.
+            total_rows = _write_scan_csv(csv_path, existing_rows, rows)
+            _flush_npz(actions_by_checkpoint, per_step_arrays, scanned_steps, cross=None)
             logger.info(
-                "[QProbe] step={} q_data_min={:.3f} next_q_frozen_min={:.3f} next_q_current_min={:.3f} "
-                "twin_gap={:.3f} drift_vs_frozen={:.4f} dr3_dot={:.3f}",
+                "[QProbe] [{}/{}] step={} q_data_min={:.3f} next_q_frozen_min={:.3f} next_q_current_min={:.3f} "
+                "cur_minus_frozen={:.3f} twin_gap={:.3f} drift_vs_frozen={:.4f} dr3_dot={:.3f} -> {} rows in {}",
+                index + 1,
+                len(checkpoints),
                 step,
                 row["q_data_min_mean"],
                 row.get("next_q_frozen_min_mean", float("nan")),
                 row["next_q_current_min_mean"],
+                row.get("next_q_current_minus_frozen_mean", float("nan")),
                 row["next_q_current_q1_minus_q2_abs_mean"],
                 row.get("action_rms_current_vs_frozen", float("nan")),
                 row.get("dr3_dot_mean", float("nan")),
+                total_rows,
+                csv_path.name,
             )
 
         cross = None
         if probe_cli.cross_q and len(checkpoints) > 1:
             logger.info("[QProbe] computing cross-Q matrix over {} checkpoints", len(checkpoints))
             cross = compute_cross_q(algo, checkpoints, tensors, actions_by_checkpoint)
-            steps = [_step_from_path(p) for p in checkpoints]
-            logger.info("[QProbe] cross-Q rows=critic ckpt, cols=action ckpt, steps={}", steps)
-            for i, step in enumerate(steps):
+            logger.info("[QProbe] cross-Q rows=critic ckpt, cols=action ckpt, steps={}", scanned_steps)
+            for i, step in enumerate(scanned_steps):
                 logger.info("[QProbe]   critic@{:>7}: {}", step, np.array2string(cross[i], precision=3))
+            _flush_npz(actions_by_checkpoint, per_step_arrays, scanned_steps, cross=cross)
 
-        csv_path = output_dir / "probe_scan.csv"
-        fieldnames = sorted({key for row in rows for key in row}, key=lambda k: (k != "step", k))
-        with open(csv_path, "w", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(rows)
-        logger.info("[QProbe] wrote {}", csv_path)
-
-        npz_payload: dict[str, np.ndarray] = {
-            "steps": np.asarray([_step_from_path(p) for p in checkpoints], dtype=np.int64),
-            "a_frozen": a_frozen.float().cpu().numpy(),
-            "a_current": np.stack(actions_by_checkpoint),
-            "frozen_checkpoint": np.asarray(str(frozen_path)),
-            "probe_set_path": np.asarray(str(probe_set_path)),
-        }
-        for key, values in per_step_arrays.items():
-            npz_payload[key] = np.stack(values)
-        if cross is not None:
-            npz_payload["cross_q_min_mean"] = cross
-        npz_path = output_dir / "probe_scan.npz"
-        np.savez_compressed(npz_path, **npz_payload)
-        logger.info("[QProbe] wrote {}", npz_path)
+        logger.info("[QProbe] done: {} and {}", csv_path, npz_path)
     finally:
         if simulation_app:
             close_simulation_app(simulation_app)

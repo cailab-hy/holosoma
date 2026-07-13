@@ -706,6 +706,42 @@ class CQLConfig:
 
 
 @dataclass(frozen=True)
+class MCQConfig(CQLConfig):
+    """Mildly Conservative Q-learning (Lyu et al., NeurIPS 2022).
+
+    Inherits every CQL field; the CQL push-down regularizer is disabled by
+    default (cql_weight=0) and replaced by the MCB operator: OOD policy
+    actions are anchored via MSE to the pseudo target
+    max_{a_i ~ behavior VAE} min_j Q_target_j(s, a_i), mixed with the Bellman
+    loss as lambda * bellman + (1 - lambda) * anchor.
+    """
+
+    cql_weight: float = 0.0
+    """CQL push-down term is off by default under MCQ (MCB replaces it)"""
+
+    mcq_lambda: float = 0.9
+    """mix between Bellman loss and OOD anchoring; paper ablation: <=0.5 collapses Q"""
+
+    mcq_num_action_samples: int = 10
+    """behavior-VAE samples N per state for the max-Q pseudo target"""
+
+    mcq_num_ood_samples: int = 1
+    """policy action samples per state anchored toward the pseudo target"""
+
+    vae_hidden_dim: int = 512
+    """hidden width of the behavior CVAE encoder/decoder"""
+
+    vae_latent_dim: int = 0
+    """CVAE latent dimension; 0 = auto (2 * action_dim)"""
+
+    vae_learning_rate: float = 1e-3
+    """learning rate of the behavior CVAE"""
+
+    vae_kl_weight: float = 0.5
+    """weight of the KL term in the CVAE ELBO"""
+
+
+@dataclass(frozen=True)
 class SynDiagSettings:
     """Configuration for synergy-OOD diagnostic logging (BF-CQL, logging only).
 
@@ -1993,6 +2029,18 @@ class CQLAlgoConfig:
     """Algorithm-specific configuration."""
 
 
+@dataclass(frozen=True)
+class MCQAlgoConfig:
+    """Configuration for mildly conservative Q-learning algorithm wrapper."""
+
+    _target_: str
+    """Target algorithm class."""
+
+    _recursive_: bool
+    """Whether to recursively instantiate."""
+
+    config: MCQConfig
+    """Algorithm-specific configuration."""
 
 
 @dataclass(frozen=True)
@@ -2101,6 +2149,7 @@ AlgoInitConfig = Union[
     OfflineSACConfig,
     CODACConfig,
     CQLConfig,
+    MCQConfig,
     BFCQLConfig,
     CALQLConfig,
     OS_CQLConfig,
@@ -2116,6 +2165,7 @@ AlgoConfig = Union[
     OfflineSACAlgoConfig,
     CODACAlgoConfig,
     CQLAlgoConfig,
+    MCQAlgoConfig,
     BFCQLAlgoConfig,
     CALQLAlgoConfig,
     OS_CQLAlgoConfig,

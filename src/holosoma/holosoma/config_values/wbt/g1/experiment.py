@@ -522,6 +522,38 @@ g1_29dof_wbt_cql = ExperimentConfig(
 )
 
 
+# MCQ (Lyu et al., NeurIPS 2022): same task/sim/data stack as g1_29dof_wbt_cql,
+# with the CQL push-down replaced by MCB in-support anchoring (see MCQConfig).
+g1_29dof_wbt_mcq = replace(
+    g1_29dof_wbt_cql,
+    training=replace(
+        g1_29dof_wbt_cql.training,
+        name="g1_29dof_wbt_mcq_manager",
+    ),
+    algo=replace(
+        algo.mcq,
+        config=replace(
+            algo.mcq.config,
+            num_learning_iterations=400000,
+            gamma=0.99,  # For motion tracking, high gamma + high num_steps is better
+            num_updates=4,
+            policy_frequency=1,
+            target_entropy_ratio=0.5,
+            tau=0.05,
+            use_symmetry=False,
+            use_lagrange=False,
+            batch_size=1024,
+            offline_dataset_path="offline_data/g1_29dof_wbt_5m_step_32_env_dataset.h5",
+            use_gpu_cache=True,
+            reward_scale=5.0,
+            bellman_loss_type="mse",
+            huber_beta=5.0,
+            cql_max_target_backup=False,
+        ),
+    ),
+)
+
+
 g1_29dof_wbt_bf_cql = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
