@@ -186,10 +186,6 @@ class CQLAgent(BaseAlgo):
         if config.cql_near_noise_std < 0.0:
             raise ValueError(f"cql_near_noise_std must be >= 0, got {config.cql_near_noise_std}")
         if config.use_lagrange:
-            if config.cql_target_action_gap < 0.0:
-                raise ValueError(
-                    f"cql_target_action_gap must be >= 0 in Lagrange mode, got {config.cql_target_action_gap}"
-                )
             if config.cql_lagrange_learning_rate <= 0.0:
                 raise ValueError(
                     "cql_lagrange_learning_rate must be > 0 when use_lagrange=True, "
