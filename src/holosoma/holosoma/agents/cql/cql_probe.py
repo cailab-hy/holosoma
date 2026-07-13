@@ -43,6 +43,20 @@ on the probe-set mean data-Q is predicted as -lr * <grad qbar_data, grad L_c>:
   Q(s, a_D) and Q(s, a_rand) rides on penultimate-feature similarity.
 AdamW rescales per-parameter, so read signs/ratios, not absolute magnitudes.
 
+Distance-gate pre-scan columns (--gate-sim, on by default)
+==========================================================
+Per checkpoint, K policy samples per probe state (curr at s, next at s') get a
+per-dim sigma-normalized RMS distance to a_D(s); the CSV records the distance
+quantiles (does a far "shell" exist, and does it dry up as the policy
+converges?) and, at candidate thresholds c (quantiles of the pooled distance
+distribution), the CQL softmax mass split core/shell/rand plus the virtual
+HARD-gate redistribution — "where the push-down fire would go" if core
+samples were masked out — with the retained conservative gap
+(gate_cql_gap_base -> gate_<c>_cql_gap_gated) and the shell-vs-data Q ordering
+(gate_<c>_q_shell_minus_q_data > 0 marks the shell as overestimation targets).
+Per-sample distance/Q matrices and fixed-bin histograms land in the npz for
+figures. This is the no-training DG-CQL go/no-go + c calibration scan.
+
 Observations are stored raw because EmpiricalNormalization statistics evolve
 during training; each checkpoint re-normalizes the raw obs with its own
 restored normalizer state, reproducing exactly what that critic saw.
@@ -165,6 +179,19 @@ class QProbeCLI:
     (bellman / CQL conservative / dr3) and predict each component's first-order effect on
     the probe-set data-Q via -lr * <grad_theta q_data, grad_theta L_c>, plus a pairwise
     NTK-vs-feature-cosine correlation ("cosine channel" test)."""
+
+    gate_sim: bool = True
+    """Distance-gate pre-scan: per-state distributions of ||a_sample - a_D||_sigma over K
+    policy samples (curr at s, next at s'), CQL softmax mass split into core/shell/rand at
+    candidate thresholds c, and the virtual hard-gate redistribution ("where would the
+    push-down fire go if core samples were gated out")."""
+
+    gate_samples: int = 32
+    """Policy samples per state (K) for the gate pre-scan, mirroring cql_num_action_samples."""
+
+    gate_quantiles: str = "0.3,0.4,0.5"
+    """Candidate gate thresholds c as quantiles of the pooled per-checkpoint distance
+    distribution (comma separated, each in (0,1))."""
 
     leak_rows: int = 512
     """Probe rows used for the component-gradient measurement (first K rows, fixed)."""
@@ -732,6 +759,175 @@ def run_grad_leak_probe(
 
 
 # ---------------------------------------------------------------------------
+# distance-gate pre-scan: does a "shell" of far-from-data policy samples exist,
+# where does the CQL softmax aim today, and where WOULD it aim under a gate?
+# ---------------------------------------------------------------------------
+
+_GATE_HIST_BINS = 60
+_GATE_HIST_MAX = 6.0  # sigma-RMS units; larger distances clamp into the last bin
+_GATE_SEED_OFFSET = 104729
+
+
+def _parse_gate_quantiles(spec: str) -> tuple[float, ...]:
+    quantiles = tuple(float(part) for part in re.split(r"[,\s]+", spec.strip()) if part)
+    for quantile in quantiles:
+        if not (0.0 < quantile < 1.0):
+            raise ValueError(f"--gate-quantiles entries must be in (0, 1), got {quantile}")
+    return quantiles
+
+
+def _gate_hist(distances: torch.Tensor) -> np.ndarray:
+    clamped = distances.reshape(-1).clamp(0.0, _GATE_HIST_MAX - 1e-6).float().cpu()
+    return torch.histc(clamped, bins=_GATE_HIST_BINS, min=0.0, max=_GATE_HIST_MAX).long().numpy()
+
+
+@torch.no_grad()
+def run_gate_probe(
+    algo: Any,
+    tensors: dict[str, torch.Tensor],
+    num_samples: int,
+    quantiles: tuple[float, ...],
+    seed: int,
+) -> tuple[dict[str, float], dict[str, np.ndarray]]:
+    """Per-state distance distributions of CQL's policy samples and a virtual-gate simulation.
+
+    For every probe state, K curr samples (pi at s) and K next samples (pi at
+    s') are drawn through the same path the training code uses, and their
+    per-dim sigma-normalized RMS distance to a_D(s) is recorded (both blocks
+    anchor to a_D(s) because that is the action the CQL term compares against).
+
+    The CQL softmax over [rand - log rho, curr - log pi, next - log pi] / T is
+    then decomposed — per critic, averaged over the twins — into mass on the
+    core (policy samples with d < c), the shell (d >= c), and the rand block,
+    at candidate thresholds c set at the requested quantiles of the pooled
+    distance distribution. The virtual HARD gate masks core samples out of the
+    logsumexp and reports the redistributed shell/rand masses and the retained
+    conservative gap — "where the push-down fire would go" without training.
+    Sampling noise is seed-fixed so every checkpoint uses the same ruler.
+    """
+    _set_eval_mode(algo)
+    torch.manual_seed(seed + _GATE_SEED_OFFSET)
+    temperature = float(getattr(algo, "_temperature", getattr(algo.config, "cql_temperature", 1.0)))
+
+    observations = algo.obs_normalizer(tensors["observations"])
+    next_observations = algo.obs_normalizer(tensors["next_observations"])
+    critic_observations = algo.critic_obs_normalizer(tensors["critic_observations"])
+    a_data = _to_critic_actions(algo, tensors["actions"]).detach()
+    num_states, action_dim = a_data.shape
+    sigma = a_data.std(dim=0, unbiased=False).clamp_min(1e-6)  # fixed given the fixed probe set
+
+    def _expand(x: torch.Tensor) -> torch.Tensor:
+        return x[:, None, :].expand(num_states, num_samples, -1).reshape(num_states * num_samples, -1)
+
+    # RNG order fixed: curr, next, rand — mirrors the training block.
+    curr_actions, curr_logp = algo.actor.get_actions_and_log_probs(_expand(observations))
+    next_actions, next_logp = algo.actor.get_actions_and_log_probs(_expand(next_observations))
+    action_scale = algo.actor.action_scale.to(device=a_data.device, dtype=a_data.dtype)
+    action_bias = algo.actor.action_bias.to(device=a_data.device, dtype=a_data.dtype)
+    rand_actions = torch.empty(num_states * num_samples, action_dim, device=a_data.device, dtype=a_data.dtype).uniform_(-1.0, 1.0)
+    rand_actions = rand_actions * action_scale + action_bias
+    if bool(getattr(algo.config, "use_tanh", True)):
+        random_density = math.log(0.5) * action_dim - torch.log(action_scale + 1e-6).sum()
+    else:
+        random_density = math.log(0.5) * action_dim
+
+    a_data_rep = _expand(a_data)
+    dist_curr = (((curr_actions - a_data_rep) / sigma).pow(2).mean(dim=-1)).sqrt().view(num_states, num_samples)
+    dist_next = (((next_actions - a_data_rep) / sigma).pow(2).mean(dim=-1)).sqrt().view(num_states, num_samples)
+    dist_policy = torch.cat([dist_curr, dist_next], dim=1)  # [N, 2K]
+
+    cobs_rep = _expand(critic_observations)
+    q1_data, q2_data = _chunked_pair(algo.qnet, critic_observations, a_data)
+    q1_curr, q2_curr = _chunked_pair(algo.qnet, cobs_rep, curr_actions)
+    q1_next, q2_next = _chunked_pair(algo.qnet, cobs_rep, next_actions)
+    q1_rand, q2_rand = _chunked_pair(algo.qnet, cobs_rep, rand_actions)
+    q_policy_min = torch.minimum(
+        torch.cat([q1_curr, q1_next]), torch.cat([q2_curr, q2_next])
+    ).view(2, num_states, num_samples).permute(1, 0, 2).reshape(num_states, 2 * num_samples)
+    q_data_min_mean = float(torch.minimum(q1_data, q2_data).mean().item())
+
+    def _logits(q_rand: torch.Tensor, q_curr: torch.Tensor, q_next: torch.Tensor) -> torch.Tensor:
+        return torch.cat(
+            [
+                (q_rand.view(num_states, num_samples) - random_density),
+                q_curr.view(num_states, num_samples) - curr_logp.view(num_states, num_samples),
+                q_next.view(num_states, num_samples) - next_logp.view(num_states, num_samples),
+            ],
+            dim=1,
+        ) / temperature
+
+    logits_twins = [_logits(q1_rand, q1_curr, q1_next), _logits(q2_rand, q2_curr, q2_next)]
+    q_data_twins = [q1_data, q2_data]
+    rand_block = slice(0, num_samples)
+    policy_block = slice(num_samples, 3 * num_samples)
+
+    row: dict[str, float] = {}
+    for name, dist in (("curr", dist_curr), ("next", dist_next)):
+        qs = torch.quantile(dist.reshape(-1).float(), torch.tensor([0.1, 0.25, 0.5, 0.75, 0.9], device=dist.device))
+        for label, value in zip(("p10", "p25", "p50", "p75", "p90"), qs):
+            row[f"dist_{name}_{label}"] = float(value.item())
+
+    gap_base = 0.0
+    for logits, q_data_twin in zip(logits_twins, q_data_twins):
+        gap_base += float((temperature * torch.logsumexp(logits, dim=1) - q_data_twin).mean().item())
+    row["gate_cql_gap_base"] = gap_base / 2.0
+
+    for quantile in quantiles:
+        tag = f"c{int(round(quantile * 100)):02d}"
+        threshold = float(torch.quantile(dist_policy.reshape(-1).float(), quantile).item())
+        shell_mask = dist_policy >= threshold  # [N, 2K] over the policy block
+        p_core = p_shell = p_rand = 0.0
+        gated_p_shell = gated_p_rand = 0.0
+        gap_gated = 0.0
+        for logits, q_data_twin in zip(logits_twins, q_data_twins):
+            weights = torch.softmax(logits, dim=1)
+            rand_mass = weights[:, rand_block].sum(dim=1)
+            policy_weights = weights[:, policy_block]
+            shell_mass = (policy_weights * shell_mask).sum(dim=1)
+            core_mass = (policy_weights * (~shell_mask)).sum(dim=1)
+            p_rand += float(rand_mass.mean().item())
+            p_shell += float(shell_mass.mean().item())
+            p_core += float(core_mass.mean().item())
+
+            gated_logits = logits.clone()
+            gated_logits[:, policy_block] = torch.where(
+                shell_mask, gated_logits[:, policy_block], torch.full_like(gated_logits[:, policy_block], float("-inf"))
+            )
+            gated_weights = torch.softmax(gated_logits, dim=1)
+            gated_p_rand += float(gated_weights[:, rand_block].sum(dim=1).mean().item())
+            gated_p_shell += float(gated_weights[:, policy_block].sum(dim=1).mean().item())
+            gap_gated += float((temperature * torch.logsumexp(gated_logits, dim=1) - q_data_twin).mean().item())
+
+        row[f"gate_{tag}_threshold"] = threshold
+        row[f"gate_{tag}_p_core"] = p_core / 2.0
+        row[f"gate_{tag}_p_shell"] = p_shell / 2.0
+        row[f"gate_{tag}_p_rand"] = p_rand / 2.0
+        row[f"gate_{tag}_gated_p_shell"] = gated_p_shell / 2.0
+        row[f"gate_{tag}_gated_p_rand"] = gated_p_rand / 2.0
+        row[f"gate_{tag}_cql_gap_gated"] = gap_gated / 2.0
+        row[f"gate_{tag}_shell_count_frac"] = float(shell_mask.float().mean().item())
+        shell_q = q_policy_min[shell_mask]
+        core_q = q_policy_min[~shell_mask]
+        row[f"gate_{tag}_q_shell_minus_q_data"] = (
+            float(shell_q.mean().item()) - q_data_min_mean if shell_q.numel() else float("nan")
+        )
+        row[f"gate_{tag}_q_core_minus_q_data"] = (
+            float(core_q.mean().item()) - q_data_min_mean if core_q.numel() else float("nan")
+        )
+
+    arrays = {
+        "gate_d_curr": dist_curr.float().cpu().numpy(),
+        "gate_d_next": dist_next.float().cpu().numpy(),
+        "gate_q_policy_min": q_policy_min.float().cpu().numpy(),
+        "gate_hist_curr": _gate_hist(dist_curr),
+        "gate_hist_next": _gate_hist(dist_next),
+        "gate_sigma": sigma.float().cpu().numpy(),
+        "gate_hist_edges": np.linspace(0.0, _GATE_HIST_MAX, _GATE_HIST_BINS + 1),
+    }
+    return row, arrays
+
+
+# ---------------------------------------------------------------------------
 # incremental persistence: the CSV/npz are updated after EVERY checkpoint, so
 # a killed scan keeps everything measured so far, and re-runs merge by step.
 # ---------------------------------------------------------------------------
@@ -785,6 +981,7 @@ def _write_npz_atomic(npz_path: Path, payload: dict[str, np.ndarray]) -> None:
 
 
 def run_probe_scan(probe_cli: QProbeCLI, tyro_config: ExperimentConfig) -> None:
+    gate_quantiles = _parse_gate_quantiles(probe_cli.gate_quantiles) if probe_cli.gate_sim else ()
     all_references = _resolve_checkpoints(probe_cli.checkpoint)
     references = _filter_references(
         all_references,
@@ -904,6 +1101,16 @@ def run_probe_scan(probe_cli: QProbeCLI, tyro_config: ExperimentConfig) -> None:
                         seed=probe_cli.probe_seed,
                     )
                 )
+            if probe_cli.gate_sim:
+                gate_row, gate_arrays = run_gate_probe(
+                    algo,
+                    tensors,
+                    num_samples=probe_cli.gate_samples,
+                    quantiles=gate_quantiles,
+                    seed=probe_cli.probe_seed,
+                )
+                row.update(gate_row)
+                arrays.update(gate_arrays)
             row = {"step": float(step), "frozen_step": float(frozen_step), **row}
             rows.append(row)
             scanned_steps.append(step)
@@ -930,6 +1137,26 @@ def run_probe_scan(probe_cli: QProbeCLI, tyro_config: ExperimentConfig) -> None:
                 total_rows,
                 csv_path.name,
             )
+            if probe_cli.gate_sim and gate_quantiles:
+                tag = f"c{int(round(gate_quantiles[len(gate_quantiles) // 2] * 100)):02d}"
+                logger.info(
+                    "[QProbe][gate] step={} d_p50 curr/next={:.3f}/{:.3f} [{}] c={:.3f} "
+                    "mass core/shell/rand={:.3f}/{:.3f}/{:.3f} gated shell/rand={:.3f}/{:.3f} "
+                    "q_shell-q_data={:+.3f} gap base->gated={:.3f}->{:.3f}",
+                    step,
+                    row.get("dist_curr_p50", float("nan")),
+                    row.get("dist_next_p50", float("nan")),
+                    tag,
+                    row.get(f"gate_{tag}_threshold", float("nan")),
+                    row.get(f"gate_{tag}_p_core", float("nan")),
+                    row.get(f"gate_{tag}_p_shell", float("nan")),
+                    row.get(f"gate_{tag}_p_rand", float("nan")),
+                    row.get(f"gate_{tag}_gated_p_shell", float("nan")),
+                    row.get(f"gate_{tag}_gated_p_rand", float("nan")),
+                    row.get(f"gate_{tag}_q_shell_minus_q_data", float("nan")),
+                    row.get("gate_cql_gap_base", float("nan")),
+                    row.get(f"gate_{tag}_cql_gap_gated", float("nan")),
+                )
             if probe_cli.grad_leak:
                 leak_cql = row.get("leak_pred_dqdata_cql", float("nan"))
                 leak_bell = row.get("leak_pred_dqdata_bellman", float("nan"))
