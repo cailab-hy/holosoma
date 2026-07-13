@@ -254,8 +254,13 @@ class QNetwork(nn.Module):
         )
 
     def forward(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        features = self.features(obs, actions)
+        return self.net[-1](features).squeeze(-1)
+
+    def features(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        """Return the penultimate critic representation used by DR3."""
         x = torch.cat([self._process_obs(obs), actions], dim=1)
-        return self.net(x).squeeze(-1)
+        return self.net[:-1](x)
     
 class QNetwork_Risk(nn.Module):
     def __init__(
@@ -297,8 +302,12 @@ class QNetwork_Risk(nn.Module):
         )
 
     def forward(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        return F.softplus(self.net[-1](self.features(obs, actions)).squeeze(-1))
+
+    def features(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        """Return the penultimate critic representation used by DR3."""
         x = torch.cat([self._process_obs(obs), actions], dim=1)
-        return F.softplus(self.net(x).squeeze(-1))
+        return self.net[:-1](x)
 
 
 class DoubleQCritic_Risk(nn.Module):
@@ -332,6 +341,9 @@ class DoubleQCritic_Risk(nn.Module):
     def forward(self, obs: torch.Tensor, actions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         return self.q1(obs, actions), self.q2(obs, actions)
 
+    def features(self, obs: torch.Tensor, actions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.q1.features(obs, actions), self.q2.features(obs, actions)
+
 class DoubleQCritic(nn.Module):
     def __init__(
         self,
@@ -363,6 +375,8 @@ class DoubleQCritic(nn.Module):
     def forward(self, obs: torch.Tensor, actions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         return self.q1(obs, actions), self.q2(obs, actions)
 
+    def features(self, obs: torch.Tensor, actions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.q1.features(obs, actions), self.q2.features(obs, actions)
 
 
 def calculate_cnn_output_dim(input_shape: tuple[int, int, int]) -> int:

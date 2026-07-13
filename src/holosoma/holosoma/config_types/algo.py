@@ -535,6 +535,12 @@ class CQLConfig:
     cql_weight: float = 5.0
     """weight of conservative quantile regularization"""
 
+    dr3_weight: float = 0.0
+    """weight for DR3 critic feature dot-product regularization; 0 disables DR3"""
+
+    dr3_normalize_features: bool = False
+    """whether to L2-normalize critic features before the DR3 dot product"""
+
     cql_near_action_samples: int = 0
     """number of Gaussian-noised dataset-near actions per state for local conservative regularization"""
 

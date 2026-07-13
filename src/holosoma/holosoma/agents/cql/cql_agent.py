@@ -179,6 +179,8 @@ class CQLAgent(BaseAlgo):
             raise ValueError(f"cql_temperature must be > 0, got {config.cql_temperature}")
         if config.cql_weight < 0.0:
             raise ValueError(f"cql_weight must be >= 0, got {config.cql_weight}")
+        if config.dr3_weight < 0.0:
+            raise ValueError(f"dr3_weight must be >= 0, got {config.dr3_weight}")
         if config.cql_near_action_samples < 0:
             raise ValueError(f"cql_near_action_samples must be >= 0, got {config.cql_near_action_samples}")
         if config.cql_near_noise_std < 0.0:
@@ -653,6 +655,31 @@ class CQLAgent(BaseAlgo):
                 bellman_loss = F.mse_loss(q1, q_target) + F.mse_loss(q2, q_target)
 
             q_data_mean = torch.minimum(q1,q2).mean()
+            dr3_raw_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            dr3_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            dr3_active_frac = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            if args.dr3_weight > 0.0:
+                with torch.no_grad():
+                    dr3_next_actions, _ = self.actor.get_actions_and_log_probs(next_observations)
+                q1_features, q2_features = self.qnet.features(critic_observations, dataset_actions)
+                next_q1_features, next_q2_features = self.qnet.features(
+                    next_critic_observations,
+                    dr3_next_actions.detach(),
+                )
+                if args.dr3_normalize_features:
+                    q1_features = F.normalize(q1_features, dim=-1)
+                    q2_features = F.normalize(q2_features, dim=-1)
+                    next_q1_features = F.normalize(next_q1_features, dim=-1)
+                    next_q2_features = F.normalize(next_q2_features, dim=-1)
+                dr3_per_sample = 0.5 * (
+                    (q1_features * next_q1_features).sum(dim=-1)
+                    + (q2_features * next_q2_features).sum(dim=-1)
+                )
+                dr3_mask = bootstrap_.to(device=dr3_per_sample.device, dtype=dr3_per_sample.dtype)
+                dr3_active_count = dr3_mask.sum().clamp_min(1.0)
+                dr3_active_frac = dr3_mask.mean()
+                dr3_raw_loss = (dr3_per_sample * dr3_mask).sum() / dr3_active_count
+                dr3_loss = args.dr3_weight * dr3_raw_loss
             rand_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             curr_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             next_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
@@ -752,7 +779,7 @@ class CQLAgent(BaseAlgo):
                 conservative_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 cql_gap = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             
-            q_loss = bellman_loss + conservative_loss
+            q_loss = bellman_loss + conservative_loss + dr3_loss
 
         self.q_optimizer.zero_grad(set_to_none=True)
         scaler.scale(q_loss).backward()
@@ -795,6 +822,9 @@ class CQLAgent(BaseAlgo):
             q_target_raw_p99.detach(),
             q_target_legacy_clip_low_frac.detach(),
             q_target_legacy_clip_high_frac.detach(),
+            dr3_raw_loss.detach(),
+            dr3_loss.detach(),
+            dr3_active_frac.detach(),
             alpha_loss.detach(),
             conservative_loss.detach(),
             bellman_loss.detach(),
@@ -1121,6 +1151,9 @@ class CQLAgent(BaseAlgo):
                         q_target_raw_p99,
                         q_target_legacy_clip_low_frac,
                         q_target_legacy_clip_high_frac,
+                        dr3_raw_loss,
+                        dr3_loss,
+                        dr3_active_frac,
                         alpha_loss,
                         conservative_loss,
                         bellman_loss,
@@ -1172,6 +1205,9 @@ class CQLAgent(BaseAlgo):
                             "q_target_raw_p99": q_target_raw_p99,
                             "q_target_legacy_clip_low_frac": q_target_legacy_clip_low_frac,
                             "q_target_legacy_clip_high_frac": q_target_legacy_clip_high_frac,
+                            "dr3_raw_loss": dr3_raw_loss,
+                            "dr3_loss": dr3_loss,
+                            "dr3_active_frac": dr3_active_frac,
                             "alpha_loss": alpha_loss,
                             "alpha_value": self.log_alpha.exp().detach().mean(),
                             "actor_grad_norm": actor_grad_norm,
