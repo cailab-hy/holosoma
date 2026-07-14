@@ -64,9 +64,12 @@ ascent on J(a) = minQ(s,a) - beta * cos(phi(s,a), phi(s,a_D)) with a FROZEN
 critic (gradients w.r.t. the action only), then the per-state best-Q reached
 point is measured: Q vs Q(s,a_D), sigma-RMS distance (does it leave the pi
 ring?), the feature-cos proxy the search used, and the TRUE full-parameter
-grad-cos coupling on the first --refine-pairs states. beta=0 is the built-in
-max-backup-like control (pure Q ascent -> expected to ride onto the data
-ridge = maximum coupling). Go/no-go: refine_<beta>_s<steps>_quadrant_frac —
+grad-cos coupling on the first --refine-pairs states. grad-cos is the
+WITHIN-TWIN cosine averaged over the two critics (q1/q2 share no parameters,
+so a min-gated version dots to exactly 0 whenever the argmin twins differ —
+an artifact, tracked separately as refine_*_twin_disagree_frac). beta=0 is
+the built-in max-backup-like control (pure Q ascent -> expected to ride onto
+the data ridge = maximum coupling). Go/no-go: refine_<beta>_s<steps>_quadrant_frac —
 the fraction of states whose reached point has Q >= Q(s,a_D) AND grad-cos
 below --refine-lowcos. refine_<beta>_featcos_gradcos_pearson answers the
 "cos != NTK" worry inside the same scan; per-state scatter arrays (Q, d,
@@ -1007,18 +1010,38 @@ def _twin_value_and_features(
     return torch.minimum(q1, q2), None, None
 
 
-def _pair_gradcos(algo: Any, a_ref: torch.Tensor, a_data: torch.Tensor, cobs: torch.Tensor) -> np.ndarray:
-    """True coupling per state: cos(grad_theta minQ(s, a_ref), grad_theta minQ(s, a_D))."""
-    params = [p for p in algo.qnet.parameters() if p.requires_grad]
-    out = np.zeros(a_ref.shape[0], dtype=np.float64)
+def _pair_gradcos(algo: Any, a_ref: torch.Tensor, a_data: torch.Tensor, cobs: torch.Tensor) -> tuple[np.ndarray, np.ndarray]:
+    """True WITHIN-TWIN coupling per state, averaged over the two critics.
+
+        cos_k = cos(grad_{theta_k} Q_k(s, a_ref), grad_{theta_k} Q_k(s, a_D)),  k in {1, 2}
+
+    Min-twin gradients are deliberately NOT used: q1 and q2 share no
+    parameters, so whenever the argmin twin differs between a_ref and a_D the
+    two min-gated gradients occupy disjoint parameter blocks and their dot is
+    EXACTLY 0.0 — a gating artifact, not orthogonality (this produced a ~27%
+    spike of exact zeros in early scans). Also returns the argmin-disagreement
+    mask, which is itself a twin-specialization signal.
+    """
+    q1_net, q2_net = algo.qnet.q1, algo.qnet.q2
+    params1 = [p for p in q1_net.parameters() if p.requires_grad]
+    params2 = [p for p in q2_net.parameters() if p.requires_grad]
+    count = a_ref.shape[0]
+    avg_cos = np.zeros(count, dtype=np.float64)
+    disagree = np.zeros(count, dtype=bool)
     with torch.enable_grad():
-        for i in range(a_ref.shape[0]):
-            q1, q2 = algo.qnet(cobs[i : i + 1], a_ref[i : i + 1])
-            g_ref = torch.autograd.grad(torch.minimum(q1, q2).squeeze(), params, allow_unused=True, materialize_grads=True)
-            q1, q2 = algo.qnet(cobs[i : i + 1], a_data[i : i + 1])
-            g_dat = torch.autograd.grad(torch.minimum(q1, q2).squeeze(), params, allow_unused=True, materialize_grads=True)
-            out[i] = _grad_cosine(g_ref, g_dat)
-    return out
+        for i in range(count):
+            cobs_i = cobs[i : i + 1]
+            q1_ref = q1_net(cobs_i, a_ref[i : i + 1]).squeeze()
+            grad1_ref = torch.autograd.grad(q1_ref, params1)
+            q1_dat = q1_net(cobs_i, a_data[i : i + 1]).squeeze()
+            grad1_dat = torch.autograd.grad(q1_dat, params1)
+            q2_ref = q2_net(cobs_i, a_ref[i : i + 1]).squeeze()
+            grad2_ref = torch.autograd.grad(q2_ref, params2)
+            q2_dat = q2_net(cobs_i, a_data[i : i + 1]).squeeze()
+            grad2_dat = torch.autograd.grad(q2_dat, params2)
+            avg_cos[i] = 0.5 * (_grad_cosine(grad1_ref, grad1_dat) + _grad_cosine(grad2_ref, grad2_dat))
+            disagree[i] = bool((q2_ref < q1_ref).item() != (q2_dat < q1_dat).item())
+    return avg_cos, disagree
 
 
 def run_refine_probe(
@@ -1152,8 +1175,11 @@ def run_refine_probe(
     # true coupling on the first num_pairs states, per combo
     pairs = min(num_pairs, num_states)
     gradcos: dict[str, np.ndarray] = {}
+    twin_disagree: dict[str, np.ndarray] = {}
     for tag, _, _ in combos:
-        gradcos[tag] = _pair_gradcos(algo, best[tag]["act"][:pairs], a_data[:pairs], critic_observations[:pairs])
+        gradcos[tag], twin_disagree[tag] = _pair_gradcos(
+            algo, best[tag]["act"][:pairs], a_data[:pairs], critic_observations[:pairs]
+        )
 
     row: dict[str, float] = {}
     arrays: dict[str, np.ndarray] = {}
@@ -1176,7 +1202,9 @@ def run_refine_probe(
         row[f"{prefix}_gradcos_mean"] = float(gc.mean())
         row[f"{prefix}_gradcos_p10"] = float(np.quantile(gc, 0.1))
         row[f"{prefix}_quadrant_frac"] = float(((gc < lowcos) & (q_np[:pairs] >= q_data_np[:pairs])).mean())
+        row[f"{prefix}_twin_disagree_frac"] = float(twin_disagree[tag].mean())
         arrays[f"{prefix}_gradcos"] = gc
+        arrays[f"{prefix}_twin_disagree"] = twin_disagree[tag]
         if mark == max_steps or tag == "start":
             arrays[f"{prefix}_q"] = q_np
             arrays[f"{prefix}_d"] = d_np
