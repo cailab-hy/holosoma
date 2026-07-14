@@ -20,10 +20,14 @@ a globally unique ``episode_id``, plus per-row ``next_global_step`` (collection
 time — the period axis), ``next_done_motion_ends`` (completion flag at the
 episode's last row) and ``motion_phase`` (progress inside the clip).
 
-An episode counts as COMPLETE when its last row has done_motion_ends=1 OR its
-max motion_phase >= --complete-phase (default 0.98): near-timeout episodes
-that tracked essentially the whole motion are demonstrations in all but name
-and must count as such, or the "no demos" premise silently leaks.
+An episode counts as a COMPLETE DEMONSTRATION only when it traversed the
+motion end-to-end: min motion_phase <= --demo-start-phase (default 0.05, i.e.
+it started at the beginning) AND (last row has done_motion_ends=1 OR max
+motion_phase >= --complete-phase, default 0.98 — near-timeout episodes that
+tracked essentially the whole motion are demos in all but name). The span
+condition matters for random-start collections (start_at_timestep_zero_prob
+< 1): an episode that starts at phase 0.6 and reaches the end is a valuable
+late-phase FRAGMENT, not a demonstration, and must survive the cut.
 
 Usage
 =====
@@ -75,9 +79,10 @@ class EpisodeTable:
     start: np.ndarray  # [E] first row (inclusive)
     end: np.ndarray  # [E] last row (exclusive)
     global_step: np.ndarray  # [E] first-row next_global_step
-    complete: np.ndarray  # [E] bool, done_motion_ends at last row OR max phase >= threshold
+    complete: np.ndarray  # [E] bool, full-traversal demo: started near phase 0 AND reached the end
     motion_ends: np.ndarray  # [E] bool
     max_phase: np.ndarray  # [E]
+    min_phase: np.ndarray  # [E]
     length: np.ndarray  # [E]
     period: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.int64))  # [E]
     period_edges: np.ndarray = field(default_factory=lambda: np.empty(0))
@@ -91,7 +96,7 @@ def _read_full(h5: h5py.File, key: str, fallback: float | None = None) -> np.nda
     return np.full(int(h5.attrs.get("num_samples", h5["observations"].shape[0])), fallback)
 
 
-def load_episode_table(clip: str, path: Path, complete_phase: float) -> EpisodeTable:
+def load_episode_table(clip: str, path: Path, complete_phase: float, demo_start_phase: float = 0.05) -> EpisodeTable:
     with h5py.File(path, "r") as h5:
         episode_id = _read_full(h5, "episode_id").astype(np.int64)
         global_step = _read_full(h5, "next_global_step", fallback=0).astype(np.int64)
@@ -112,11 +117,14 @@ def load_episode_table(clip: str, path: Path, complete_phase: float) -> EpisodeT
 
     n_eps = starts.shape[0]
     max_phase = np.array([phase[s:e].max() for s, e in zip(starts, ends)])
+    min_phase = np.array([phase[s:e].min() for s, e in zip(starts, ends)])
     ends_flag = motion_ends[ends - 1]
     keep = np.array([bool(data_complete[s:e].all()) for s, e in zip(starts, ends)])
     if not keep.all():
         print(f"[{clip}] dropping {int((~keep).sum())}/{n_eps} episodes with episode_data_complete=0")
-    complete = ends_flag | (max_phase >= complete_phase)
+    # Full-traversal demo only: started near phase 0 AND reached the end. A late-start
+    # episode that hits done_motion_ends is a late-phase fragment, not a demonstration.
+    complete = (min_phase <= demo_start_phase) & (ends_flag | (max_phase >= complete_phase))
     table = EpisodeTable(
         clip=clip,
         path=path,
@@ -127,6 +135,7 @@ def load_episode_table(clip: str, path: Path, complete_phase: float) -> EpisodeT
         complete=complete[keep],
         motion_ends=ends_flag[keep],
         max_phase=max_phase[keep],
+        min_phase=min_phase[keep],
         length=(ends - starts)[keep],
     )
     return table
@@ -353,7 +362,10 @@ def main() -> None:
                        help="Per-clip replay H5 (repeat per clip). NAME optional (file stem).")
         p.add_argument("--num-periods", type=int, default=10, help="Equal-width global_step bins per clip.")
         p.add_argument("--complete-phase", type=float, default=0.98,
-                       help="Episodes reaching this max motion_phase count as complete even without done_motion_ends.")
+                       help="Episodes reaching this max motion_phase count as reaching the end even without done_motion_ends.")
+        p.add_argument("--demo-start-phase", type=float, default=0.05,
+                       help="Episodes only count as complete DEMOS if their min motion_phase is <= this "
+                            "(random-start episodes finishing from mid-motion are fragments, not demos).")
         if name == "build":
             p.add_argument("--output", type=Path, required=True)
             p.add_argument("--max-complete-rate", type=float, default=0.05,
@@ -368,7 +380,7 @@ def main() -> None:
     args = parser.parse_args()
 
     clips = _parse_clips(args.clip)
-    tables = [load_episode_table(name, path, args.complete_phase) for name, path in clips]
+    tables = [load_episode_table(name, path, args.complete_phase, args.demo_start_phase) for name, path in clips]
     for table in tables:
         assign_periods(table, args.num_periods)
         print_matrix(table, completion_matrix(table, args.num_periods))
@@ -389,6 +401,7 @@ def main() -> None:
     spec = {
         "num_periods": args.num_periods,
         "complete_phase": args.complete_phase,
+        "demo_start_phase": args.demo_start_phase,
         "max_complete_rate": args.max_complete_rate,
         "periods_per_clip": args.periods_per_clip,
         "max_complete_per_clip": args.max_complete_per_clip,
