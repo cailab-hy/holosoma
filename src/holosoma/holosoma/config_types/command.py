@@ -99,7 +99,7 @@ class MotionConfig:
     use_adaptive_timesteps_sampler: bool = False
     """During training, whether to prioritize training on motion segments where the robot fails often."""
 
-    start_at_timestep_zero_prob: float =  1.0 #0.2
+    start_at_timestep_zero_prob: float =  0.2
     """Probability of starting at timestep zero."""
 
     freeze_at_timestep_zero_prob: float = 0.95

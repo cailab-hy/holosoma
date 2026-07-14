@@ -703,6 +703,15 @@ class CQLConfig:
 
     cql_max_target_backup_samples : int = 10
 
+    bootstrap_truncations: bool = True
+    """Bootstrap the TD target through truncated ends (timeout rows: dones=1 AND
+    truncations=1; the exporter stores the final pre-reset obs in next.observations).
+    Matches the online FastSAC semantics (bootstrap = truncations | ~dones). Keep False
+    to reproduce legacy runs; effectively REQUIRED for datasets collected with
+    start_at_timestep_zero_prob < 1, where the same mid-phase state otherwise receives
+    contradictory targets (zero-future at the 12s cap vs real-future from late starts).
+    bad_tracking and motion_ends stay terminal either way."""
+
 
 
 @dataclass(frozen=True)

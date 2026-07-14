@@ -181,7 +181,11 @@ def bellman_loss(algo: Any, data: Any) -> torch.Tensor:
     next_critic_observations = data["next"]["critic_observations"]
     dataset_actions = probe._to_critic_actions(algo, data["actions"]).detach()
     rewards = float(getattr(algo, "reward_scale", 1.0)) * data["next"]["rewards"]
-    bootstrap = (~data["next"]["dones"].bool()).float()
+    dones = data["next"]["dones"].bool()
+    if bool(getattr(args, "bootstrap_truncations", False)):
+        bootstrap = (data["next"]["truncations"].bool() | ~dones).float()
+    else:
+        bootstrap = (~dones).float()
     del observations
 
     with torch.no_grad():

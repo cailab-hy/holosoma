@@ -165,7 +165,12 @@ class MCQAgent(CQLAgent):
             rewards = data["next"]["rewards"]
             rewards = reward_scale * rewards
             dones = data["next"]["dones"].bool()
-            bootstrap = (~dones).float()
+            # Same truncation semantics as CQLAgent._update_q (see comment there).
+            if args.bootstrap_truncations:
+                truncations = data["next"]["truncations"].bool()
+                bootstrap = (truncations | ~dones).float()
+            else:
+                bootstrap = (~dones).float()
             alpha = self.log_alpha.exp().detach()
 
             with torch.no_grad():

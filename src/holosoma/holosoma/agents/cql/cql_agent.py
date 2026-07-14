@@ -555,12 +555,18 @@ class CQLAgent(BaseAlgo):
             rewards = data["next"]["rewards"]
             rewards = reward_scale *rewards
             dones = data["next"]["dones"].bool()
-            #truncations = data["next"]["truncations"].bool()
-            # Truncated ends (timeout / d3 segment_ends) are not true terminals: the
-            # exporter stores the final pre-reset observation in next.observations, so
-            # bootstrap through them. Required for cross-segment value stitching.
-            #bootstrap = (truncations | ~dones).float()
-            bootstrap = (~dones).float()
+            # Truncated ends (timeout rows: dones=1 AND truncations=1) are not true
+            # terminals: the exporter stores the final pre-reset observation in
+            # next.observations, so they can be bootstrapped through. This matches the
+            # online FastSAC semantics and is effectively required for random-start
+            # (start_at_timestep_zero_prob < 1) datasets, where timeout-as-terminal
+            # assigns contradictory targets to the same mid-phase states. Gated by
+            # config to keep legacy runs bit-identical.
+            if args.bootstrap_truncations:
+                truncations = data["next"]["truncations"].bool()
+                bootstrap = (truncations | ~dones).float()
+            else:
+                bootstrap = (~dones).float()
             alpha = self.log_alpha.exp().detach()
 
             with torch.no_grad():
