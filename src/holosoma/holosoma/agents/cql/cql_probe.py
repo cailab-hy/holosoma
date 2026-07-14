@@ -57,6 +57,21 @@ samples were masked out — with the retained conservative gap
 Per-sample distance/Q matrices and fixed-bin histograms land in the npz for
 figures. This is the no-training DG-CQL go/no-go + c calibration scan.
 
+Refined-counterfactual gateway scan (--refine-sim, on by default)
+=================================================================
+K pi-samples per state are moved 2/5/10 steps of normalized action-space
+ascent on J(a) = minQ(s,a) - beta * cos(phi(s,a), phi(s,a_D)) with a FROZEN
+critic (gradients w.r.t. the action only), then the per-state best-Q reached
+point is measured: Q vs Q(s,a_D), sigma-RMS distance (does it leave the pi
+ring?), the feature-cos proxy the search used, and the TRUE full-parameter
+grad-cos coupling on the first --refine-pairs states. beta=0 is the built-in
+max-backup-like control (pure Q ascent -> expected to ride onto the data
+ridge = maximum coupling). Go/no-go: refine_<beta>_s<steps>_quadrant_frac —
+the fraction of states whose reached point has Q >= Q(s,a_D) AND grad-cos
+below --refine-lowcos. refine_<beta>_featcos_gradcos_pearson answers the
+"cos != NTK" worry inside the same scan; per-state scatter arrays (Q, d,
+featcos, gradcos, reached actions at the final step) land in the npz.
+
 Observations are stored raw because EmpiricalNormalization statistics evolve
 during training; each checkpoint re-normalizes the raw obs with its own
 restored normalizer state, reproducing exactly what that critic saw.
@@ -192,6 +207,31 @@ class QProbeCLI:
     gate_quantiles: str = "0.3,0.4,0.5"
     """Candidate gate thresholds c as quantiles of the pooled per-checkpoint distance
     distribution (comma separated, each in (0,1))."""
+
+    refine_sim: bool = True
+    """Refined-counterfactual gateway scan: move K pi-samples by action-space ascent on
+    Q(s,a) - beta*cos(phi(s,a), phi(s,a_D)) (frozen critic, gradients w.r.t. the action
+    only), then measure whether the reached points fill the high-Q / low-coupling quadrant
+    (true full-parameter grad-cos, not just the feature-cos proxy)."""
+
+    refine_samples: int = 32
+    """Pi samples per probe state that get refined."""
+
+    refine_steps: str = "2,5,10"
+    """Ascent step counts at which reached points are measured (comma separated)."""
+
+    refine_betas: str = "0,1,4"
+    """Repulsion strengths beta; beta=0 is the pure-Q-ascent control (max-backup-like)."""
+
+    refine_step_size: float = 0.1
+    """Per-ascent-step movement in sigma-RMS units (normalized-gradient step)."""
+
+    refine_pairs: int = 128
+    """Probe states on which the true grad-cos coupling is measured per (beta, step)."""
+
+    refine_lowcos: float = 0.25
+    """Grad-cos threshold below which a reached point counts as "low coupling" for the
+    quadrant fraction."""
 
     leak_rows: int = 512
     """Probe rows used for the component-gradient measurement (first K rows, fixed)."""
@@ -928,6 +968,232 @@ def run_gate_probe(
 
 
 # ---------------------------------------------------------------------------
+# refined-counterfactual gateway scan: can action-space ascent MANUFACTURE
+# high-Q / low-coupling targets that neither pi nor uniform sampling reaches?
+# ---------------------------------------------------------------------------
+
+_REFINE_SEED_OFFSET = 1299709
+
+
+def _parse_refine_steps(spec: str) -> tuple[int, ...]:
+    steps = sorted({int(part) for part in re.split(r"[,\s]+", spec.strip()) if part})
+    if not steps or any(step <= 0 for step in steps):
+        raise ValueError(f"--refine-steps must be positive ints, got {spec!r}")
+    return tuple(steps)
+
+
+def _parse_refine_betas(spec: str) -> tuple[float, ...]:
+    betas = tuple(dict.fromkeys(float(part) for part in re.split(r"[,\s]+", spec.strip()) if part))
+    if not betas or any(beta < 0 for beta in betas):
+        raise ValueError(f"--refine-betas must be >= 0, got {spec!r}")
+    return betas
+
+
+def _beta_tag(beta: float) -> str:
+    return "b" + f"{beta:g}".replace(".", "p")
+
+
+def _twin_value_and_features(
+    qnet: Any, cobs: torch.Tensor, actions: torch.Tensor, with_features: bool
+) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
+    """min-twin Q plus per-twin penultimate features in a single forward per twin."""
+    if with_features:
+        f1 = qnet.q1.features(cobs, actions)
+        f2 = qnet.q2.features(cobs, actions)
+        q1 = qnet.q1.net[-1](f1).squeeze(-1)
+        q2 = qnet.q2.net[-1](f2).squeeze(-1)
+        return torch.minimum(q1, q2), f1, f2
+    q1, q2 = qnet(cobs, actions)
+    return torch.minimum(q1, q2), None, None
+
+
+def _pair_gradcos(algo: Any, a_ref: torch.Tensor, a_data: torch.Tensor, cobs: torch.Tensor) -> np.ndarray:
+    """True coupling per state: cos(grad_theta minQ(s, a_ref), grad_theta minQ(s, a_D))."""
+    params = [p for p in algo.qnet.parameters() if p.requires_grad]
+    out = np.zeros(a_ref.shape[0], dtype=np.float64)
+    with torch.enable_grad():
+        for i in range(a_ref.shape[0]):
+            q1, q2 = algo.qnet(cobs[i : i + 1], a_ref[i : i + 1])
+            g_ref = torch.autograd.grad(torch.minimum(q1, q2).squeeze(), params, allow_unused=True, materialize_grads=True)
+            q1, q2 = algo.qnet(cobs[i : i + 1], a_data[i : i + 1])
+            g_dat = torch.autograd.grad(torch.minimum(q1, q2).squeeze(), params, allow_unused=True, materialize_grads=True)
+            out[i] = _grad_cosine(g_ref, g_dat)
+    return out
+
+
+def run_refine_probe(
+    algo: Any,
+    tensors: dict[str, torch.Tensor],
+    num_samples: int,
+    step_marks: tuple[int, ...],
+    betas: tuple[float, ...],
+    step_size: float,
+    num_pairs: int,
+    lowcos: float,
+    seed: int,
+) -> tuple[dict[str, float], dict[str, np.ndarray]]:
+    """Gateway scan for refined counterfactuals (no training, frozen critic).
+
+    K pi-samples per probe state are moved by normalized action-space ascent on
+
+        J(a) = minQ(s, a) - beta * 0.5*(cos(phi1(s,a), phi1(s,a_D)) + cos(phi2..))
+
+    with gradients taken w.r.t. the ACTION only (autograd.grad — parameters are
+    never touched, mirroring the detached-search defense of the training-time
+    design). Each step moves exactly ``step_size`` sigma-RMS units before the
+    action-bound clamp. At every requested step count the per-state BEST-Q
+    reached point is measured: Q vs Q(s,a_D), distance (does it leave the
+    ring?), feature-cos (the proxy the search used), and — on the first
+    ``num_pairs`` states — the TRUE full-parameter grad-cos coupling, so the
+    proxy-vs-truth question (cos != NTK) is answered in the same scan.
+    beta=0 is the built-in max-backup-like control: pure Q ascent that is
+    expected to converge onto the data ridge (maximum coupling, maximum
+    self-harm). The go/no-go headline is quadrant_frac: the fraction of
+    measured states whose reached point has Q >= Q(s,a_D) AND grad-cos below
+    ``lowcos``.
+    """
+    _set_eval_mode(algo)
+    torch.manual_seed(seed + _REFINE_SEED_OFFSET)
+
+    observations = algo.obs_normalizer(tensors["observations"])
+    critic_observations = algo.critic_obs_normalizer(tensors["critic_observations"])
+    a_data = _to_critic_actions(algo, tensors["actions"]).detach()
+    num_states, action_dim = a_data.shape
+    device = a_data.device
+    sigma = a_data.std(dim=0, unbiased=False).clamp_min(1e-6)
+    action_scale = algo.actor.action_scale.to(device=device, dtype=a_data.dtype)
+    action_bias = algo.actor.action_bias.to(device=device, dtype=a_data.dtype)
+    bound_low, bound_high = action_bias - action_scale, action_bias + action_scale
+    num_samples = max(1, num_samples)
+    q1_net = getattr(algo.qnet, "q1", None)
+    with_features = q1_net is not None and hasattr(q1_net, "features") and any(beta > 0 for beta in betas)
+    if any(beta > 0 for beta in betas) and not with_features:
+        logger.warning("[QProbe][refine] critic exposes no features(); running beta=0 only.")
+        betas = (0.0,)
+
+    with torch.no_grad():
+        expanded_obs = observations[:, None, :].expand(num_states, num_samples, -1).reshape(num_states * num_samples, -1)
+        start_actions = algo.actor.get_actions_and_log_probs(expanded_obs)[0].detach()
+        q1_d, q2_d = _chunked_pair(algo.qnet, critic_observations, a_data)
+        q_data_min = torch.minimum(q1_d, q2_d)
+
+    max_steps = max(step_marks)
+    combos = [("start", None, 0)] + [(f"{_beta_tag(beta)}_s{mark:02d}", beta, mark) for beta in betas for mark in step_marks]
+    best = {
+        tag: {
+            "q": torch.full((num_states,), float("-inf"), device=device),
+            "d": torch.zeros(num_states, device=device),
+            "fc": torch.zeros(num_states, device=device),
+            "act": torch.zeros(num_states, action_dim, device=device),
+        }
+        for tag, _, _ in combos
+    }
+
+    chunk_states = max(1, _FORWARD_CHUNK // num_samples)
+    step_norm = step_size * math.sqrt(action_dim)  # L2 step in sigma-space == step_size RMS
+
+    for start_idx in range(0, num_states, chunk_states):
+        end_idx = min(start_idx + chunk_states, num_states)
+        n_chunk = end_idx - start_idx
+        rows_slice = slice(start_idx * num_samples, end_idx * num_samples)
+        cobs_rep = (
+            critic_observations[start_idx:end_idx, None, :]
+            .expand(n_chunk, num_samples, -1)
+            .reshape(n_chunk * num_samples, -1)
+        )
+        a_data_rep = a_data[start_idx:end_idx, None, :].expand(n_chunk, num_samples, -1).reshape(n_chunk * num_samples, -1)
+        with torch.no_grad():
+            if with_features:
+                f1_data = algo.qnet.q1.features(cobs_rep, a_data_rep).detach()
+                f2_data = algo.qnet.q2.features(cobs_rep, a_data_rep).detach()
+
+        def _snapshot(tag: str, actions: torch.Tensor) -> None:
+            with torch.no_grad():
+                q_min, f1, f2 = _twin_value_and_features(algo.qnet, cobs_rep, actions, with_features)
+                if with_features:
+                    featcos = 0.5 * (
+                        torch.nn.functional.cosine_similarity(f1, f1_data, dim=-1)
+                        + torch.nn.functional.cosine_similarity(f2, f2_data, dim=-1)
+                    )
+                else:
+                    featcos = torch.zeros_like(q_min)
+                dist = (((actions - a_data_rep) / sigma).pow(2).mean(dim=-1)).sqrt()
+                q_min = q_min.view(n_chunk, num_samples)
+                pick = q_min.argmax(dim=1)
+                gather = lambda t: t.view(n_chunk, num_samples).gather(1, pick[:, None]).squeeze(1)  # noqa: E731
+                store = best[tag]
+                store["q"][start_idx:end_idx] = q_min.gather(1, pick[:, None]).squeeze(1)
+                store["d"][start_idx:end_idx] = gather(dist)
+                store["fc"][start_idx:end_idx] = gather(featcos)
+                store["act"][start_idx:end_idx] = (
+                    actions.view(n_chunk, num_samples, -1).gather(1, pick[:, None, None].expand(-1, 1, action_dim)).squeeze(1)
+                )
+
+        _snapshot("start", start_actions[rows_slice])
+        for beta in betas:
+            actions = start_actions[rows_slice].clone()
+            for step in range(1, max_steps + 1):
+                actions = actions.detach().requires_grad_(True)
+                objective, f1, f2 = _twin_value_and_features(algo.qnet, cobs_rep, actions, with_features)
+                if with_features and beta > 0:
+                    repel = 0.5 * (
+                        torch.nn.functional.cosine_similarity(f1, f1_data, dim=-1)
+                        + torch.nn.functional.cosine_similarity(f2, f2_data, dim=-1)
+                    )
+                    objective = objective - beta * repel
+                grad_a = torch.autograd.grad(objective.sum(), actions)[0]
+                with torch.no_grad():
+                    grad_u = grad_a * sigma  # chain rule into sigma-space
+                    unit = grad_u / grad_u.norm(dim=-1, keepdim=True).clamp_min(1e-12)
+                    actions = (actions.detach() + step_norm * unit * sigma).clamp(bound_low, bound_high)
+                if step in step_marks:
+                    _snapshot(f"{_beta_tag(beta)}_s{step:02d}", actions)
+
+    # true coupling on the first num_pairs states, per combo
+    pairs = min(num_pairs, num_states)
+    gradcos: dict[str, np.ndarray] = {}
+    for tag, _, _ in combos:
+        gradcos[tag] = _pair_gradcos(algo, best[tag]["act"][:pairs], a_data[:pairs], critic_observations[:pairs])
+
+    row: dict[str, float] = {}
+    arrays: dict[str, np.ndarray] = {}
+    start_q = best["start"]["q"]
+    q_data_np = q_data_min.float().cpu().numpy()
+    for tag, beta, mark in combos:
+        store = best[tag]
+        q_np = store["q"].float().cpu().numpy()
+        d_np = store["d"].float().cpu().numpy()
+        fc_np = store["fc"].float().cpu().numpy()
+        gc = gradcos[tag]
+        prefix = f"refine_{tag}"
+        row[f"{prefix}_q_mean"] = float(q_np.mean())
+        row[f"{prefix}_q_minus_qdata_mean"] = float((q_np - q_data_np).mean())
+        row[f"{prefix}_q_above_data_frac"] = float((q_np >= q_data_np).mean())
+        row[f"{prefix}_q_gain_mean"] = float((store["q"] - start_q).mean().item())
+        row[f"{prefix}_d_p50"] = float(np.quantile(d_np, 0.5))
+        row[f"{prefix}_d_p90"] = float(np.quantile(d_np, 0.9))
+        row[f"{prefix}_featcos_mean"] = float(fc_np.mean())
+        row[f"{prefix}_gradcos_mean"] = float(gc.mean())
+        row[f"{prefix}_gradcos_p10"] = float(np.quantile(gc, 0.1))
+        row[f"{prefix}_quadrant_frac"] = float(((gc < lowcos) & (q_np[:pairs] >= q_data_np[:pairs])).mean())
+        arrays[f"{prefix}_gradcos"] = gc
+        if mark == max_steps or tag == "start":
+            arrays[f"{prefix}_q"] = q_np
+            arrays[f"{prefix}_d"] = d_np
+            arrays[f"{prefix}_featcos"] = fc_np
+            arrays[f"{prefix}_actions"] = store["act"].float().cpu().numpy()
+    for beta in betas:
+        tag = f"{_beta_tag(beta)}_s{max_steps:02d}"
+        fc_np = best[tag]["fc"].float().cpu().numpy()[:pairs]
+        gc = gradcos[tag]
+        if pairs >= 8 and np.std(fc_np) > 0 and np.std(gc) > 0:
+            row[f"refine_{_beta_tag(beta)}_featcos_gradcos_pearson"] = float(np.corrcoef(fc_np, gc)[0, 1])
+        else:
+            row[f"refine_{_beta_tag(beta)}_featcos_gradcos_pearson"] = float("nan")
+    return row, arrays
+
+
+# ---------------------------------------------------------------------------
 # incremental persistence: the CSV/npz are updated after EVERY checkpoint, so
 # a killed scan keeps everything measured so far, and re-runs merge by step.
 # ---------------------------------------------------------------------------
@@ -982,6 +1248,8 @@ def _write_npz_atomic(npz_path: Path, payload: dict[str, np.ndarray]) -> None:
 
 def run_probe_scan(probe_cli: QProbeCLI, tyro_config: ExperimentConfig) -> None:
     gate_quantiles = _parse_gate_quantiles(probe_cli.gate_quantiles) if probe_cli.gate_sim else ()
+    refine_steps = _parse_refine_steps(probe_cli.refine_steps) if probe_cli.refine_sim else ()
+    refine_betas = _parse_refine_betas(probe_cli.refine_betas) if probe_cli.refine_sim else ()
     all_references = _resolve_checkpoints(probe_cli.checkpoint)
     references = _filter_references(
         all_references,
@@ -1111,6 +1379,20 @@ def run_probe_scan(probe_cli: QProbeCLI, tyro_config: ExperimentConfig) -> None:
                 )
                 row.update(gate_row)
                 arrays.update(gate_arrays)
+            if probe_cli.refine_sim:
+                refine_row, refine_arrays = run_refine_probe(
+                    algo,
+                    tensors,
+                    num_samples=probe_cli.refine_samples,
+                    step_marks=refine_steps,
+                    betas=refine_betas,
+                    step_size=probe_cli.refine_step_size,
+                    num_pairs=probe_cli.refine_pairs,
+                    lowcos=probe_cli.refine_lowcos,
+                    seed=probe_cli.probe_seed,
+                )
+                row.update(refine_row)
+                arrays.update(refine_arrays)
             row = {"step": float(step), "frozen_step": float(frozen_step), **row}
             rows.append(row)
             scanned_steps.append(step)
@@ -1156,6 +1438,27 @@ def run_probe_scan(probe_cli: QProbeCLI, tyro_config: ExperimentConfig) -> None:
                     row.get(f"gate_{tag}_q_shell_minus_q_data", float("nan")),
                     row.get("gate_cql_gap_base", float("nan")),
                     row.get(f"gate_{tag}_cql_gap_gated", float("nan")),
+                )
+            if probe_cli.refine_sim and refine_steps and refine_betas:
+                final_mark = max(refine_steps)
+                repel_beta = max(refine_betas)
+                base_tag = f"{_beta_tag(0.0)}_s{final_mark:02d}" if 0.0 in refine_betas else None
+                repel_tag = f"{_beta_tag(repel_beta)}_s{final_mark:02d}"
+                logger.info(
+                    "[QProbe][refine] step={} start(Q>data,gradcos)={:.2f}/{:.3f} | beta=0 s{}: quadrant={:.3f} "
+                    "gradcos={:.3f} | beta={} s{}: quadrant={:.3f} gradcos={:.3f} d_p50={:.2f} proxy_r={:.2f}",
+                    step,
+                    row.get("refine_start_q_above_data_frac", float("nan")),
+                    row.get("refine_start_gradcos_mean", float("nan")),
+                    final_mark,
+                    row.get(f"refine_{base_tag}_quadrant_frac", float("nan")) if base_tag else float("nan"),
+                    row.get(f"refine_{base_tag}_gradcos_mean", float("nan")) if base_tag else float("nan"),
+                    repel_beta,
+                    final_mark,
+                    row.get(f"refine_{repel_tag}_quadrant_frac", float("nan")),
+                    row.get(f"refine_{repel_tag}_gradcos_mean", float("nan")),
+                    row.get(f"refine_{repel_tag}_d_p50", float("nan")),
+                    row.get(f"refine_{_beta_tag(repel_beta)}_featcos_gradcos_pearson", float("nan")),
                 )
             if probe_cli.grad_leak:
                 leak_cql = row.get("leak_pred_dqdata_cql", float("nan"))
