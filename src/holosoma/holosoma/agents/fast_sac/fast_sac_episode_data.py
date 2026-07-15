@@ -61,19 +61,31 @@ class FastSACEpisodeDataAgent(FastSACAgent):
             if self._episode_ids is not None:
                 self._episode_ids[env_id] = -1
 
-        self._activate_episode_recorders(finished_envs)
+        # Freed slots may move to ANY env at a reset boundary this step (done or
+        # timeout), not just back to the lanes that finished: every such env
+        # resets next step, so recording it still captures a complete episode.
+        # Handing slots back to the same lanes (the previous behavior) froze the
+        # recorded lane set at the initial draw, so per-env STARTUP randomization
+        # (e.g. base CoM offsets) was sampled from only episode_data_active_envs
+        # of num_envs dynamics variations for the whole run.
+        self._activate_episode_recorders(self._reset_boundary_envs(dones=dones, infos=infos))
 
-    def _finished_recording_envs(self, *, dones: torch.Tensor, infos: dict[str, Any]) -> torch.Tensor:
-        if self._episode_recording_mask is None:
-            return torch.empty(0, device=self.device, dtype=torch.long)
-
+    def _reset_boundary_mask(self, *, dones: torch.Tensor, infos: dict[str, Any]) -> torch.Tensor:
         done_flags = dones.to(device=self.device, dtype=torch.bool).flatten()
         timeout_flags = torch.zeros(self.env.num_envs, device=self.device, dtype=torch.bool)
         time_outs = infos.get("time_outs")
         if isinstance(time_outs, torch.Tensor):
             timeout_flags = time_outs.to(device=self.device, dtype=torch.bool).flatten()
+        return done_flags | timeout_flags
 
-        finished_mask = self._episode_recording_mask & (done_flags | timeout_flags)
+    def _reset_boundary_envs(self, *, dones: torch.Tensor, infos: dict[str, Any]) -> torch.Tensor:
+        return self._reset_boundary_mask(dones=dones, infos=infos).nonzero(as_tuple=False).flatten()
+
+    def _finished_recording_envs(self, *, dones: torch.Tensor, infos: dict[str, Any]) -> torch.Tensor:
+        if self._episode_recording_mask is None:
+            return torch.empty(0, device=self.device, dtype=torch.long)
+
+        finished_mask = self._episode_recording_mask & self._reset_boundary_mask(dones=dones, infos=infos)
         return finished_mask.nonzero(as_tuple=False).flatten()
 
     def _activate_episode_recorders(self, candidate_env_ids: torch.Tensor) -> None:

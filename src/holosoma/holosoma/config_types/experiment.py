@@ -101,6 +101,8 @@ class EvalOverridesConfig:
     num_envs: int = 1
     disable_logger: bool = True
     max_episode_length_s: float = 100000.0
+    env_spacing: float = 2.5
+    """Match the compact WBT FastSAC environment layout during evaluation."""
     randomize_tiles: bool = False
     """Use deterministic spawn at tile (0,0) for reproducible evaluation."""
     xy_offset_range: float = 0.0
@@ -218,6 +220,10 @@ class ExperimentConfig:
                     sim=dataclasses.replace(
                         self.simulator.config.sim,
                         max_episode_length_s=self.eval_overrides.max_episode_length_s,
+                    ),
+                    scene=dataclasses.replace(
+                        self.simulator.config.scene,
+                        env_spacing=self.eval_overrides.env_spacing,
                     ),
                 ),
             ),

@@ -84,6 +84,7 @@ class EpisodeTable:
     max_phase: np.ndarray  # [E]
     min_phase: np.ndarray  # [E]
     length: np.ndarray  # [E]
+    from_zero: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=bool))  # [E] started near phase 0
     period: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.int64))  # [E]
     period_edges: np.ndarray = field(default_factory=lambda: np.empty(0))
 
@@ -136,6 +137,7 @@ def load_episode_table(clip: str, path: Path, complete_phase: float, demo_start_
         motion_ends=ends_flag[keep],
         max_phase=max_phase[keep],
         min_phase=min_phase[keep],
+        from_zero=(min_phase <= demo_start_phase)[keep],
         length=(ends - starts)[keep],
     )
     return table
@@ -154,14 +156,19 @@ def completion_matrix(table: EpisodeTable, num_periods: int) -> list[dict[str, f
         mask = table.period == period
         n = int(mask.sum())
         n_complete = int((mask & table.complete).sum())
+        n_attempts = int((mask & table.from_zero).sum())
         rows.append(
             {
                 "period": period,
                 "step_lo": float(table.period_edges[period]),
                 "step_hi": float(table.period_edges[period + 1]),
                 "episodes": n,
+                "attempts": n_attempts,
                 "complete": n_complete,
                 "complete_rate": (n_complete / n) if n else float("nan"),
+                # Under random starts the all-episode rate is diluted by ~(1 - start_at_zero_prob);
+                # the attempt-normalized rate is the policy-competence number comparable to eval success.
+                "complete_rate_attempt": (n_complete / n_attempts) if n_attempts else 0.0,
                 "phase_p50": float(np.median(table.max_phase[mask])) if n else float("nan"),
                 "phase_p90": float(np.quantile(table.max_phase[mask], 0.9)) if n else float("nan"),
             }
@@ -172,12 +179,17 @@ def completion_matrix(table: EpisodeTable, num_periods: int) -> list[dict[str, f
 def print_matrix(table: EpisodeTable, matrix: list[dict[str, float]]) -> None:
     print(f"\n=== clip '{table.clip}' ({table.path.name}): {table.episode_id.shape[0]} episodes, "
           f"{int(table.complete.sum())} complete ===")
-    print(f"{'period':>6} {'global_step range':>24} {'eps':>6} {'complete':>9} {'rate':>7} {'phase_p50':>10} {'phase_p90':>10}")
+    print(
+        f"{'period':>6} {'global_step range':>24} {'eps':>6} {'attempts':>9} {'complete':>9} {'rate':>7} "
+        f"{'att_rate':>9} {'phase_p50':>10} {'phase_p90':>10}"
+    )
     for row in matrix:
         rate = f"{100.0 * row['complete_rate']:.1f}%" if row["episodes"] else "-"
+        att_rate = f"{100.0 * row['complete_rate_attempt']:.1f}%" if row["attempts"] else "-"
         print(
             f"{row['period']:>6} {int(row['step_lo']):>11,}-{int(row['step_hi']):<11,} {row['episodes']:>6} "
-            f"{row['complete']:>9} {rate:>7} {row['phase_p50']:>10.3f} {row['phase_p90']:>10.3f}"
+            f"{row['attempts']:>9} {row['complete']:>9} {rate:>7} {att_rate:>9} "
+            f"{row['phase_p50']:>10.3f} {row['phase_p90']:>10.3f}"
         )
 
 
@@ -204,7 +216,7 @@ def select_episodes(
             eligible = [
                 row["period"]
                 for row in matrix
-                if row["episodes"] >= min_episodes_per_period and row["complete_rate"] <= max_complete_rate
+                if row["episodes"] >= min_episodes_per_period and row["complete_rate_attempt"] <= max_complete_rate
             ]
             if not eligible:
                 raise ValueError(
@@ -369,7 +381,8 @@ def main() -> None:
         if name == "build":
             p.add_argument("--output", type=Path, required=True)
             p.add_argument("--max-complete-rate", type=float, default=0.05,
-                           help="Period eligibility: completion rate must be <= this.")
+                           help="Period eligibility: from-zero attempt-normalized completion rate must be <= this "
+                                "(equals the all-episode rate when every episode starts at phase 0).")
             p.add_argument("--periods-per-clip", type=int, default=1)
             p.add_argument("--periods", action="append", default=[], metavar="CLIP=P1,P2",
                            help="Explicit period override per clip (skips eligibility filtering).")
