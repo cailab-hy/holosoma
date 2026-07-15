@@ -183,6 +183,25 @@ g1_29dof_cql = ExperimentConfig(
     ),
 )
 
+g1_29dof_vc_cql = replace(
+    g1_29dof_cql,
+    training=replace(g1_29dof_cql.training, name="g1_29dof_vc_cql_manager"),
+    algo=replace(
+        algo.vc_cql,
+        config=replace(
+            algo.vc_cql.config,
+            num_learning_iterations=50000,
+            use_symmetry=True,
+            cql_weight=5.0,
+            cql_num_action_samples=10,
+            offline_dataset_path="offline_data/g1_29dof_loco_fastsac_dataset.h5",
+            use_autotune=False,
+            backup_entropy=False,
+            compile=False,
+        ),
+    ),
+)
+
 g1_29dof_iql = ExperimentConfig(
     env_class="holosoma.envs.locomotion.locomotion_manager.LeggedRobotLocomotionManager",
     training=TrainingConfig(
@@ -350,6 +369,7 @@ __all__ = [
     "g1_29dof_fast_sac_episode_data",
     "g1_29dof_fixed_fast_sac_data",
     "g1_29dof_cql",
+    "g1_29dof_vc_cql",
     "g1_29dof_iql",
     "g1_29dof_os_cal_ql",
     "g1_29dof_cal_ql",

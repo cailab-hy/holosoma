@@ -19,12 +19,14 @@ from holosoma.config_types.algo import (
     BFCQLAlgoConfig,
     BFCQLConfig,
     CQLAlgoConfig,
+    VCCQLAlgoConfig,
     MCQAlgoConfig,
     MCQConfig,
     CALQLAlgoConfig,
     OS_CQLAlgoConfig,
     OS_CALQLAlgoConfig,
     CQLConfig,
+    VCCQLConfig,
     CALQLConfig,
     OS_CQLConfig,
     OS_CALQLConfig,
@@ -307,6 +309,27 @@ cql = CQLAlgoConfig(
         actor_obs_keys=["actor_obs"],
         critic_obs_keys=["critic_obs"],
     ),
+)
+
+_vc_cql_config_values = dataclasses.asdict(cql.config)
+_vc_cql_config_values.update(
+    compile=False,
+    use_autotune=False,
+    backup_entropy=False,
+    vc_rank=4,
+    vc_num_probes=32,
+    vc_probe_std=0.25,
+    vc_q_temperature=1.0,
+    vc_q_tolerance=1.0,
+    vc_contour_weight=1.0,
+    vc_cov_epsilon=1e-4,
+    vc_cov_shrinkage=0.05,
+    vc_factor_max=1.0,
+)
+vc_cql = VCCQLAlgoConfig(
+    _target_="holosoma.agents.vc_cql.vc_cql_agent.VCCQLAgent",
+    _recursive_=False,
+    config=VCCQLConfig(**_vc_cql_config_values),
 )
 
 
@@ -795,6 +818,7 @@ DEFAULTS = {
     "offline_sac": offline_sac,
     "codac": codac,
     "cql": cql,
+    "vc_cql": vc_cql,
     "mcq": mcq,
     "cal_ql": cal_ql,
     "os_cql": os_cql,

@@ -713,6 +713,47 @@ class CQLConfig:
     bad_tracking and motion_ends stay terminal either way."""
 
 
+@dataclass(frozen=True)
+class VCCQLConfig(CQLConfig):
+    """Value-Contour CQL configuration."""
+
+    compile: bool = False
+    """Disable compilation by default because contour estimation uses batched factorizations."""
+
+    use_autotune: bool = False
+    """Use value-contour covariance matching instead of a fixed entropy target."""
+
+    backup_entropy: bool = False
+    """Do not inject a global fixed-entropy term into the Bellman target."""
+
+    vc_rank: int = 4
+    """Rank of the learned low-rank covariance component."""
+
+    vc_num_probes: int = 32
+    """Number of antithetic local action probes per state."""
+
+    vc_probe_std: float = 0.25
+    """Probe standard deviation in pre-tanh Gaussian coordinates."""
+
+    vc_q_temperature: float = 1.0
+    """Temperature in exp(-relu(Q(mean)-Q(probe))/temperature)."""
+
+    vc_q_tolerance: float = 1.0
+    """Q-drop tolerance used to log estimated near-optimal contour mass."""
+
+    vc_contour_weight: float = 1.0
+    """Weight of KL(policy covariance || stop-gradient Q-contour covariance)."""
+
+    vc_cov_epsilon: float = 1e-4
+    """Diagonal covariance floor used in contour estimation and KL factorization."""
+
+    vc_cov_shrinkage: float = 0.05
+    """Shrink contour covariance toward its diagonal for finite-probe stability."""
+
+    vc_factor_max: float = 1.0
+    """Maximum absolute low-rank factor entry after tanh parameterization."""
+
+
 
 @dataclass(frozen=True)
 class MCQConfig(CQLConfig):
@@ -2039,6 +2080,20 @@ class CQLAlgoConfig:
 
 
 @dataclass(frozen=True)
+class VCCQLAlgoConfig:
+    """Configuration for value-contour CQL."""
+
+    _target_: str
+    """Target algorithm class."""
+
+    _recursive_: bool
+    """Whether to recursively instantiate."""
+
+    config: VCCQLConfig
+    """Algorithm-specific configuration."""
+
+
+@dataclass(frozen=True)
 class MCQAlgoConfig:
     """Configuration for mildly conservative Q-learning algorithm wrapper."""
 
@@ -2158,6 +2213,7 @@ AlgoInitConfig = Union[
     OfflineSACConfig,
     CODACConfig,
     CQLConfig,
+    VCCQLConfig,
     MCQConfig,
     BFCQLConfig,
     CALQLConfig,
@@ -2174,6 +2230,7 @@ AlgoConfig = Union[
     OfflineSACAlgoConfig,
     CODACAlgoConfig,
     CQLAlgoConfig,
+    VCCQLAlgoConfig,
     MCQAlgoConfig,
     BFCQLAlgoConfig,
     CALQLAlgoConfig,

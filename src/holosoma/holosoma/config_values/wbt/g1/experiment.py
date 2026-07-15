@@ -521,6 +521,37 @@ g1_29dof_wbt_cql = ExperimentConfig(
     ),
 )
 
+g1_29dof_wbt_vc_cql = replace(
+    g1_29dof_wbt_cql,
+    training=replace(g1_29dof_wbt_cql.training, name="g1_29dof_wbt_vc_cql_manager"),
+    algo=replace(
+        algo.vc_cql,
+        config=replace(
+            algo.vc_cql.config,
+            num_learning_iterations=400000,
+            gamma=0.99,
+            num_updates=4,
+            policy_frequency=2,
+            tau=0.05,
+            cql_weight=5.0,
+            cql_num_action_samples=32,
+            use_symmetry=False,
+            use_lagrange=False,
+            batch_size=1024,
+            cql_target_action_gap=0.0,
+            offline_dataset_path="offline_data/g1_29dof_wbt_5m_step_32_env_dataset.h5",
+            use_gpu_cache=True,
+            reward_scale=5.0,
+            bellman_loss_type="mse",
+            huber_beta=5.0,
+            cql_max_target_backup=False,
+            use_autotune=False,
+            backup_entropy=False,
+            compile=False,
+        ),
+    ),
+)
+
 
 # MCQ (Lyu et al., NeurIPS 2022): same task/sim/data stack as g1_29dof_wbt_cql,
 # with the CQL push-down replaced by MCB in-support anchoring (see MCQConfig).
@@ -998,6 +1029,7 @@ __all__ = [
     "g1_29dof_wbt_fast_sac_episode_data",
     "g1_29dof_wbt_iql",
     "g1_29dof_wbt_cql",
+    "g1_29dof_wbt_vc_cql",
     "g1_29dof_wbt_bf_cql",
     "g1_29dof_wbt_bc",
     "g1_29dof_wbt_fast_sac_w_object",
