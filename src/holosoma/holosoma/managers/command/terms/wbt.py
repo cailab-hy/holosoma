@@ -558,9 +558,6 @@ class MotionCommand(CommandTermBase):
         """called in _update_tasks_callback of the environment. (after compute_reward, before compute_observations)"""
         # 0. update time steps, all motion joint/body poses are updated automatically with the time steps.
         advance_mask = torch.ones_like(self.time_steps, dtype=torch.bool)
-        deferred_reset_mask = getattr(self._env, "_deferred_reset_mask", None)
-        if isinstance(deferred_reset_mask, torch.Tensor):
-            advance_mask = advance_mask & ~deferred_reset_mask.to(device=self.device, dtype=torch.bool)
 
         # Handle freeze_at_timestep_zero_prob: for envs at timestep 0, randomly decide whether to advance
         freeze_prob = self.motion_cfg.freeze_at_timestep_zero_prob
