@@ -22,6 +22,12 @@ class WholeBodyTrackingManager(BaseTask):
         # -------------------------------- terms same with locomotion_manager.py [start]--------------------------------
         self.base_quat = self.simulator.base_quat
         self.need_to_refresh_envs = torch.ones(self.num_envs, dtype=torch.bool, device=self.device, requires_grad=False)
+        self._eval_terminal_motion_phase = torch.full(
+            (self.num_envs,),
+            float("nan"),
+            dtype=torch.float32,
+            device=self.device,
+        )
         self._configure_default_dof_pos()
         self._init_domain_rand_buffers()
 
@@ -149,6 +155,13 @@ class WholeBodyTrackingManager(BaseTask):
         motion_command = self.command_manager.get_state("motion_command")
         motion_command.update_metrics()
         self.log_dict.update(motion_command.metrics)
+        motion_denominator = max(int(motion_command.motion.time_step_total) - 1, 1)
+        motion_phase = motion_command.time_steps.to(torch.float32) / float(motion_denominator)
+        self.extras["motion_phase"] = motion_phase.clone()
+        terminal_mask = self.reset_buf.to(torch.bool)
+        if self._defer_resets:
+            terminal_mask &= ~self._deferred_reset_mask
+        self._eval_terminal_motion_phase[terminal_mask] = motion_phase[terminal_mask]
 
     def _collect_tracking_metrics(self) -> dict[str, torch.Tensor]:
         motion_command = self.command_manager.get_state("motion_command")
@@ -188,7 +201,15 @@ class WholeBodyTrackingManager(BaseTask):
         # If reset_all is called several times, clear buffer in motion_command
         motion_command = self.command_manager.get_state("motion_command")
         motion_command.init_buffers()
+        self._eval_terminal_motion_phase.fill_(float("nan"))
         return super().reset_all()
+
+    def set_defer_resets(self, enabled: bool) -> None:
+        super().set_defer_resets(enabled)
+        self._eval_terminal_motion_phase.fill_(float("nan"))
+
+    def get_eval_terminal_motion_phases(self) -> torch.Tensor:
+        return self._eval_terminal_motion_phase.clone()
 
     def _reset_robot_states_callback(self, env_ids, target_states=None):
         # TODO(jchen): Now,reset robot/object states is implemented in command/terms/wbt.MotionCommand.reset

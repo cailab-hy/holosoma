@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import statistics
 from typing import Any
@@ -67,6 +68,82 @@ def _bad_tracking_detail_percentages(detail_counts: dict[str, int], denominator:
     if denominator <= 0:
         return {}
     return {detail: 100.0 * float(count) / float(denominator) for detail, count in detail_counts.items()}
+
+
+def _eval_terminal_motion_phases(algo: BaseAlgo) -> list[float] | None:
+    env_candidates = [
+        getattr(algo, "unwrapped_env", None),
+        getattr(algo, "env", None),
+        getattr(getattr(algo, "env", None), "_env", None),
+    ]
+    for env in env_candidates:
+        getter = getattr(env, "get_eval_terminal_motion_phases", None)
+        if not callable(getter):
+            continue
+        phases = getter()
+        if isinstance(phases, torch.Tensor):
+            return [float(value) for value in phases.detach().cpu().tolist()]
+    return None
+
+
+def _attach_terminal_motion_phases(algo: BaseAlgo, eval_results: list[dict[str, Any]]) -> None:
+    phases = _eval_terminal_motion_phases(algo)
+    if phases is None:
+        return
+    for env_idx, result in enumerate(eval_results):
+        if env_idx >= len(phases):
+            break
+        phase = phases[env_idx]
+        if math.isfinite(phase):
+            result["terminal_motion_phase"] = min(max(phase, 0.0), 1.0)
+
+
+def _bad_tracking_phase_bin_counts(
+    eval_results: list[dict[str, Any]],
+    num_bins: int,
+) -> tuple[list[int], int]:
+    counts = [0] * num_bins
+    unresolved = 0
+    for result in eval_results:
+        if result.get("stop_reason") != "bad_tracking":
+            continue
+        value = result.get("terminal_motion_phase")
+        try:
+            phase = float(value)
+        except (TypeError, ValueError):
+            unresolved += 1
+            continue
+        if not math.isfinite(phase):
+            unresolved += 1
+            continue
+        phase = min(max(phase, 0.0), 1.0)
+        bin_idx = min(int(phase * num_bins), num_bins - 1)
+        counts[bin_idx] += 1
+    return counts, unresolved
+
+
+def _phase_bin_label(bin_idx: int, num_bins: int) -> str:
+    left = float(bin_idx) / float(num_bins)
+    right = float(bin_idx + 1) / float(num_bins)
+    closing = "]" if bin_idx == num_bins - 1 else ")"
+    return f"bin{bin_idx:02d}[{left:.2f},{right:.2f}{closing}"
+
+
+def _phase_bin_summary(
+    counts: list[int],
+    bad_tracking_total: int,
+) -> tuple[dict[str, int], dict[str, float]]:
+    num_bins = len(counts)
+    count_summary = {
+        _phase_bin_label(bin_idx, num_bins): count
+        for bin_idx, count in enumerate(counts)
+        if count > 0
+    }
+    percentage_summary = {
+        label: 100.0 * float(count) / float(max(bad_tracking_total, 1))
+        for label, count in count_summary.items()
+    }
+    return count_summary, percentage_summary
 
 
 def _summarize_eval_results(eval_results: list[dict[str, Any]]) -> dict[str, float]:
@@ -368,6 +445,7 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
         return False
 
     num_repeats = max(1, int(tyro_config.training.eval_num_repeats))
+    failure_phase_bins = max(1, int(tyro_config.training.eval_failure_phase_bins))
     max_eval_steps = tyro_config.training.max_eval_steps
     logger.info(
         "[Eval] starting repeated evaluation with num_envs={} repeats={} max_eval_steps={}",
@@ -394,6 +472,7 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
                     repeat_results = [eval_batch_results]
                 else:
                     repeat_results = []
+                _attach_terminal_motion_phases(algo, repeat_results)
             else:
                 repeat_results = []
                 eval_num_episodes = max(1, int(tyro_config.training.eval_num_episodes))
@@ -403,6 +482,7 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
                         use_early_termination=False,
                     )
                     if isinstance(eval_result, dict):
+                        _attach_terminal_motion_phases(algo, [eval_result])
                         repeat_results.append(eval_result)
 
             all_eval_results.extend(repeat_results)
@@ -430,6 +510,20 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
                     _bad_tracking_detail_percentages(repeat_detail_counts, repeat_bad_tracking_total),
                     repeat_multi_detail_total,
                     repeat_bad_tracking_total,
+                )
+                repeat_phase_counts, repeat_phase_unresolved = _bad_tracking_phase_bin_counts(
+                    repeat_results,
+                    failure_phase_bins,
+                )
+                repeat_phase_count_summary, repeat_phase_percentage_summary = _phase_bin_summary(
+                    repeat_phase_counts,
+                    repeat_bad_tracking_total,
+                )
+                logger.info(
+                    "[Eval Repeat] bad_tracking_phase_bins={} percent_of_bad_tracking={} unresolved={}",
+                    repeat_phase_count_summary,
+                    repeat_phase_percentage_summary,
+                    repeat_phase_unresolved,
                 )
     finally:
         if defer_resets:
@@ -475,6 +569,8 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
 
     detail_counts, bad_tracking_total, multi_detail_total = _bad_tracking_detail_counts(all_eval_results)
     detail_percentages = _bad_tracking_detail_percentages(detail_counts, bad_tracking_total)
+    phase_counts, phase_unresolved = _bad_tracking_phase_bin_counts(all_eval_results, failure_phase_bins)
+    phase_count_summary, phase_percentage_summary = _phase_bin_summary(phase_counts, bad_tracking_total)
     for detail, count in detail_counts.items():
         all_episode_ratio = float(count) / max(1.0, total_summary["num_episodes"])
         bad_tracking_ratio = float(count) / max(1, bad_tracking_total)
@@ -482,6 +578,10 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
         eval_metrics[f"Eval/bad_tracking_detail_percent/{detail}"] = 100.0 * all_episode_ratio
         eval_metrics[f"Eval/bad_tracking_detail_among_bad_tracking/{detail}"] = bad_tracking_ratio
         eval_metrics[f"Eval/bad_tracking_detail_percent_among_bad_tracking/{detail}"] = 100.0 * bad_tracking_ratio
+    for bin_idx, count in enumerate(phase_counts):
+        bad_tracking_ratio = float(count) / max(1, bad_tracking_total)
+        eval_metrics[f"Eval/bad_tracking_phase_bin/bin_{bin_idx:02d}"] = bad_tracking_ratio
+        eval_metrics[f"Eval/bad_tracking_phase_bin_percent/bin_{bin_idx:02d}"] = 100.0 * bad_tracking_ratio
 
     logger.info(
         "[Eval Summary] repeats={} total_episodes={} success={:.2f}%±{:.2f}% "
@@ -508,6 +608,12 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
             detail_percentages,
             multi_detail_total,
             bad_tracking_total,
+        )
+        logger.info(
+            "[Eval Summary] bad_tracking_phase_bins={} percent_of_bad_tracking={} unresolved={}",
+            phase_count_summary,
+            phase_percentage_summary,
+            phase_unresolved,
         )
 
     writer = getattr(algo, "writer", None)
