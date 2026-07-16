@@ -720,12 +720,6 @@ class VCCQLConfig(CQLConfig):
     compile: bool = False
     """Disable compilation by default because contour estimation uses batched factorizations."""
 
-    use_autotune: bool = False
-    """Use value-contour covariance matching instead of a fixed entropy target."""
-
-    backup_entropy: bool = False
-    """Do not inject a global fixed-entropy term into the Bellman target."""
-
     vc_rank: int = 4
     """Rank of the learned low-rank covariance component."""
 

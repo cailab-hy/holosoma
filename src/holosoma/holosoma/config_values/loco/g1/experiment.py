@@ -195,10 +195,17 @@ g1_29dof_vc_cql = replace(
             cql_weight=5.0,
             cql_num_action_samples=10,
             offline_dataset_path="offline_data/g1_29dof_loco_fastsac_dataset.h5",
-            use_autotune=False,
-            backup_entropy=False,
             compile=False,
         ),
+    ),
+)
+
+g1_29dof_lr_cql = replace(
+    g1_29dof_vc_cql,
+    training=replace(g1_29dof_vc_cql.training, name="g1_29dof_lr_cql_manager"),
+    algo=replace(
+        g1_29dof_vc_cql.algo,
+        config=replace(g1_29dof_vc_cql.algo.config, vc_contour_weight=0.0),
     ),
 )
 
@@ -369,6 +376,7 @@ __all__ = [
     "g1_29dof_fast_sac_episode_data",
     "g1_29dof_fixed_fast_sac_data",
     "g1_29dof_cql",
+    "g1_29dof_lr_cql",
     "g1_29dof_vc_cql",
     "g1_29dof_iql",
     "g1_29dof_os_cal_ql",

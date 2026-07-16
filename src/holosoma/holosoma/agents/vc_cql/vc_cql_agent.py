@@ -1,13 +1,11 @@
 """Value-Contour Conservative Q-Learning.
 
 VC-CQL preserves scalar CQL's dataset, Bellman target, conservative critic,
-target-network, and evaluation implementation.  It replaces the diagonal actor
-with a low-rank-plus-diagonal Gaussian.  At each actor update, antithetic local
-actions are evaluated by the target twin critic, Q-drop weights define a local
-near-optimal contour covariance, and the actor covariance is aligned to that
-stop-gradient target.  The deterministic actor mean is optimized only through
-the global critic, while covariance learns state-dependent coordinated joint
-directions without predefined body groups or a fixed target entropy.
+target-network, entropy tuning, SAC actor objective, and evaluation.  It replaces
+the diagonal actor with a low-rank-plus-diagonal Gaussian and adds one term: a
+KL alignment from actor covariance to a stop-gradient local target-Q contour.
+Antithetic local actions define the contour, while the original stochastic
+alpha*log(pi)-Q objective remains responsible for the base actor update.
 """
 
 from __future__ import annotations
@@ -34,8 +32,8 @@ class VCCQLAgent(CQLAgent):
     actor: VCActor
 
     _VC_METRIC_KEYS = (
-        "vc_cql/mean_q",
-        "vc_cql/mean_loss",
+        "vc_cql/policy_q",
+        "vc_cql/base_actor_loss",
         "vc_cql/contour_kl",
         "vc_cql/contour_loss",
         "vc_cql/q_drop_mean",
@@ -68,10 +66,6 @@ class VCCQLAgent(CQLAgent):
     def _validate_vc_config(config: VCCQLConfig) -> None:
         if config.use_cnn_encoder:
             raise ValueError("VC-CQL currently supports the MLP actor only; use_cnn_encoder must be False.")
-        if config.use_autotune:
-            raise ValueError("VC-CQL replaces fixed target-entropy autotuning; set use_autotune=False.")
-        if config.backup_entropy:
-            raise ValueError("VC-CQL requires backup_entropy=False to avoid global entropy pressure.")
         if config.vc_rank <= 0:
             raise ValueError(f"vc_rank must be > 0, got {config.vc_rank}")
         if config.vc_num_probes < 2:
@@ -221,7 +215,8 @@ class VCCQLAgent(CQLAgent):
         with self._maybe_amp():
             actor_observations = data["observations"]
             critic_observations = data["critic_observations"]
-            mean_action, mean_raw, _ = self.actor(actor_observations)
+            _, mean_raw, _ = self.actor(actor_observations)
+            policy_actions, log_probs = self.actor.get_actions_and_log_probs(actor_observations)
             _, covariance_log_std, covariance_factor = self.actor.distribution_parameters(
                 actor_observations,
                 detach_features_for_covariance=True,
@@ -233,22 +228,40 @@ class VCCQLAgent(CQLAgent):
                 self.actor.action_scale,
             )
 
-            with torch.no_grad():
-                contour_covariance, contour_metrics = self._estimate_value_contour(
-                    critic_observations,
-                    mean_raw.detach(),
-                )
-            contour_kl = covariance_kl(
-                policy_covariance,
-                contour_covariance,
-                epsilon=args.vc_cov_epsilon,
-            ).mean()
-            contour_loss = args.vc_contour_weight * contour_kl
+            if args.vc_contour_weight > 0.0:
+                with torch.no_grad():
+                    contour_covariance, contour_metrics = self._estimate_value_contour(
+                        critic_observations,
+                        mean_raw.detach(),
+                    )
+                contour_kl = covariance_kl(
+                    policy_covariance,
+                    contour_covariance,
+                    epsilon=args.vc_cov_epsilon,
+                ).mean()
+                contour_loss = args.vc_contour_weight * contour_kl
+            else:
+                contour_kl = torch.zeros((), device=self.device)
+                contour_loss = torch.zeros((), device=self.device)
+                contour_metrics = {
+                    key: torch.zeros((), device=self.device)
+                    for key in self._VC_METRIC_KEYS
+                    if key.startswith("vc_cql/q_drop")
+                    or key
+                    in {
+                        "vc_cql/contour_mass",
+                        "vc_cql/weight_mass",
+                        "vc_cql/contour_cov_trace",
+                        "vc_cql/contour_effective_rank",
+                        "vc_cql/contour_entropy",
+                        "vc_cql/contour_condition",
+                    }
+                }
 
-            q1_mean, q2_mean = self.qnet(critic_observations, mean_action)
-            mean_q = torch.minimum(q1_mean, q2_mean)
-            mean_loss = -mean_q.mean()
-            actor_loss = mean_loss + contour_loss
+            q1_pi, q2_pi = self.qnet(critic_observations, policy_actions)
+            policy_q = torch.minimum(q1_pi, q2_pi)
+            base_actor_loss = (self.log_alpha.exp().detach() * log_probs - policy_q).mean()
+            actor_loss = base_actor_loss + contour_loss
 
         self.actor_optimizer.zero_grad(set_to_none=True)
         scaler.scale(actor_loss).backward()
@@ -263,7 +276,6 @@ class VCCQLAgent(CQLAgent):
         scaler.update()
 
         with torch.no_grad():
-            _, log_probs = self.actor.get_actions_and_log_probs(actor_observations)
             policy_entropy = -log_probs.mean()
             marginal_variance = torch.exp(2.0 * covariance_log_std) + covariance_factor.square().sum(dim=-1)
             action_std = marginal_variance.sqrt().mean()
@@ -273,14 +285,19 @@ class VCCQLAgent(CQLAgent):
                 args.vc_cov_epsilon
             )
             contour_trace = contour_metrics["vc_cql/contour_cov_trace"]
+            covariance_trace_ratio = (
+                policy_trace.mean() / contour_trace.clamp_min(args.vc_cov_epsilon)
+                if args.vc_contour_weight > 0.0
+                else torch.zeros((), device=self.device)
+            )
             self._vc_last_metrics = {
                 **contour_metrics,
-                "vc_cql/mean_q": mean_q.mean().detach(),
-                "vc_cql/mean_loss": mean_loss.detach(),
+                "vc_cql/policy_q": policy_q.mean().detach(),
+                "vc_cql/base_actor_loss": base_actor_loss.detach(),
                 "vc_cql/contour_kl": contour_kl.detach(),
                 "vc_cql/contour_loss": contour_loss.detach(),
                 "vc_cql/policy_cov_trace": policy_trace.mean().detach(),
-                "vc_cql/cov_trace_ratio": (policy_trace.mean() / contour_trace.clamp_min(args.vc_cov_epsilon)).detach(),
+                "vc_cql/cov_trace_ratio": covariance_trace_ratio.detach(),
                 "vc_cql/policy_effective_rank": policy_effective_rank.mean().detach(),
             }
 

@@ -532,6 +532,7 @@ g1_29dof_wbt_vc_cql = replace(
             gamma=0.99,
             num_updates=4,
             policy_frequency=2,
+            target_entropy_ratio=0.5,
             tau=0.05,
             cql_weight=5.0,
             cql_num_action_samples=32,
@@ -545,10 +546,17 @@ g1_29dof_wbt_vc_cql = replace(
             bellman_loss_type="mse",
             huber_beta=5.0,
             cql_max_target_backup=False,
-            use_autotune=False,
-            backup_entropy=False,
             compile=False,
         ),
+    ),
+)
+
+g1_29dof_wbt_lr_cql = replace(
+    g1_29dof_wbt_vc_cql,
+    training=replace(g1_29dof_wbt_vc_cql.training, name="g1_29dof_wbt_lr_cql_manager"),
+    algo=replace(
+        g1_29dof_wbt_vc_cql.algo,
+        config=replace(g1_29dof_wbt_vc_cql.algo.config, vc_contour_weight=0.0),
     ),
 )
 
@@ -1029,6 +1037,7 @@ __all__ = [
     "g1_29dof_wbt_fast_sac_episode_data",
     "g1_29dof_wbt_iql",
     "g1_29dof_wbt_cql",
+    "g1_29dof_wbt_lr_cql",
     "g1_29dof_wbt_vc_cql",
     "g1_29dof_wbt_bf_cql",
     "g1_29dof_wbt_bc",

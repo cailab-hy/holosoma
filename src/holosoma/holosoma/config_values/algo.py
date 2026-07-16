@@ -314,8 +314,6 @@ cql = CQLAlgoConfig(
 _vc_cql_config_values = dataclasses.asdict(cql.config)
 _vc_cql_config_values.update(
     compile=False,
-    use_autotune=False,
-    backup_entropy=False,
     vc_rank=4,
     vc_num_probes=32,
     vc_probe_std=0.25,
