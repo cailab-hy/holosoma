@@ -52,6 +52,7 @@ def test_legacy_post_step_phase_uses_preterminal_row(tmp_path):
     np.testing.assert_array_equal(result.bad_tracking_failures, np.array([1, 0, 0, 0]))
     assert result.hazard[0] == 1.0
     assert result.phase_semantics == "legacy_post_step"
+    assert result.nonmonotonic_phase_episodes == 0
 
 
 def test_phase_failure_hazard_rejects_noncontiguous_episode_ids(tmp_path):

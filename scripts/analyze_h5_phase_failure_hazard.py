@@ -219,8 +219,8 @@ def analyze_phase_failure_hazard(
             if phase_bins.size > 0:
                 entered[np.unique(phase_bins)] += 1
 
-            finite_phases = episode["phase"][np.isfinite(episode["phase"])]
-            if finite_phases.size > 1 and bool((np.diff(finite_phases) < -1e-6).any()):
+            ordered_phases = episode["phase"][entry_mask]
+            if ordered_phases.size > 1 and bool((np.diff(ordered_phases) < -1e-6).any()):
                 nonmonotonic_phase_episodes += 1
 
             bad_reason_without_done_rows += int((episode["bad"] & ~episode["done"]).sum())
