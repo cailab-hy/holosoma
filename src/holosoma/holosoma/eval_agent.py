@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import os
 import statistics
 from typing import Any
@@ -11,6 +10,13 @@ from loguru import logger
 from holosoma.agents.base_algo.base_algo import BaseAlgo
 from holosoma.config_types.experiment import ExperimentConfig
 from holosoma.utils.config_utils import CONFIG_NAME
+from holosoma.utils.eval_phase_utils import (
+    attach_terminal_motion_phases as _attach_terminal_motion_phases,
+    bad_tracking_phase_bin_counts as _bad_tracking_phase_bin_counts,
+    bad_tracking_phase_metrics as _bad_tracking_phase_metrics,
+    phase_bin_summary as _phase_bin_summary,
+    set_defer_eval_resets as _set_defer_eval_resets,
+)
 from holosoma.utils.eval_utils import (
     CheckpointConfig,
     init_eval_logging,
@@ -70,82 +76,6 @@ def _bad_tracking_detail_percentages(detail_counts: dict[str, int], denominator:
     return {detail: 100.0 * float(count) / float(denominator) for detail, count in detail_counts.items()}
 
 
-def _eval_terminal_motion_phases(algo: BaseAlgo) -> list[float] | None:
-    env_candidates = [
-        getattr(algo, "unwrapped_env", None),
-        getattr(algo, "env", None),
-        getattr(getattr(algo, "env", None), "_env", None),
-    ]
-    for env in env_candidates:
-        getter = getattr(env, "get_eval_terminal_motion_phases", None)
-        if not callable(getter):
-            continue
-        phases = getter()
-        if isinstance(phases, torch.Tensor):
-            return [float(value) for value in phases.detach().cpu().tolist()]
-    return None
-
-
-def _attach_terminal_motion_phases(algo: BaseAlgo, eval_results: list[dict[str, Any]]) -> None:
-    phases = _eval_terminal_motion_phases(algo)
-    if phases is None:
-        return
-    for env_idx, result in enumerate(eval_results):
-        if env_idx >= len(phases):
-            break
-        phase = phases[env_idx]
-        if math.isfinite(phase):
-            result["terminal_motion_phase"] = min(max(phase, 0.0), 1.0)
-
-
-def _bad_tracking_phase_bin_counts(
-    eval_results: list[dict[str, Any]],
-    num_bins: int,
-) -> tuple[list[int], int]:
-    counts = [0] * num_bins
-    unresolved = 0
-    for result in eval_results:
-        if result.get("stop_reason") != "bad_tracking":
-            continue
-        value = result.get("terminal_motion_phase")
-        try:
-            phase = float(value)
-        except (TypeError, ValueError):
-            unresolved += 1
-            continue
-        if not math.isfinite(phase):
-            unresolved += 1
-            continue
-        phase = min(max(phase, 0.0), 1.0)
-        bin_idx = min(int(phase * num_bins), num_bins - 1)
-        counts[bin_idx] += 1
-    return counts, unresolved
-
-
-def _phase_bin_label(bin_idx: int, num_bins: int) -> str:
-    left = float(bin_idx) / float(num_bins)
-    right = float(bin_idx + 1) / float(num_bins)
-    closing = "]" if bin_idx == num_bins - 1 else ")"
-    return f"bin{bin_idx:02d}[{left:.2f},{right:.2f}{closing}"
-
-
-def _phase_bin_summary(
-    counts: list[int],
-    bad_tracking_total: int,
-) -> tuple[dict[str, int], dict[str, float]]:
-    num_bins = len(counts)
-    count_summary = {
-        _phase_bin_label(bin_idx, num_bins): count
-        for bin_idx, count in enumerate(counts)
-        if count > 0
-    }
-    percentage_summary = {
-        label: 100.0 * float(count) / float(max(bad_tracking_total, 1))
-        for label, count in count_summary.items()
-    }
-    return count_summary, percentage_summary
-
-
 def _summarize_eval_results(eval_results: list[dict[str, Any]]) -> dict[str, float]:
     if not eval_results:
         return {
@@ -174,19 +104,6 @@ def _summarize_eval_results(eval_results: list[dict[str, Any]]) -> dict[str, flo
         "bad_tracking_ratio": float(counts.get("bad_tracking", 0)) / num_episodes,
         "timeout_ratio": float(counts.get("timeout", 0)) / num_episodes,
     }
-
-
-def _set_defer_eval_resets(algo: BaseAlgo, enabled: bool) -> bool:
-    env_candidates = [
-        getattr(algo, "unwrapped_env", None),
-        getattr(algo, "env", None),
-        getattr(getattr(algo, "env", None), "_env", None),
-    ]
-    for env in env_candidates:
-        if env is not None and hasattr(env, "set_defer_resets"):
-            env.set_defer_resets(enabled)
-            return True
-    return False
 
 
 def _q_gradient_diagnostic_normalizer(normalizer):
@@ -578,10 +495,8 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
         eval_metrics[f"Eval/bad_tracking_detail_percent/{detail}"] = 100.0 * all_episode_ratio
         eval_metrics[f"Eval/bad_tracking_detail_among_bad_tracking/{detail}"] = bad_tracking_ratio
         eval_metrics[f"Eval/bad_tracking_detail_percent_among_bad_tracking/{detail}"] = 100.0 * bad_tracking_ratio
-    for bin_idx, count in enumerate(phase_counts):
-        bad_tracking_ratio = float(count) / max(1, bad_tracking_total)
-        eval_metrics[f"Eval/bad_tracking_phase_bin/bin_{bin_idx:02d}"] = bad_tracking_ratio
-        eval_metrics[f"Eval/bad_tracking_phase_bin_percent/bin_{bin_idx:02d}"] = 100.0 * bad_tracking_ratio
+    phase_metrics, _ = _bad_tracking_phase_metrics(all_eval_results, failure_phase_bins)
+    eval_metrics.update(phase_metrics)
 
     logger.info(
         "[Eval Summary] repeats={} total_episodes={} success={:.2f}%±{:.2f}% "

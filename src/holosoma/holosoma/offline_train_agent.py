@@ -17,6 +17,13 @@ from holosoma.config_types.env import get_tyro_env_config
 from holosoma.config_types.experiment import ExperimentConfig
 from holosoma.config_values.experiment import AnnotatedExperimentConfig
 from holosoma.utils.config_utils import CONFIG_NAME
+from holosoma.utils.eval_phase_utils import (
+    attach_terminal_motion_phases,
+    bad_tracking_phase_bin_counts,
+    bad_tracking_phase_metrics,
+    phase_bin_summary,
+    set_defer_eval_resets,
+)
 from holosoma.utils.eval_utils import (
     init_sim_imports,
     load_checkpoint,
@@ -306,30 +313,39 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
         evaluate_one_episode_fn = getattr(algo, "evaluate_one_episode", None)
         max_eval_steps = tyro_config.training.max_eval_steps if tyro_config.training.max_eval_steps is not None else 1000
         eval_num_episodes = max(1, int(tyro_config.training.eval_num_episodes))
+        failure_phase_bins = max(1, int(tyro_config.training.eval_failure_phase_bins))
         while algo.global_step < algo.config.num_learning_iterations:
             offline_learn_fn()
             if callable(evaluate_vectorized_episodes_fn) or callable(evaluate_one_episode_fn):
                 eval_results: list[dict[str, Any]] = []
-                if callable(evaluate_vectorized_episodes_fn):
-                    for _ in range(eval_num_episodes):
-                        eval_batch_results = evaluate_vectorized_episodes_fn(
-                            max_eval_steps=max_eval_steps,
-                            use_early_termination=False,
-                        )
-                        if isinstance(eval_batch_results, list):
-                            eval_results.extend(
-                                result for result in eval_batch_results if isinstance(result, dict)
+                defer_resets = set_defer_eval_resets(algo, True)
+                try:
+                    if callable(evaluate_vectorized_episodes_fn):
+                        for _ in range(eval_num_episodes):
+                            eval_batch_results = evaluate_vectorized_episodes_fn(
+                                max_eval_steps=max_eval_steps,
+                                use_early_termination=False,
                             )
-                        elif isinstance(eval_batch_results, dict):
-                            eval_results.append(eval_batch_results)
-                elif callable(evaluate_one_episode_fn):
-                    for _ in range(eval_num_episodes):
-                        eval_result = evaluate_one_episode_fn(
-                            max_eval_steps=max_eval_steps,
-                            use_early_termination=False,
-                        )
-                        if isinstance(eval_result, dict):
-                            eval_results.append(eval_result)
+                            if isinstance(eval_batch_results, list):
+                                eval_batch = [result for result in eval_batch_results if isinstance(result, dict)]
+                            elif isinstance(eval_batch_results, dict):
+                                eval_batch = [eval_batch_results]
+                            else:
+                                eval_batch = []
+                            attach_terminal_motion_phases(algo, eval_batch)
+                            eval_results.extend(eval_batch)
+                    elif callable(evaluate_one_episode_fn):
+                        for _ in range(eval_num_episodes):
+                            eval_result = evaluate_one_episode_fn(
+                                max_eval_steps=max_eval_steps,
+                                use_early_termination=False,
+                            )
+                            if isinstance(eval_result, dict):
+                                attach_terminal_motion_phases(algo, [eval_result])
+                                eval_results.append(eval_result)
+                finally:
+                    if defer_resets:
+                        set_defer_eval_resets(algo, False)
 
                 if eval_results:
                     episode_returns = [float(result.get("episode_return", 0.0)) for result in eval_results]
@@ -359,6 +375,24 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
                         stop_reason_ratio = float(count) / float(len(eval_results))
                         eval_metrics[f"Eval/stop_reason/{stop_reason}"] = stop_reason_ratio
                         eval_metrics[f"Eval/stop_reason_percent/{stop_reason}"] = 100.0 * stop_reason_ratio
+                    phase_metrics, phase_unresolved = bad_tracking_phase_metrics(
+                        eval_results,
+                        failure_phase_bins,
+                    )
+                    eval_metrics.update(phase_metrics)
+                    bad_tracking_total = stop_reason_counts.get("bad_tracking", 0)
+                    if bad_tracking_total > 0:
+                        phase_counts, _ = bad_tracking_phase_bin_counts(eval_results, failure_phase_bins)
+                        phase_count_summary, phase_percentage_summary = phase_bin_summary(
+                            phase_counts,
+                            bad_tracking_total,
+                        )
+                        logger.info(
+                            "[Eval] bad_tracking_phase_bins={} percent_of_bad_tracking={} unresolved={}",
+                            phase_count_summary,
+                            phase_percentage_summary,
+                            phase_unresolved,
+                        )
 
                     logger.info(
                         "[Eval] step={} episodes={} return_mean={:.4f} return_std={:.4f} "
