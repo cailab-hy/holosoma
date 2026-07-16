@@ -111,6 +111,8 @@ g1_29dof_wbt_termination_offline_collect = TerminationManagerCfg(
         "bad_tracking": TerminationTermCfg(
             func="holosoma.managers.termination.terms.wbt:BadTracking",
             params={
+                # Collection continues after crossing strict evaluation limits
+                # (0.5, 0.8, 0.25) and terminates only at these relaxed limits.
                 "bad_ref_pos_threshold": 1.0,
                 "bad_ref_ori_threshold": 1.6,
                 "bad_motion_body_pos_threshold": 0.5,
@@ -204,8 +206,8 @@ g1_29dof_wbt_offline_termination = TerminationManagerCfg(
 
 __all__ = [
     "g1_29dof_wbt_termination",
-    # "g1_29dof_wbt_offline_termination",
-    # "g1_29dof_wbt_termination_collect",
-    # "g1_29dof_wbt_termination_offline_collect",
+    "g1_29dof_wbt_offline_termination",
+    "g1_29dof_wbt_termination_collect",
+    "g1_29dof_wbt_termination_offline_collect",
     "g1_29dof_wbt_termination_d3_segment",
 ]

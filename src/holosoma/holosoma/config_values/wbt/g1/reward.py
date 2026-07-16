@@ -121,93 +121,20 @@ g1_29dof_wbt_fast_sac_reward_collect = RewardManagerCfg(
 g1_29dof_wbt_fast_sac_reward_offline_collect = RewardManagerCfg(
     terms={
         **g1_29dof_wbt_fast_sac_reward.terms,
-        # Survival floor: bad_tracking is a true terminal (V=0), so this guarantees
-        # continuing is never return-worse than dying, independent of how hard the
-        # penalty terms bite in difficult motion regions (crouch/grab, segments).
-        "alive": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:alive",
-            weight=2.0,
-        ),
-        # NOTE: the retargeted reference (sub3_largebox_003_mj) saturates the HARD
-        # limits on both ankle_roll joints and waist_pitch during the crouch/grab,
-        # so the 0.9-soft-limit violation is unavoidable while tracking correctly
-        # (~0.07 rad summed in segment A). At weight -100 this cancels the entire
-        # positive tracking reward: a PERFECT tracker earns a negative return in
-        # segment A, making early termination the return-optimal policy (observed
-        # as segment_ends_ratio degrading from ~0.2 to ~0.05 during training).
-        # Weight -10 keeps the safety gradient without flipping the reward sign.
-        "limits_dof_pos": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:limits_dof_pos",
-            params={"soft_dof_pos_limit": 0.9},
-            weight=-10.0,
-        ),
-        "motion_global_ref_position_error_exp": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_global_ref_position_error_exp",
-            params={"sigma": 0.3},
-            weight=1.5,
-        ),
-        "motion_relative_body_position_error_exp": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_relative_body_position_error_exp",
-            params={"sigma": 0.3},
-            weight=2.5,
-        ),
-        "motion_global_ref_position_error_soft_margin": RewardTermCfg(
+        # These are exactly zero throughout the strict evaluation region. The
+        # collection reward therefore equals the original FastSAC reward until a
+        # strict boundary is crossed, then grades recovery before relaxed done.
+        "recovery_ref_position_strict_excess": RewardTermCfg(
             func="holosoma.managers.reward.terms.wbt:motion_global_ref_position_error_hinge",
-            params={"threshold": 0.4, "power": 2.0},
-            weight=-8.0,
-        ),
-        "motion_global_ref_position_error_hinge": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_global_ref_position_error_hinge",
-            params={"threshold": 0.5},
+            params={"threshold": 0.5, "power": 1.0},
             weight=-2.0,
         ),
-        "motion_global_ref_position_error_hard_hinge": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_global_ref_position_error_hinge",
-            params={"threshold": 1.0},
-            weight=-6.0,
-        ),
-        "motion_global_ref_orientation_error_soft_margin": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_global_ref_orientation_error_hinge",
-            params={"threshold": 0.64, "power": 2.0},
-            weight=-3.0,
-        ),
-        "motion_global_ref_orientation_error_hinge": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_global_ref_orientation_error_hinge",
-            params={"threshold": 0.8},
+        "recovery_ref_orientation_strict_excess": RewardTermCfg(
+            func="holosoma.managers.reward.terms.wbt:motion_global_ref_projected_gravity_error_hinge",
+            params={"threshold": 0.8, "power": 1.0},
             weight=-1.0,
         ),
-        "motion_global_ref_orientation_error_hard_hinge": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_global_ref_orientation_error_hinge",
-            params={"threshold": 1.6},
-            weight=-3.0,
-        ),
-        "motion_relative_body_position_error_ankle_soft_margin": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_relative_body_position_error_hinge",
-            params={
-                "threshold": 0.2,
-                "body_names": [
-                    "left_ankle_roll_link",
-                    "right_ankle_roll_link",
-                ],
-                "aggregation": "max",
-                "power": 2.0,
-            },
-            weight=-20.0,
-        ),
-        "motion_relative_body_position_error_wrist_soft_margin": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_relative_body_position_error_hinge",
-            params={
-                "threshold": 0.14,
-                "body_names": [
-                    "left_wrist_yaw_link",
-                    "right_wrist_yaw_link",
-                ],
-                "aggregation": "max",
-                "power": 2.0,
-            },
-            weight=-40.0,
-        ),
-        "motion_relative_body_position_error_hinge": RewardTermCfg(
+        "recovery_body_position_strict_excess": RewardTermCfg(
             func="holosoma.managers.reward.terms.wbt:motion_relative_body_position_error_hinge",
             params={
                 "threshold": 0.25,
@@ -218,51 +145,9 @@ g1_29dof_wbt_fast_sac_reward_offline_collect = RewardManagerCfg(
                     "right_wrist_yaw_link",
                 ],
                 "aggregation": "max",
+                "power": 1.0,
             },
             weight=-5.0,
-        ),
-        "motion_relative_body_position_error_hard_hinge": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_relative_body_position_error_hinge",
-            params={
-                "threshold": 0.5,
-                "body_names": [
-                    "left_ankle_roll_link",
-                    "right_ankle_roll_link",
-                    "left_wrist_yaw_link",
-                    "right_wrist_yaw_link",
-                ],
-                "aggregation": "max",
-            },
-            weight=-10.0,
-        ),
-        "motion_relative_body_orientation_error_soft_margin": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_relative_body_orientation_error_hinge",
-            params={
-                "threshold": 0.64,
-                "body_names": [
-                    "left_ankle_roll_link",
-                    "right_ankle_roll_link",
-                    "left_wrist_yaw_link",
-                    "right_wrist_yaw_link",
-                ],
-                "aggregation": "mean",
-                "power": 2.0,
-            },
-            weight=-3.0,
-        ),
-        "motion_relative_body_orientation_error_hinge": RewardTermCfg(
-            func="holosoma.managers.reward.terms.wbt:motion_relative_body_orientation_error_hinge",
-            params={
-                "threshold": 0.8,
-                "body_names": [
-                    "left_ankle_roll_link",
-                    "right_ankle_roll_link",
-                    "left_wrist_yaw_link",
-                    "right_wrist_yaw_link",
-                ],
-                "aggregation": "mean",
-            },
-            weight=-1.0,
         ),
     }
 )

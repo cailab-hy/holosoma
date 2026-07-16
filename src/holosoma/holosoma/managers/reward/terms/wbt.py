@@ -9,8 +9,9 @@ import torch
 
 from holosoma.config_types.reward import RewardTermCfg
 from holosoma.managers.command.terms.wbt import MotionCommand
+from holosoma.managers.observation.terms.wbt import gravity_vector
 from holosoma.managers.reward.base import RewardTermBase
-from holosoma.utils.rotations import quat_error_magnitude
+from holosoma.utils.rotations import quat_error_magnitude, quat_rotate_inverse
 
 if TYPE_CHECKING:
     from holosoma.envs.wbt.wbt_manager import WholeBodyTrackingManager
@@ -130,6 +131,20 @@ def motion_global_ref_orientation_error_hinge(
 ) -> torch.Tensor:
     motion_command = _get_motion_command_and_assert_type(env)
     error = quat_error_magnitude(motion_command.ref_quat_w, motion_command.robot_ref_quat_w)
+    return _apply_hinge_power(torch.relu(error - threshold), power)
+
+
+def motion_global_ref_projected_gravity_error_hinge(
+    env: WholeBodyTrackingManager,
+    threshold: float,
+    power: float = 1.0,
+) -> torch.Tensor:
+    """Penalize only orientation error beyond the strict BadTracking boundary."""
+    motion_command = _get_motion_command_and_assert_type(env)
+    gravity = gravity_vector(env)
+    ref_projected_gravity_b = quat_rotate_inverse(motion_command.ref_quat_w, gravity, w_last=True)
+    robot_projected_gravity_b = quat_rotate_inverse(motion_command.robot_ref_quat_w, gravity, w_last=True)
+    error = torch.abs(ref_projected_gravity_b[:, 2] - robot_projected_gravity_b[:, 2])
     return _apply_hinge_power(torch.relu(error - threshold), power)
 
 
