@@ -109,11 +109,55 @@ def weighted_contour_covariance(
         covariance = torch.einsum("bk,bkd,bke->bde", weights, deltas, deltas)
         covariance = covariance / denominator[:, None, None]
         if shrinkage > 0.0:
-            diagonal = torch.diag_embed(torch.diagonal(covariance, dim1=-2, dim2=-1))
-            covariance = (1.0 - shrinkage) * covariance + shrinkage * diagonal
+            action_dim = covariance.shape[-1]
+            trace = torch.diagonal(covariance, dim1=-2, dim2=-1).sum(dim=-1)
+            identity = torch.eye(action_dim, device=covariance.device, dtype=covariance.dtype)
+            isotropic = (trace / action_dim)[:, None, None] * identity
+            covariance = (1.0 - shrinkage) * covariance + shrinkage * isotropic
         identity = torch.eye(covariance.shape[-1], device=covariance.device, dtype=covariance.dtype)
         covariance = covariance + epsilon * identity
     return covariance, weights
+
+
+def cap_covariance_condition(
+    covariance: torch.Tensor,
+    *,
+    max_condition: float,
+    epsilon: float,
+) -> torch.Tensor:
+    """Floor eigenvalues so each covariance has condition number at most ``max_condition``."""
+
+    original_dtype = covariance.dtype
+    with torch.autocast(device_type=covariance.device.type, enabled=False):
+        covariance_f = covariance.float()
+        covariance_f = 0.5 * (covariance_f + covariance_f.transpose(-1, -2))
+        eigenvalues, eigenvectors = torch.linalg.eigh(covariance_f)
+        max_eigenvalue = eigenvalues.amax(dim=-1, keepdim=True).clamp_min(epsilon)
+        min_allowed = max_eigenvalue / max_condition
+        eigenvalues = torch.maximum(eigenvalues, min_allowed)
+        regularized = eigenvectors @ torch.diag_embed(eigenvalues) @ eigenvectors.transpose(-1, -2)
+    return regularized.to(original_dtype)
+
+
+def cap_covariance_trace_ratio(
+    contour_covariance: torch.Tensor,
+    policy_covariance: torch.Tensor,
+    *,
+    max_ratio: float,
+    epsilon: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Cap tr(Sigma_Q) / tr(Sigma_pi) while preserving contour eigendirections."""
+
+    contour_trace = torch.diagonal(contour_covariance, dim1=-2, dim2=-1).sum(dim=-1)
+    policy_trace = torch.diagonal(policy_covariance, dim1=-2, dim2=-1).sum(dim=-1)
+    scale = (max_ratio * policy_trace / contour_trace.clamp_min(epsilon)).clamp(max=1.0)
+    return contour_covariance * scale[:, None, None], scale
+
+
+def margin_gate_conservative_gap(gap: torch.Tensor, target_margin: float) -> torch.Tensor:
+    """Return max(0, Q_ood - Q_data - target_margin) per sample."""
+
+    return torch.relu(gap - target_margin)
 
 
 class VCActor(Actor):

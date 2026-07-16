@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import torch
 
+from holosoma.agents.cql.cql_agent import CQLAgent
 from holosoma.agents.vc_cql.vc_cql import (
     VCActor,
+    cap_covariance_condition,
+    cap_covariance_trace_ratio,
     covariance_kl,
     linearized_squashed_covariance,
     low_rank_covariance,
     low_rank_gaussian_log_prob,
+    margin_gate_conservative_gap,
     weighted_contour_covariance,
 )
+from holosoma.config_values.algo import vc_cql
 
 
 def _actor(action_dim: int = 6, rank: int = 2) -> VCActor:
@@ -87,6 +92,60 @@ def test_weighted_contour_covariance_recovers_wider_direction() -> None:
 
     assert weights.shape == (8, 4096)
     assert covariance[:, 0, 0].mean() > 3.0 * covariance[:, 1, 1].mean()
+
+
+def test_margin_gate_stops_conservative_gradient_below_margin() -> None:
+    gap = torch.tensor([-2.0, 0.0, 0.5, 3.0], requires_grad=True)
+    gated = margin_gate_conservative_gap(gap, target_margin=0.5)
+
+    torch.testing.assert_close(gated, torch.tensor([0.0, 0.0, 0.0, 2.5]))
+    gated.sum().backward()
+    torch.testing.assert_close(gap.grad, torch.tensor([0.0, 0.0, 0.0, 1.0]))
+
+
+def test_vanilla_cql_conservative_gap_transform_remains_identity() -> None:
+    q1_gap = torch.tensor([-2.0, 1.0])
+    q2_gap = torch.tensor([-1.0, 3.0])
+    transformed_q1, transformed_q2 = CQLAgent._transform_cql_per_sample_losses(
+        object.__new__(CQLAgent),
+        q1_gap,
+        q2_gap,
+    )
+
+    assert transformed_q1 is q1_gap
+    assert transformed_q2 is q2_gap
+
+
+def test_contour_condition_number_is_capped() -> None:
+    covariance = torch.diag_embed(torch.tensor([[1e-6, 1e-3, 1.0], [1e-8, 0.1, 2.0]]))
+    capped = cap_covariance_condition(covariance, max_condition=100.0, epsilon=1e-8)
+    eigenvalues = torch.linalg.eigvalsh(capped)
+    condition = eigenvalues[:, -1] / eigenvalues[:, 0]
+
+    assert torch.all(condition <= 100.01)
+
+
+def test_contour_trace_is_capped_relative_to_policy() -> None:
+    contour = 10.0 * torch.eye(4).expand(3, 4, 4).clone()
+    policy = 0.5 * torch.eye(4).expand(3, 4, 4).clone()
+    capped, scale = cap_covariance_trace_ratio(contour, policy, max_ratio=2.0, epsilon=1e-8)
+    contour_trace = torch.diagonal(capped, dim1=-2, dim2=-1).sum(dim=-1)
+    policy_trace = torch.diagonal(policy, dim1=-2, dim2=-1).sum(dim=-1)
+
+    assert torch.all(contour_trace <= 2.0 * policy_trace + 1e-6)
+    assert torch.all(scale < 1.0)
+
+
+def test_vc_cql_kill_test_defaults_use_fixed_alpha_and_stabilizers() -> None:
+    config = vc_cql.config
+
+    assert config.use_autotune is False
+    assert config.alpha_init == 0.3
+    assert config.vc_margin_gating is True
+    assert config.vc_target_margin == 0.0
+    assert config.vc_cov_shrinkage == 0.5
+    assert config.vc_cov_max_condition == 100.0
+    assert config.vc_max_trace_ratio == 2.0
 
 
 def test_covariance_kl_is_zero_at_match_and_positive_at_mismatch() -> None:

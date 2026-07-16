@@ -738,11 +738,23 @@ class VCCQLConfig(CQLConfig):
     vc_contour_weight: float = 1.0
     """Weight of KL(policy covariance || stop-gradient Q-contour covariance)."""
 
+    vc_margin_gating: bool = True
+    """Stop conservative VC gradients once the per-sample Q gap is below the target margin."""
+
+    vc_target_margin: float = 0.0
+    """Hinge margin for the VC conservative gap: relu(Q_vc - Q_data - margin)."""
+
     vc_cov_epsilon: float = 1e-4
     """Diagonal covariance floor used in contour estimation and KL factorization."""
 
-    vc_cov_shrinkage: float = 0.05
-    """Shrink contour covariance toward its diagonal for finite-probe stability."""
+    vc_cov_shrinkage: float = 0.5
+    """Shrink contour covariance toward an isotropic covariance with equal trace."""
+
+    vc_cov_max_condition: float = 100.0
+    """Maximum contour covariance condition number after eigenvalue flooring."""
+
+    vc_max_trace_ratio: float = 2.0
+    """Maximum contour trace divided by the detached policy covariance trace."""
 
     vc_factor_max: float = 1.0
     """Maximum absolute low-rank factor entry after tanh parameterization."""

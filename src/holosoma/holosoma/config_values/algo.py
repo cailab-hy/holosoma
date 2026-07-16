@@ -314,14 +314,20 @@ cql = CQLAlgoConfig(
 _vc_cql_config_values = dataclasses.asdict(cql.config)
 _vc_cql_config_values.update(
     compile=False,
+    alpha_init=0.3,
+    use_autotune=False,
     vc_rank=4,
     vc_num_probes=32,
     vc_probe_std=0.25,
     vc_q_temperature=1.0,
     vc_q_tolerance=1.0,
     vc_contour_weight=1.0,
+    vc_margin_gating=True,
+    vc_target_margin=0.0,
     vc_cov_epsilon=1e-4,
-    vc_cov_shrinkage=0.05,
+    vc_cov_shrinkage=0.5,
+    vc_cov_max_condition=100.0,
+    vc_max_trace_ratio=2.0,
     vc_factor_max=1.0,
 )
 vc_cql = VCCQLAlgoConfig(

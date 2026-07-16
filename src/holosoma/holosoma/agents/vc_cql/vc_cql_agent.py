@@ -1,11 +1,12 @@
 """Value-Contour Conservative Q-Learning.
 
-VC-CQL preserves scalar CQL's dataset, Bellman target, conservative critic,
-target-network, entropy tuning, SAC actor objective, and evaluation.  It replaces
-the diagonal actor with a low-rank-plus-diagonal Gaussian and adds one term: a
-KL alignment from actor covariance to a stop-gradient local target-Q contour.
-Antithetic local actions define the contour, while the original stochastic
-alpha*log(pi)-Q objective remains responsible for the base actor update.
+VC-CQL preserves scalar CQL's dataset, Bellman target, target networks, SAC
+actor objective, and evaluation. It replaces the diagonal actor with a
+low-rank-plus-diagonal Gaussian, fits its covariance to a stop-gradient local
+target-Q contour, and margin-gates only its inherited conservative CQL gap.
+Contour covariance uses isotropic shrinkage, a condition-number cap, and a
+policy-relative trace cap. Entropy autotuning remains configurable, while the
+stabilized kill-test preset uses a fixed alpha.
 """
 
 from __future__ import annotations
@@ -15,9 +16,12 @@ from loguru import logger
 from holosoma.agents.cql.cql_agent import CQLAgent
 from holosoma.agents.vc_cql.vc_cql import (
     VCActor,
+    cap_covariance_condition,
+    cap_covariance_trace_ratio,
     covariance_kl,
     linearized_squashed_covariance,
     low_rank_covariance,
+    margin_gate_conservative_gap,
     weighted_contour_covariance,
 )
 from holosoma.config_types.algo import VCCQLConfig
@@ -31,7 +35,7 @@ class VCCQLAgent(CQLAgent):
     config: VCCQLConfig
     actor: VCActor
 
-    _VC_METRIC_KEYS = (
+    _VC_ACTOR_METRIC_KEYS = (
         "vc_cql/policy_q",
         "vc_cql/base_actor_loss",
         "vc_cql/contour_kl",
@@ -44,10 +48,22 @@ class VCCQLAgent(CQLAgent):
         "vc_cql/contour_cov_trace",
         "vc_cql/policy_cov_trace",
         "vc_cql/cov_trace_ratio",
+        "vc_cql/cov_trace_ratio_max",
         "vc_cql/contour_effective_rank",
+        "vc_cql/contour_effective_rank_p10",
         "vc_cql/policy_effective_rank",
         "vc_cql/contour_entropy",
         "vc_cql/contour_condition",
+        "vc_cql/contour_condition_max",
+        "vc_cql/contour_min_eigenvalue",
+        "vc_cql/contour_max_eigenvalue",
+        "vc_cql/contour_trace_scale",
+    )
+    _VC_CRITIC_METRIC_KEYS = (
+        "vc_cql/conservative_raw_gap",
+        "vc_cql/conservative_gated_gap",
+        "vc_cql/conservative_active_frac",
+        "vc_cql/conservative_target_margin",
     )
 
     def __init__(
@@ -60,6 +76,7 @@ class VCCQLAgent(CQLAgent):
     ):
         self._validate_vc_config(config)
         self._vc_last_metrics: dict[str, torch.Tensor] = {}
+        self._vc_critic_last_metrics: dict[str, torch.Tensor] = {}
         super().__init__(env, config, device, log_dir, multi_gpu_cfg)
 
     @staticmethod
@@ -82,6 +99,10 @@ class VCCQLAgent(CQLAgent):
             raise ValueError(f"vc_cov_epsilon must be > 0, got {config.vc_cov_epsilon}")
         if not 0.0 <= config.vc_cov_shrinkage <= 1.0:
             raise ValueError(f"vc_cov_shrinkage must be in [0, 1], got {config.vc_cov_shrinkage}")
+        if config.vc_cov_max_condition < 1.0:
+            raise ValueError(f"vc_cov_max_condition must be >= 1, got {config.vc_cov_max_condition}")
+        if config.vc_max_trace_ratio <= 0.0:
+            raise ValueError(f"vc_max_trace_ratio must be > 0, got {config.vc_max_trace_ratio}")
         if config.vc_factor_max <= 0.0:
             raise ValueError(f"vc_factor_max must be > 0, got {config.vc_factor_max}")
 
@@ -128,22 +149,58 @@ class VCCQLAgent(CQLAgent):
         self.policy = _env_policy
         self.action_space_mode = "vc_cql_env_scaled_low_rank_v1"
         self._vc_last_metrics = self._zero_vc_metrics()
+        self._vc_critic_last_metrics = self._zero_vc_critic_metrics()
         if self.is_multi_gpu:
             self._synchronize_model_parameters()
         logger.info(
             "VC-CQL actor configured: "
             f"rank={args.vc_rank}, probes={args.vc_num_probes}, probe_std={args.vc_probe_std}, "
-            f"q_temperature={args.vc_q_temperature}, contour_weight={args.vc_contour_weight}"
+            f"q_temperature={args.vc_q_temperature}, contour_weight={args.vc_contour_weight}, "
+            f"margin_gating={args.vc_margin_gating}, target_margin={args.vc_target_margin}, "
+            f"cov_shrinkage={args.vc_cov_shrinkage}, max_condition={args.vc_cov_max_condition}, "
+            f"max_trace_ratio={args.vc_max_trace_ratio}, alpha={args.alpha_init}, "
+            f"autotune={args.use_autotune}"
         )
 
     def _zero_vc_metrics(self) -> dict[str, torch.Tensor]:
-        return {key: torch.zeros((), device=self.device) for key in self._VC_METRIC_KEYS}
+        return {key: torch.zeros((), device=self.device) for key in self._VC_ACTOR_METRIC_KEYS}
+
+    def _zero_vc_critic_metrics(self) -> dict[str, torch.Tensor]:
+        return {key: torch.zeros((), device=self.device) for key in self._VC_CRITIC_METRIC_KEYS}
+
+    def _transform_cql_per_sample_losses(
+        self,
+        q1_gap: torch.Tensor,
+        q2_gap: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Apply VC margin gating without changing vanilla CQL's loss path."""
+
+        raw_gap = 0.5 * (q1_gap + q2_gap)
+        if self.config.vc_margin_gating:
+            q1_gated = margin_gate_conservative_gap(q1_gap, self.config.vc_target_margin)
+            q2_gated = margin_gate_conservative_gap(q2_gap, self.config.vc_target_margin)
+        else:
+            q1_gated = q1_gap
+            q2_gated = q2_gap
+        gated_gap = 0.5 * (q1_gated + q2_gated)
+        self._vc_critic_last_metrics = {
+            "vc_cql/conservative_raw_gap": raw_gap.mean().detach(),
+            "vc_cql/conservative_gated_gap": gated_gap.mean().detach(),
+            "vc_cql/conservative_active_frac": (raw_gap > self.config.vc_target_margin).float().mean().detach(),
+            "vc_cql/conservative_target_margin": torch.as_tensor(
+                self.config.vc_target_margin,
+                device=raw_gap.device,
+                dtype=raw_gap.dtype,
+            ),
+        }
+        return q1_gated, q2_gated
 
     @torch.no_grad()
     def _estimate_value_contour(
         self,
         critic_observations: torch.Tensor,
         mean_raw_action: torch.Tensor,
+        policy_covariance: torch.Tensor,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Estimate a stop-gradient local Q-contour covariance in physical action coordinates."""
 
@@ -184,10 +241,26 @@ class VCCQLAgent(CQLAgent):
             epsilon=args.vc_cov_epsilon,
             shrinkage=args.vc_cov_shrinkage,
         )
+        contour_covariance = cap_covariance_condition(
+            contour_covariance,
+            max_condition=args.vc_cov_max_condition,
+            epsilon=args.vc_cov_epsilon,
+        )
+        contour_covariance, contour_trace_scale = cap_covariance_trace_ratio(
+            contour_covariance,
+            policy_covariance.detach(),
+            max_ratio=args.vc_max_trace_ratio,
+            epsilon=args.vc_cov_epsilon,
+        )
+        contour_covariance = contour_covariance.detach()
 
-        eigenvalues = torch.linalg.eigvalsh(contour_covariance.float()).clamp_min(args.vc_cov_epsilon)
+        metric_epsilon = torch.finfo(torch.float32).eps
+        eigenvalues = torch.linalg.eigvalsh(contour_covariance.float()).clamp_min(metric_epsilon)
         trace = eigenvalues.sum(dim=-1)
-        effective_rank = trace.square() / eigenvalues.square().sum(dim=-1).clamp_min(args.vc_cov_epsilon)
+        policy_trace = torch.diagonal(policy_covariance.float(), dim1=-2, dim2=-1).sum(dim=-1)
+        trace_ratio = trace / policy_trace.clamp_min(metric_epsilon)
+        effective_rank = trace.square() / eigenvalues.square().sum(dim=-1).clamp_min(metric_epsilon)
+        condition = eigenvalues[:, -1] / eigenvalues[:, 0]
         contour_entropy = 0.5 * (
             action_dim * (1.0 + torch.log(torch.tensor(2.0 * torch.pi, device=self.device)))
             + torch.log(eigenvalues).sum(dim=-1)
@@ -199,9 +272,16 @@ class VCCQLAgent(CQLAgent):
             "vc_cql/contour_mass": (q_drops <= args.vc_q_tolerance).float().mean(),
             "vc_cql/weight_mass": weights.mean(),
             "vc_cql/contour_cov_trace": trace.mean(),
+            "vc_cql/cov_trace_ratio": trace_ratio.mean(),
+            "vc_cql/cov_trace_ratio_max": trace_ratio.max(),
             "vc_cql/contour_effective_rank": effective_rank.mean(),
+            "vc_cql/contour_effective_rank_p10": torch.quantile(effective_rank, 0.10),
             "vc_cql/contour_entropy": contour_entropy.mean(),
-            "vc_cql/contour_condition": (eigenvalues[:, -1] / eigenvalues[:, 0]).mean(),
+            "vc_cql/contour_condition": condition.mean(),
+            "vc_cql/contour_condition_max": condition.max(),
+            "vc_cql/contour_min_eigenvalue": eigenvalues[:, 0].mean(),
+            "vc_cql/contour_max_eigenvalue": eigenvalues[:, -1].mean(),
+            "vc_cql/contour_trace_scale": contour_trace_scale.mean(),
         }
         return contour_covariance.detach(), {key: value.detach() for key, value in metrics.items()}
 
@@ -233,6 +313,7 @@ class VCCQLAgent(CQLAgent):
                     contour_covariance, contour_metrics = self._estimate_value_contour(
                         critic_observations,
                         mean_raw.detach(),
+                        policy_covariance.detach(),
                     )
                 contour_kl = covariance_kl(
                     policy_covariance,
@@ -245,16 +326,23 @@ class VCCQLAgent(CQLAgent):
                 contour_loss = torch.zeros((), device=self.device)
                 contour_metrics = {
                     key: torch.zeros((), device=self.device)
-                    for key in self._VC_METRIC_KEYS
+                    for key in self._VC_ACTOR_METRIC_KEYS
                     if key.startswith("vc_cql/q_drop")
                     or key
                     in {
                         "vc_cql/contour_mass",
                         "vc_cql/weight_mass",
                         "vc_cql/contour_cov_trace",
+                        "vc_cql/cov_trace_ratio_max",
                         "vc_cql/contour_effective_rank",
+                        "vc_cql/contour_effective_rank_p10",
                         "vc_cql/contour_entropy",
                         "vc_cql/contour_condition",
+                        "vc_cql/contour_condition_max",
+                        "vc_cql/contour_min_eigenvalue",
+                        "vc_cql/contour_max_eigenvalue",
+                        "vc_cql/contour_trace_scale",
+                        "vc_cql/cov_trace_ratio",
                     }
                 }
 
@@ -284,12 +372,6 @@ class VCCQLAgent(CQLAgent):
             policy_effective_rank = policy_trace.square() / policy_eigenvalues.square().sum(dim=-1).clamp_min(
                 args.vc_cov_epsilon
             )
-            contour_trace = contour_metrics["vc_cql/contour_cov_trace"]
-            covariance_trace_ratio = (
-                policy_trace.mean() / contour_trace.clamp_min(args.vc_cov_epsilon)
-                if args.vc_contour_weight > 0.0
-                else torch.zeros((), device=self.device)
-            )
             self._vc_last_metrics = {
                 **contour_metrics,
                 "vc_cql/policy_q": policy_q.mean().detach(),
@@ -297,7 +379,6 @@ class VCCQLAgent(CQLAgent):
                 "vc_cql/contour_kl": contour_kl.detach(),
                 "vc_cql/contour_loss": contour_loss.detach(),
                 "vc_cql/policy_cov_trace": policy_trace.mean().detach(),
-                "vc_cql/cov_trace_ratio": covariance_trace_ratio.detach(),
                 "vc_cql/policy_effective_rank": policy_effective_rank.mean().detach(),
             }
 
@@ -307,5 +388,7 @@ class VCCQLAgent(CQLAgent):
     def _compute_action_ood_stats(self, data: TensorDict) -> dict[str, torch.Tensor]:
         stats = super()._compute_action_ood_stats(data)
         stats.update(self._vc_last_metrics)
+        stats.update(self._vc_critic_last_metrics)
         self._vc_last_metrics = self._zero_vc_metrics()
+        self._vc_critic_last_metrics = self._zero_vc_critic_metrics()
         return stats

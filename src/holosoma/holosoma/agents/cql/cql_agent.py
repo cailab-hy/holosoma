@@ -471,6 +471,14 @@ class CQLAgent(BaseAlgo):
     def _to_env_actions(self, actions: torch.Tensor) -> torch.Tensor:
         return actions
 
+    def _transform_cql_per_sample_losses(
+        self,
+        q1_gap: torch.Tensor,
+        q2_gap: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Allow CQL variants to gate per-sample conservative gaps."""
+        return q1_gap, q2_gap
+
     def _sync_actor_action_space_buffers(self) -> None:
         with torch.no_grad():
             self.actor.action_scale.copy_(
@@ -764,8 +772,14 @@ class CQLAgent(BaseAlgo):
                     dim=1,
                 )
 
-                cql1_loss = (torch.logsumexp(cat_q1 / self._temperature, dim=1) * self._temperature - q1).mean()
-                cql2_loss = (torch.logsumexp(cat_q2 / self._temperature, dim=1) * self._temperature - q2).mean()
+                cql1_per_sample = torch.logsumexp(cat_q1 / self._temperature, dim=1) * self._temperature - q1
+                cql2_per_sample = torch.logsumexp(cat_q2 / self._temperature, dim=1) * self._temperature - q2
+                cql1_per_sample, cql2_per_sample = self._transform_cql_per_sample_losses(
+                    cql1_per_sample,
+                    cql2_per_sample,
+                )
+                cql1_loss = cql1_per_sample.mean()
+                cql2_loss = cql2_per_sample.mean()
                 cql_gap = 0.5 * (cql1_loss + cql2_loss)
                 rand_q_mean = 0.5 * ((q1_rand - random_density).mean() + (q2_rand - random_density).mean())
                 curr_q_mean = 0.5 * ((q1_curr).mean() + (q2_curr).mean())
