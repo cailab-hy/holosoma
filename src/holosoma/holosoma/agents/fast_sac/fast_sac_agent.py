@@ -903,7 +903,8 @@ class FastSACAgent(BaseAlgo):
     def _init_transition_exporter(self) -> bool:
         if not self.is_main_process:
             return False
-        init_transition_saver(self.config.offline_dataset_path, flush_every=1)
+        writer = init_transition_saver(self.config.offline_dataset_path, flush_every=1)
+        writer.f.attrs["motion_phase_semantics"] = "pre_step"
         return True
 
     def _export_transition_batch(self, transition_to_save: TensorDict, *, dones: torch.Tensor, infos: dict[str, Any]) -> None:
@@ -955,6 +956,31 @@ class FastSACAgent(BaseAlgo):
                     with torch.no_grad(), self._maybe_amp():
                         norm_obs = normalize_obs(obs, update=False)
                         actions = policy(obs=norm_obs, dones=dones)
+
+                    motion_command = None
+                    if hasattr(env, "command_manager"):
+                        try:
+                            motion_command = env.command_manager.get_state("motion_command")
+                        except Exception:
+                            motion_command = None
+                    if motion_command is not None and hasattr(motion_command, "time_steps"):
+                        motion_time_step_tensor = motion_command.time_steps.to(
+                            device=device,
+                            dtype=torch.long,
+                        ).clone()
+                        motion_total_steps = max(int(motion_command.motion.time_step_total) - 1, 1)
+                        motion_phase_tensor = motion_time_step_tensor.to(dtype=torch.float32) / float(motion_total_steps)
+                        d3_segment_id = int(getattr(motion_command, "d3_segment_id", -1))
+                        d3_segment_id_tensor = torch.full(
+                            (env.num_envs,),
+                            d3_segment_id,
+                            device=device,
+                            dtype=torch.long,
+                        )
+                    else:
+                        motion_time_step_tensor = torch.zeros(env.num_envs, device=device, dtype=torch.long)
+                        motion_phase_tensor = torch.zeros(env.num_envs, device=device, dtype=torch.float32)
+                        d3_segment_id_tensor = torch.full((env.num_envs,), -1, device=device, dtype=torch.long)
 
                     next_obs, rewards, dones, infos = env.step(actions.float())
                     truncations = infos["time_outs"]
@@ -1031,28 +1057,6 @@ class FastSACAgent(BaseAlgo):
                         device=device,
                         dtype=torch.long,
                     )
-                    motion_command = None
-                    if hasattr(env, "command_manager"):
-                        try:
-                            motion_command = env.command_manager.get_state("motion_command")
-                        except Exception:
-                            motion_command = None
-                    if motion_command is not None and hasattr(motion_command, "time_steps"):
-                        motion_time_step_tensor = motion_command.time_steps.to(device=device, dtype=torch.long).clone()
-                        motion_total_steps = max(int(motion_command.motion.time_step_total) - 1, 1)
-                        motion_phase_tensor = motion_time_step_tensor.to(dtype=torch.float32) / float(motion_total_steps)
-                        d3_segment_id = int(getattr(motion_command, "d3_segment_id", -1))
-                        d3_segment_id_tensor = torch.full(
-                            (env.num_envs,),
-                            d3_segment_id,
-                            device=device,
-                            dtype=torch.long,
-                        )
-                    else:
-                        motion_time_step_tensor = torch.zeros(env.num_envs, device=device, dtype=torch.long)
-                        motion_phase_tensor = torch.zeros(env.num_envs, device=device, dtype=torch.float32)
-                        d3_segment_id_tensor = torch.full((env.num_envs,), -1, device=device, dtype=torch.long)
-
                     transition_to_save = TensorDict(
                         {
                             "observations": obs,

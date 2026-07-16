@@ -29,7 +29,8 @@ class FastSACEpisodeDataAgent(FastSACAgent):
         if not self.is_main_process:
             return False
 
-        init_transition_saver(self.config.offline_dataset_path, flush_every=1)
+        writer = init_transition_saver(self.config.offline_dataset_path, flush_every=1)
+        writer.f.attrs["motion_phase_semantics"] = "pre_step"
         self._episode_recording_mask = torch.zeros(self.env.num_envs, device=self.device, dtype=torch.bool)
         self._episode_buffers = [[] for _ in range(self.env.num_envs)]
         self._episode_ids = torch.full((self.env.num_envs,), -1, device=self.device, dtype=torch.long)
