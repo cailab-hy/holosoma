@@ -60,6 +60,19 @@ def test_actor_samples_and_covariance_are_well_formed() -> None:
     assert torch.linalg.eigvalsh(covariance).min() > 0.0
 
 
+def test_actor_log_prob_is_amp_bfloat16_safe() -> None:
+    torch.manual_seed(6)
+    actor = _actor()
+    observations = torch.randn(7, 5)
+    with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+        actions, log_prob = actor.get_actions_and_log_probs(observations)
+
+    assert actions.dtype in (torch.float32, torch.bfloat16)
+    assert log_prob.dtype in (torch.float32, torch.bfloat16)
+    assert torch.isfinite(actions).all()
+    assert torch.isfinite(log_prob).all()
+
+
 def test_weighted_contour_covariance_recovers_wider_direction() -> None:
     torch.manual_seed(7)
     deltas = 0.5 * torch.randn(8, 4096, 2)

@@ -26,25 +26,27 @@ def low_rank_gaussian_log_prob(
 
     original_dtype = value.dtype
     compute_dtype = torch.float32 if original_dtype in (torch.float16, torch.bfloat16) else original_dtype
-    value_f = value.to(compute_dtype)
-    mean_f = mean.to(compute_dtype)
-    log_std_f = log_std.to(compute_dtype)
-    factor_f = factor.to(compute_dtype)
+    with torch.autocast(device_type=value.device.type, enabled=False):
+        value_f = value.to(compute_dtype)
+        mean_f = mean.to(compute_dtype)
+        log_std_f = log_std.to(compute_dtype)
+        factor_f = factor.to(compute_dtype)
 
-    delta = value_f - mean_f
-    inverse_diag = torch.exp(-2.0 * log_std_f)
-    rank = factor_f.shape[-1]
-    identity = torch.eye(rank, device=value.device, dtype=compute_dtype).expand(value.shape[0], rank, rank)
-    capacitance = identity + torch.einsum("bdr,bd,bds->brs", factor_f, inverse_diag, factor_f)
-    rhs = torch.einsum("bdr,bd->br", factor_f, inverse_diag * delta)
-    solved_rhs = torch.linalg.solve(capacitance, rhs.unsqueeze(-1)).squeeze(-1)
+        delta = value_f - mean_f
+        inverse_diag = torch.exp(-2.0 * log_std_f)
+        rank = factor_f.shape[-1]
+        identity = torch.eye(rank, device=value.device, dtype=compute_dtype).expand(value.shape[0], rank, rank)
+        capacitance = identity + torch.einsum("bdr,bd,bds->brs", factor_f, inverse_diag, factor_f)
+        rhs = torch.einsum("bdr,bd->br", factor_f, inverse_diag * delta)
+        solved_rhs = torch.linalg.solve(capacitance, rhs.unsqueeze(-1)).squeeze(-1)
 
-    mahalanobis = (delta.square() * inverse_diag).sum(dim=-1) - (rhs * solved_rhs).sum(dim=-1)
-    mahalanobis = mahalanobis.clamp_min(0.0)
-    _, capacitance_logdet = torch.linalg.slogdet(capacitance)
-    covariance_logdet = (2.0 * log_std_f).sum(dim=-1) + capacitance_logdet
-    normalizer = value.shape[-1] * math.log(2.0 * math.pi)
-    return (-0.5 * (normalizer + covariance_logdet + mahalanobis)).to(original_dtype)
+        mahalanobis = (delta.square() * inverse_diag).sum(dim=-1) - (rhs * solved_rhs).sum(dim=-1)
+        mahalanobis = mahalanobis.clamp_min(0.0)
+        _, capacitance_logdet = torch.linalg.slogdet(capacitance)
+        covariance_logdet = (2.0 * log_std_f).sum(dim=-1) + capacitance_logdet
+        normalizer = value.shape[-1] * math.log(2.0 * math.pi)
+        log_prob = -0.5 * (normalizer + covariance_logdet + mahalanobis)
+    return log_prob.to(original_dtype)
 
 
 def low_rank_covariance(log_std: torch.Tensor, factor: torch.Tensor) -> torch.Tensor:
@@ -72,19 +74,20 @@ def covariance_kl(
     """Compute KL(N(0, Sigma_pi) || N(0, Sigma_Q)) per sample."""
 
     original_dtype = policy_covariance.dtype
-    policy_covariance = policy_covariance.float()
-    target_covariance = target_covariance.float()
-    action_dim = policy_covariance.shape[-1]
-    identity = torch.eye(action_dim, device=policy_covariance.device, dtype=policy_covariance.dtype)
-    policy_covariance = policy_covariance + epsilon * identity
-    target_covariance = target_covariance + epsilon * identity
+    with torch.autocast(device_type=policy_covariance.device.type, enabled=False):
+        policy_covariance = policy_covariance.float()
+        target_covariance = target_covariance.float()
+        action_dim = policy_covariance.shape[-1]
+        identity = torch.eye(action_dim, device=policy_covariance.device, dtype=policy_covariance.dtype)
+        policy_covariance = policy_covariance + epsilon * identity
+        target_covariance = target_covariance + epsilon * identity
 
-    target_cholesky = torch.linalg.cholesky(target_covariance)
-    target_inverse_policy = torch.cholesky_solve(policy_covariance, target_cholesky)
-    trace_term = torch.diagonal(target_inverse_policy, dim1=-2, dim2=-1).sum(dim=-1)
-    _, policy_logdet = torch.linalg.slogdet(policy_covariance)
-    _, target_logdet = torch.linalg.slogdet(target_covariance)
-    kl = 0.5 * (trace_term - action_dim + target_logdet - policy_logdet)
+        target_cholesky = torch.linalg.cholesky(target_covariance)
+        target_inverse_policy = torch.cholesky_solve(policy_covariance, target_cholesky)
+        trace_term = torch.diagonal(target_inverse_policy, dim1=-2, dim2=-1).sum(dim=-1)
+        _, policy_logdet = torch.linalg.slogdet(policy_covariance)
+        _, target_logdet = torch.linalg.slogdet(target_covariance)
+        kl = 0.5 * (trace_term - action_dim + target_logdet - policy_logdet)
     return kl.clamp_min(0.0).to(original_dtype)
 
 
@@ -98,17 +101,19 @@ def weighted_contour_covariance(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Estimate Sigma_Q = sum_k w_k delta_k delta_k^T / (sum_k w_k + eps)."""
 
-    deltas = deltas.float()
-    q_drops = q_drops.float()
-    weights = torch.exp(-torch.relu(q_drops) / temperature)
-    denominator = weights.sum(dim=1).clamp_min(epsilon)
-    covariance = torch.einsum("bk,bkd,bke->bde", weights, deltas, deltas)
-    covariance = covariance / denominator[:, None, None]
-    if shrinkage > 0.0:
-        diagonal = torch.diag_embed(torch.diagonal(covariance, dim1=-2, dim2=-1))
-        covariance = (1.0 - shrinkage) * covariance + shrinkage * diagonal
-    identity = torch.eye(covariance.shape[-1], device=covariance.device, dtype=covariance.dtype)
-    return covariance + epsilon * identity, weights
+    with torch.autocast(device_type=deltas.device.type, enabled=False):
+        deltas = deltas.float()
+        q_drops = q_drops.float()
+        weights = torch.exp(-torch.relu(q_drops) / temperature)
+        denominator = weights.sum(dim=1).clamp_min(epsilon)
+        covariance = torch.einsum("bk,bkd,bke->bde", weights, deltas, deltas)
+        covariance = covariance / denominator[:, None, None]
+        if shrinkage > 0.0:
+            diagonal = torch.diag_embed(torch.diagonal(covariance, dim1=-2, dim2=-1))
+            covariance = (1.0 - shrinkage) * covariance + shrinkage * diagonal
+        identity = torch.eye(covariance.shape[-1], device=covariance.device, dtype=covariance.dtype)
+        covariance = covariance + epsilon * identity
+    return covariance, weights
 
 
 class VCActor(Actor):
