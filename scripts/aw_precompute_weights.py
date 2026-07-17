@@ -46,6 +46,14 @@ def load_arrays(path):
     dones  = get(["dones", "done"], label="dones").astype(bool)
     truncs = get(["truncations", "truncation"], label="truncations").astype(bool)
     mid    = get(["motion_id", "motion_ids"], required=False)
+    # done flavors (exporter convention: next_done_*; hazard analyzer reads the same keys).
+    # dones/truncations semantics vary per H5, so failure stats must come from these, not dones.
+    bad    = get(["next_done_bad_tracking", "done_bad_tracking"], required=False)
+    mends  = get(["next_done_motion_ends", "done_motion_ends"], required=False)
+    tmo    = get(["next_done_timeout", "done_timeout"], required=False)
+    bad    = None if bad is None else bad.astype(bool)
+    mends  = None if mends is None else mends.astype(bool)
+    tmo    = None if tmo is None else tmo.astype(bool)
     sem    = None
     for attr_host in (f, f.get(find_key(f, ["motion_phase", "motion_phases", "phase"],
                                         False) or "", None)):
@@ -55,7 +63,7 @@ def load_arrays(path):
         except Exception:
             pass
     f.close()
-    return r, phase, dones, truncs, mid, sem
+    return r, phase, dones, truncs, mid, sem, bad, mends, tmo
 
 
 def episode_bounds(dones, truncs):
@@ -68,15 +76,24 @@ def episode_bounds(dones, truncs):
 
 
 def truncated_returns(r, starts, ends, gamma, H):
-    """G^H_t within each episode via backward recurrence with sliding-window correction."""
+    """G^H_t within each episode via backward recurrence with sliding-window correction.
+
+    The suffix recurrence is sequentially dependent, so the inner loop stays, but on a
+    segment-local array (no global fancy indexing per step). Correctness is pinned by
+    the brute-force comparison test.
+    """
     g = np.zeros_like(r)
     gH = gamma ** H
     for s, e in zip(starts, ends):            # e inclusive
-        g[e] = r[e]
-        for t in range(e - 1, s - 1, -1):
-            g[t] = r[t] + gamma * g[t + 1]
-            if t + H <= e:
-                g[t] -= gH * r[t + H]
+        seg = r[s:e + 1]
+        L = len(seg)
+        out = np.empty(L)
+        for t in range(L - 1, -1, -1):
+            acc = seg[t] + gamma * (out[t + 1] if t + 1 < L else 0.0)
+            if t + H < L:
+                acc -= gH * seg[t + H]
+            out[t] = acc
+        g[s:e + 1] = out
     return g
 
 
@@ -114,14 +131,29 @@ def main():
     ap.add_argument("--out", default=None)
     a = ap.parse_args()
 
-    r, phase, dones, truncs, mid, sem = load_arrays(a.h5)
+    r, phase, dones, truncs, mid, sem, bad, mends, tmo = load_arrays(a.h5)
     N = len(r)
     print(f"[load] N={N:,}  phase_semantics={sem}  motion_id={'yes' if mid is not None else 'no (single motion assumed)'}")
 
     starts, ends = episode_bounds(dones, truncs)
     ep_len = ends - starts + 1
+    # Failure stats from explicit done flavors, never from raw dones (whose semantics
+    # vary per H5). CROSS-CHECK before trusting anything downstream: episode count and
+    # bad_frac must match the hazard analyzer's table for this dataset (it segments by
+    # episode_id and reads next_done_bad_tracking) — a mismatch means episode_bounds
+    # draws different boundaries and G^H is computed on a different population.
+    def _end_frac(flags):
+        return f"{flags[ends].mean():.3f}" if flags is not None else "N/A(key missing)"
     print(f"[episodes] n={len(starts):,}  len mean={ep_len.mean():.1f} p50={np.median(ep_len):.0f} "
-          f"p90={np.percentile(ep_len,90):.0f}  bad_frac={dones[ends].mean():.3f}")
+          f"p90={np.percentile(ep_len,90):.0f}")
+    print(f"[episodes] bad_frac={_end_frac(bad)}  motion_ends_frac={_end_frac(mends)}  "
+          f"timeout_frac={_end_frac(tmo)}  (from next_done_* flavors; "
+          f"dones[ends]={dones[ends].mean():.3f} semantics-unverified, shown for reference only)")
+    if bad is not None and mends is not None:
+        unattributed = float((~(bad[ends] | mends[ends] | (tmo[ends] if tmo is not None else False))).mean())
+        if unattributed > 0.01:
+            print(f"[WARN] {unattributed:.3f} of episode ends carry no done flavor -> "
+                  f"boundary convention may differ from the hazard analyzer; verify before trusting bins")
 
     # soft sanity: within-episode phase should be ~monotone non-decreasing (pre_step)
     dphi = np.diff(phase); boundary = np.zeros(N - 1, bool); boundary[ends[:-1]] = True
@@ -153,6 +185,31 @@ def main():
     w, clip_frac = make_weights(A, beta, a.w_max)
     e = ess_frac(w)
     print(f"\n[chosen] beta={beta:.6f} ({src})  ESS/N={e:.3f}  clip%={100*clip_frac:.2f}")
+
+    # ---- diag: does G^H penalize censoring, or is it censoring-agnostic? ----
+    # A over the last H steps of motion_ends episodes. The phase-bin baseline should
+    # absorb the truncation-induced G^H drop there (everyone in a late bin is cut at a
+    # similar distance). Prediction: mean(A_tail) ~ 0. Significantly negative means
+    # early-success arrival is being penalized -> success trajectories' tails get
+    # down-weighted, late-bin anchors weaken, and a kappa-2 (motion_ends) failure could
+    # be a weighting bug instead of the method. Look at this BEFORE launching.
+    if mends is not None:
+        tail = np.zeros(N, bool)
+        for s_i, e_i in zip(starts, ends):
+            if mends[e_i]:
+                tail[max(s_i, e_i - a.H + 1): e_i + 1] = True
+        if tail.any():
+            tA = A[tail] / max(sigma, 1e-12)
+            q10, q50, q90 = np.percentile(tA, [10, 50, 90])
+            print(f"[diag motion_ends-tail] n={int(tail.sum()):,}  mean(A)/sigma={tA.mean():+.3f}  "
+                  f"p10/p50/p90={q10:+.3f}/{q50:+.3f}/{q90:+.3f}  mean_w={w[tail].mean():.3f} (global=1)")
+            if tA.mean() < -0.2:
+                print("[WARN] motion_ends tail mean(A) significantly negative -> success-penalty leak; "
+                      "late-bin anchors will be down-weighted (v1: tail correction), interpret kappa-2 with care")
+        else:
+            print("[diag motion_ends-tail] no motion_ends episodes found")
+    else:
+        print("[diag motion_ends-tail] skipped: next_done_motion_ends not in h5")
 
     # ---- per-bin table (0-c lite: does w vary WHERE it matters, i.e. wall bins) ----
     print("\n== per-bin stats (chosen beta) ==")
