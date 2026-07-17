@@ -1,5 +1,6 @@
-from dataclasses import replace
+from dataclasses import asdict, replace
 
+from holosoma.config_types.algo import AWCQLAlgoConfig, AWCQLConfig
 from holosoma.config_types.experiment import ExperimentConfig, NightlyConfig, TrainingConfig
 from holosoma.config_values import (
     action,
@@ -561,6 +562,21 @@ g1_29dof_wbt_lr_cql = replace(
 )
 
 
+# AW-CQL v0: exact hyperparameter clone of g1_29dof_wbt_cql (paired one-variable
+# comparison); the only change is the agent class, which multiplies the CQL
+# conservative bracket by precomputed <h5>.aw_weights.npz sidecar weights.
+# Run scripts/aw_precompute_weights.py on the dataset first (Stage 0 gate).
+g1_29dof_wbt_aw_cql = replace(
+    g1_29dof_wbt_cql,
+    training=replace(g1_29dof_wbt_cql.training, name="g1_29dof_wbt_aw_cql_manager"),
+    algo=AWCQLAlgoConfig(
+        _target_="holosoma.agents.aw_cql.aw_cql_agent.AWCQLAgent",
+        _recursive_=False,
+        config=AWCQLConfig(**asdict(g1_29dof_wbt_cql.algo.config)),
+    ),
+)
+
+
 # MCQ (Lyu et al., NeurIPS 2022): same task/sim/data stack as g1_29dof_wbt_cql,
 # with the CQL push-down replaced by MCB in-support anchoring (see MCQConfig).
 g1_29dof_wbt_mcq = replace(
@@ -1041,6 +1057,7 @@ __all__ = [
     "g1_29dof_wbt_cql",
     "g1_29dof_wbt_lr_cql",
     "g1_29dof_wbt_vc_cql",
+    "g1_29dof_wbt_aw_cql",
     "g1_29dof_wbt_bf_cql",
     "g1_29dof_wbt_bc",
     "g1_29dof_wbt_fast_sac_w_object",

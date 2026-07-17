@@ -20,6 +20,7 @@ from holosoma.config_types.algo import (
     BFCQLConfig,
     CQLAlgoConfig,
     VCCQLAlgoConfig,
+    AWCQLAlgoConfig,
     MCQAlgoConfig,
     MCQConfig,
     CALQLAlgoConfig,
@@ -27,6 +28,7 @@ from holosoma.config_types.algo import (
     OS_CALQLAlgoConfig,
     CQLConfig,
     VCCQLConfig,
+    AWCQLConfig,
     CALQLConfig,
     OS_CQLConfig,
     OS_CALQLConfig,
@@ -334,6 +336,14 @@ vc_cql = VCCQLAlgoConfig(
     _target_="holosoma.agents.vc_cql.vc_cql_agent.VCCQLAgent",
     _recursive_=False,
     config=VCCQLConfig(**_vc_cql_config_values),
+)
+
+# AW-CQL v0: identical hyperparameters to scalar CQL; the only difference is the
+# agent class, which scales the conservative bracket by precomputed sidecar weights.
+aw_cql = AWCQLAlgoConfig(
+    _target_="holosoma.agents.aw_cql.aw_cql_agent.AWCQLAgent",
+    _recursive_=False,
+    config=AWCQLConfig(**dataclasses.asdict(cql.config)),
 )
 
 
@@ -823,6 +833,7 @@ DEFAULTS = {
     "codac": codac,
     "cql": cql,
     "vc_cql": vc_cql,
+    "aw_cql": aw_cql,
     "mcq": mcq,
     "cal_ql": cal_ql,
     "os_cql": os_cql,

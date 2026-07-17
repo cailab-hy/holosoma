@@ -760,6 +760,21 @@ class VCCQLConfig(CQLConfig):
     """Maximum absolute low-rank factor entry after tanh parameterization."""
 
 
+@dataclass(frozen=True)
+class AWCQLConfig(CQLConfig):
+    """Advantage-Weighted CQL configuration (AW-CQL v0).
+
+    Identical to CQLConfig except that the conservative penalty bracket is
+    scaled per sample by an exogenous weight loaded from a precomputed
+    ``<offline_dataset_path>.aw_weights.npz`` sidecar (see
+    scripts/aw_precompute_weights.py). The TD, alpha, and Lagrange paths are
+    untouched; global mean(w)=1 keeps the effective alpha aligned with the
+    unweighted CQL baseline.
+    """
+
+    aw_weights_path: str = ""
+    """Path to the .aw_weights.npz sidecar; empty = offline_dataset_path + '.aw_weights.npz'."""
+
 
 @dataclass(frozen=True)
 class MCQConfig(CQLConfig):
@@ -2100,6 +2115,20 @@ class VCCQLAlgoConfig:
 
 
 @dataclass(frozen=True)
+class AWCQLAlgoConfig:
+    """Configuration for advantage-weighted CQL."""
+
+    _target_: str
+    """Target algorithm class."""
+
+    _recursive_: bool
+    """Whether to recursively instantiate."""
+
+    config: AWCQLConfig
+    """Algorithm-specific configuration."""
+
+
+@dataclass(frozen=True)
 class MCQAlgoConfig:
     """Configuration for mildly conservative Q-learning algorithm wrapper."""
 
@@ -2220,6 +2249,7 @@ AlgoInitConfig = Union[
     CODACConfig,
     CQLConfig,
     VCCQLConfig,
+    AWCQLConfig,
     MCQConfig,
     BFCQLConfig,
     CALQLConfig,
@@ -2237,6 +2267,7 @@ AlgoConfig = Union[
     CODACAlgoConfig,
     CQLAlgoConfig,
     VCCQLAlgoConfig,
+    AWCQLAlgoConfig,
     MCQAlgoConfig,
     BFCQLAlgoConfig,
     CALQLAlgoConfig,
