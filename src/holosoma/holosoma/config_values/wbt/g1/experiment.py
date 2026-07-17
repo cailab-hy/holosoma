@@ -734,7 +734,8 @@ g1_29dof_wbt_bc = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
         name="g1_29dof_wbt_bc_manager",
-        num_envs=1,
+        num_envs=512,
+        eval_num_episodes=1,
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
     algo=replace(
@@ -744,6 +745,7 @@ g1_29dof_wbt_bc = ExperimentConfig(
             num_learning_iterations=100000,
             num_updates=4,
             use_symmetry=False,
+            offline_dataset_path="offline_data/g1_29dof_wbt_1m_step_512_env_dataset.h5",
         ),
     ),
     simulator=replace(
@@ -752,7 +754,7 @@ g1_29dof_wbt_bc = ExperimentConfig(
             simulator.isaacsim.config,
             sim=replace(
                 simulator.isaacsim.config.sim,
-                max_episode_length_s=10.0,
+                max_episode_length_s=12.0,
             ),
         ),
     ),
