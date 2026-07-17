@@ -222,6 +222,7 @@ g1_29dof_iql = ExperimentConfig(
         config=replace(
             algo.iql.config,
             num_learning_iterations=50000,
+            reward_scale=5.0,
             use_symmetry=True,
             offline_dataset_path="offline_data/g1_29dof_loco_fastsac_dataset.h5",
         ),

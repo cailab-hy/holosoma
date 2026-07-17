@@ -695,6 +695,7 @@ g1_29dof_wbt_iql = ExperimentConfig(
             algo.iql.config,
             num_learning_iterations=100000,
             discount=0.99,  # For motion tracking, high discount is typically beneficial
+            reward_scale=5.0,
             num_updates=4,
             tau=0.05,
             expectile=0.7,

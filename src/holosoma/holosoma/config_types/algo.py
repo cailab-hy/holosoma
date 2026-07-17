@@ -1771,6 +1771,9 @@ class IQLConfig:
     discount: float = 0.97
     """discount factor"""
 
+    reward_scale: float = 5.0
+    """multiplicative scale applied to dataset rewards before IQL Bellman updates"""
+
     tau: float = 0.005
     """soft update coefficient for Q target"""
 

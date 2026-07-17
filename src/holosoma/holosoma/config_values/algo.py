@@ -720,6 +720,7 @@ iql = IQLAlgoConfig(
         num_updates=8,
         eval_interval=1000,
         discount=0.97,
+        reward_scale=5.0,
         tau=0.005,
         expectile=0.7,
         beta=3.0,

@@ -356,7 +356,7 @@ class IQLAgent(BaseAlgo):
             critic_observations = data["critic_observations"]  # [B, critic_obs_dim]
             next_critic_observations = data["next"]["critic_observations"]  # [B, critic_obs_dim]
             actions = data["actions"]  # [B, action_dim]
-            rewards = data["next"]["rewards"]  # [B]
+            rewards = args.reward_scale * data["next"]["rewards"]  # [B]
             dones = data["next"]["dones"].bool()  # [B]
             truncations = data["next"]["truncations"].bool()  # [B]
             # Truncated ends (timeout / d3 segment_ends) are not true terminals: the
