@@ -450,7 +450,7 @@ g1_29dof_wbt_fixed_fast_sac_data = ExperimentConfig(
 g1_29dof_wbt_cql = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
-        name="g1_29dof_wbt_cql_manag2r",
+        name="g1_29dof_wbt_cql_manager_pu1_4096",
         num_envs=512,
         eval_num_episodes=1,
     ),
@@ -462,22 +462,21 @@ g1_29dof_wbt_cql = ExperimentConfig(
             num_learning_iterations=400000,
             gamma=0.99,  # For motion tracking, high gamma + high num_steps is better
             num_updates=4,
-            policy_frequency=2,
+            policy_frequency=1,
             target_entropy_ratio=0.5,
             tau=0.05,
             cql_weight = 5.0,
-            cql_num_action_samples=32,
+            cql_num_action_samples=10,
             use_symmetry=False,
             use_lagrange=False,
             batch_size=1024,
             cql_target_action_gap=0.0,
-            offline_dataset_path="offline_data/g1_29dof_wbt_1m_step_512_env_dataset.h5",
+            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_episode1m_env256_dataset.h5",
             use_gpu_cache=True,
             reward_scale = 5.0,
             bellman_loss_type="mse",
             huber_beta=5.0,
             cql_max_target_backup = False,
-
         ),
     ),
     simulator=replace(
@@ -536,12 +535,12 @@ g1_29dof_wbt_vc_cql = replace(
             target_entropy_ratio=0.5,
             tau=0.05,
             cql_weight=5.0,
-            cql_num_action_samples=32,
+            cql_num_action_samples=10,
             use_symmetry=False,
             use_lagrange=False,
             batch_size=1024,
             cql_target_action_gap=0.0,
-            offline_dataset_path="offline_data/g1_29dof_wbt_1m_step_512_env_dataset.h5",
+            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_episode1m_env256_dataset.h5",
             use_gpu_cache=True,
             reward_scale=5.0,
             bellman_loss_type="mse",
@@ -568,7 +567,7 @@ g1_29dof_wbt_lr_cql = replace(
 # Run scripts/aw_precompute_weights.py on the dataset first (Stage 0 gate).
 g1_29dof_wbt_aw_cql = replace(
     g1_29dof_wbt_cql,
-    training=replace(g1_29dof_wbt_cql.training, name="g1_29dof_wbt_aw_cql_manager"),
+    training=replace(g1_29dof_wbt_cql.training, name="g1_29dof_wbt_aw_cql_manager_pu1_4096"),
     algo=AWCQLAlgoConfig(
         _target_="holosoma.agents.aw_cql.aw_cql_agent.AWCQLAgent",
         _recursive_=False,
@@ -581,7 +580,7 @@ g1_29dof_wbt_aw_cql = replace(
 # hyperparameters, with w applied only to the -Q(s, a_data) anchor term.
 g1_29dof_wbt_os_aw_cql = replace(
     g1_29dof_wbt_aw_cql,
-    training=replace(g1_29dof_wbt_aw_cql.training, name="g1_29dof_wbt_os_aw_cql_manager"),
+    training=replace(g1_29dof_wbt_aw_cql.training, name="g1_29dof_wbt_os_aw_cql_manager_pu1_4096"),
     algo=AWCQLAlgoConfig(
         _target_="holosoma.agents.os_aw_cql.os_aw_cql_agent.OSAWCQLAgent",
         _recursive_=False,
