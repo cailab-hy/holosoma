@@ -459,7 +459,7 @@ g1_29dof_wbt_cql = ExperimentConfig(
         algo.cql,
         config=replace(
             algo.cql.config,
-            num_learning_iterations=400000,
+            num_learning_iterations=100000,
             gamma=0.99,  # For motion tracking, high gamma + high num_steps is better
             num_updates=4,
             policy_frequency=1,
