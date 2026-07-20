@@ -239,13 +239,18 @@ def main():
     if std_by_bin.max() < 0.05:
         print("KILL(0-c lite): within-bin std(w) ~0 everywhere -> no filtering signal where it matters."); ok = False
 
+    import hashlib
+    rh = hashlib.sha256(np.ascontiguousarray(r[:1000]).tobytes()
+                        + np.ascontiguousarray(r[-1000:]).tobytes()).hexdigest()[:16]
     out = a.out or (a.h5 + ".aw_weights.npz")
     np.savez_compressed(out, weight=w, advantage=A.astype(np.float32),
                         gH=g.astype(np.float32), phase_bin=bins.astype(np.int16),
                         beta=beta, sigma=sigma, gamma=a.gamma, H=a.H,
                         w_max=a.w_max, n=N, ess_frac=e, clip_frac=clip_frac,
-                        h5=os.path.basename(a.h5))
-    print(f"\n[saved] {out}  ({'LAUNCH OK' if ok else 'DO NOT LAUNCH'})")
+                        h5=os.path.basename(a.h5), rhash=rh)
+    print(f"\n[saved] {out}  rhash={rh}  ({'LAUNCH OK' if ok else 'DO NOT LAUNCH'})")
+    print("[loader] guard (2 lines): recompute sha256(rewards[:1000]+rewards[-1000:]).hexdigest()[:16] "
+          "from the h5 you actually train on and assert it equals npz['rhash'] (N-aliasing block).")
     return 0 if ok else 2
 
 

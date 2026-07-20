@@ -346,6 +346,12 @@ aw_cql = AWCQLAlgoConfig(
     config=AWCQLConfig(**dataclasses.asdict(cql.config)),
 )
 
+os_aw_cql = AWCQLAlgoConfig(
+    _target_="holosoma.agents.os_aw_cql.os_aw_cql_agent.OSAWCQLAgent",
+    _recursive_=False,
+    config=AWCQLConfig(**dataclasses.asdict(aw_cql.config)),
+)
+
 
 mcq = MCQAlgoConfig(
     _target_="holosoma.agents.mcq.mcq_agent.MCQAgent",
@@ -835,6 +841,7 @@ DEFAULTS = {
     "cql": cql,
     "vc_cql": vc_cql,
     "aw_cql": aw_cql,
+    "os_aw_cql": os_aw_cql,
     "mcq": mcq,
     "cal_ql": cal_ql,
     "os_cql": os_cql,

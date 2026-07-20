@@ -479,6 +479,16 @@ class CQLAgent(BaseAlgo):
         """Allow CQL variants to gate per-sample conservative gaps."""
         return q1_gap, q2_gap
 
+    def _build_cql_per_sample_losses(
+        self,
+        q1_lse: torch.Tensor,
+        q2_lse: torch.Tensor,
+        q1_data: torch.Tensor,
+        q2_data: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Build each critic's per-sample conservative bracket."""
+        return q1_lse - q1_data, q2_lse - q2_data
+
     def _sync_actor_action_space_buffers(self) -> None:
         with torch.no_grad():
             self.actor.action_scale.copy_(
@@ -772,8 +782,14 @@ class CQLAgent(BaseAlgo):
                     dim=1,
                 )
 
-                cql1_per_sample = torch.logsumexp(cat_q1 / self._temperature, dim=1) * self._temperature - q1
-                cql2_per_sample = torch.logsumexp(cat_q2 / self._temperature, dim=1) * self._temperature - q2
+                q1_lse = torch.logsumexp(cat_q1 / self._temperature, dim=1) * self._temperature
+                q2_lse = torch.logsumexp(cat_q2 / self._temperature, dim=1) * self._temperature
+                cql1_per_sample, cql2_per_sample = self._build_cql_per_sample_losses(
+                    q1_lse,
+                    q2_lse,
+                    q1,
+                    q2,
+                )
                 cql1_per_sample, cql2_per_sample = self._transform_cql_per_sample_losses(
                     cql1_per_sample,
                     cql2_per_sample,

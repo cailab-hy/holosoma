@@ -577,6 +577,19 @@ g1_29dof_wbt_aw_cql = replace(
 )
 
 
+# OS-AW-CQL: paired AW-CQL ablation using the same sidecar weights and all
+# hyperparameters, with w applied only to the -Q(s, a_data) anchor term.
+g1_29dof_wbt_os_aw_cql = replace(
+    g1_29dof_wbt_aw_cql,
+    training=replace(g1_29dof_wbt_aw_cql.training, name="g1_29dof_wbt_os_aw_cql_manager"),
+    algo=AWCQLAlgoConfig(
+        _target_="holosoma.agents.os_aw_cql.os_aw_cql_agent.OSAWCQLAgent",
+        _recursive_=False,
+        config=AWCQLConfig(**asdict(g1_29dof_wbt_aw_cql.algo.config)),
+    ),
+)
+
+
 # MCQ (Lyu et al., NeurIPS 2022): same task/sim/data stack as g1_29dof_wbt_cql,
 # with the CQL push-down replaced by MCB in-support anchoring (see MCQConfig).
 g1_29dof_wbt_mcq = replace(
@@ -1059,6 +1072,7 @@ __all__ = [
     "g1_29dof_wbt_lr_cql",
     "g1_29dof_wbt_vc_cql",
     "g1_29dof_wbt_aw_cql",
+    "g1_29dof_wbt_os_aw_cql",
     "g1_29dof_wbt_bf_cql",
     "g1_29dof_wbt_bc",
     "g1_29dof_wbt_fast_sac_w_object",

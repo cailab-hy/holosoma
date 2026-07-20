@@ -91,7 +91,7 @@ class TrainingConfig:
     eval_failure_phase_bins: int = 20
     """Number of equal-width motion-phase bins used for bad-tracking eval summaries."""
 
-    eval_num_envs: int = 512
+    eval_num_envs: int = 4096
     """Number of parallel environments used by eval_agent.py. Set <=0 to use eval_overrides.num_envs."""
 
     export_onnx: bool = True
