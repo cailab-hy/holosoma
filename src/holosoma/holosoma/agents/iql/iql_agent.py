@@ -443,7 +443,16 @@ class IQLAgent(BaseAlgo):
     def _update_actor(
         self,
         data: TensorDict,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+    ]:
         args = self.config
         scaler = self.scaler
 
@@ -482,6 +491,9 @@ class IQLAgent(BaseAlgo):
             actor_grad_norm.detach(),
             adv.mean().detach(),
             weights.mean().detach(),
+            weights.max().detach(),
+            weights.std(unbiased=False).detach(),
+            torch.quantile(weights.float(), 0.99).detach(),
             log_prob_data.mean().detach(),
         )
 
@@ -771,7 +783,16 @@ class IQLAgent(BaseAlgo):
                 for data in offline_batches:
                     q_loss, q_grad_norm, q_target_mean, q1_mean, q2_mean, reward_mean = update_q(data)
                     value_loss, value_grad_norm, v_mean, q_min_mean, value_diff_mean = update_value(data)
-                    actor_loss, actor_grad_norm, adv_mean, weight_mean, log_prob_mean = update_actor(data)
+                    (
+                        actor_loss,
+                        actor_grad_norm,
+                        adv_mean,
+                        weight_mean,
+                        weight_max,
+                        weight_std,
+                        weight_p99,
+                        log_prob_mean,
+                    ) = update_actor(data)
 
                     self._soft_update_q_target()
 
@@ -791,6 +812,9 @@ class IQLAgent(BaseAlgo):
                             "value_diff_mean": value_diff_mean,
                             "adv_mean": adv_mean,
                             "weight_mean": weight_mean,
+                            "weight_max": weight_max,
+                            "weight_std": weight_std,
+                            "weight_p99": weight_p99,
                             "log_prob_data_mean": log_prob_mean,
                             "buffer_rewards": reward_mean,
                         }
