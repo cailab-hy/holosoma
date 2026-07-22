@@ -450,8 +450,8 @@ g1_29dof_wbt_fixed_fast_sac_data = ExperimentConfig(
 g1_29dof_wbt_cql = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
-        name="g1_29dof_wbt_cql_manager_pu1_4096",
-        num_envs=512,
+        name="g1_29dof_wbt_cql_manager_pu1_4096_seed2",
+        num_envs=4096,
         eval_num_episodes=1,
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
@@ -459,7 +459,7 @@ g1_29dof_wbt_cql = ExperimentConfig(
         algo.cql,
         config=replace(
             algo.cql.config,
-            num_learning_iterations=100000,
+            num_learning_iterations=300000,
             gamma=0.99,  # For motion tracking, high gamma + high num_steps is better
             num_updates=4,
             policy_frequency=1,
@@ -567,7 +567,7 @@ g1_29dof_wbt_lr_cql = replace(
 # Run scripts/aw_precompute_weights.py on the dataset first (Stage 0 gate).
 g1_29dof_wbt_aw_cql = replace(
     g1_29dof_wbt_cql,
-    training=replace(g1_29dof_wbt_cql.training, name="g1_29dof_wbt_aw_cql_manager_pu1_4096"),
+    training=replace(g1_29dof_wbt_cql.training, name="g1_29dof_wbt_aw_cql_manager_pu1_4096_seed2"),
     algo=AWCQLAlgoConfig(
         _target_="holosoma.agents.aw_cql.aw_cql_agent.AWCQLAgent",
         _recursive_=False,
@@ -580,7 +580,7 @@ g1_29dof_wbt_aw_cql = replace(
 # hyperparameters, with w applied only to the -Q(s, a_data) anchor term.
 g1_29dof_wbt_os_aw_cql = replace(
     g1_29dof_wbt_aw_cql,
-    training=replace(g1_29dof_wbt_aw_cql.training, name="g1_29dof_wbt_os_aw_cql_manager_pu1_4096"),
+    training=replace(g1_29dof_wbt_aw_cql.training, name="g1_29dof_wbt_os_aw_cql_manager_pu1_4096_seed2"),
     algo=AWCQLAlgoConfig(
         _target_="holosoma.agents.os_aw_cql.os_aw_cql_agent.OSAWCQLAgent",
         _recursive_=False,
@@ -698,7 +698,7 @@ g1_29dof_wbt_iql = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
         name="g1_29dof_wbt_iql_manager",
-        num_envs=512,
+        num_envs=4096,
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
     algo=replace(
@@ -714,7 +714,7 @@ g1_29dof_wbt_iql = ExperimentConfig(
             beta=3.0,
             max_weight=100.0,
             use_symmetry=False,
-            offline_dataset_path="offline_data/g1_29dof_wbt_1m_step_512_env_dataset.h5",
+            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_episode1m_env256_dataset.h5",
         ),
     ),
     simulator=replace(
@@ -774,7 +774,7 @@ g1_29dof_wbt_bc = ExperimentConfig(
             num_learning_iterations=100000,
             num_updates=4,
             use_symmetry=False,
-            offline_dataset_path="offline_data/g1_29dof_wbt_1m_step_512_env_dataset.h5",
+            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_episode1m_env256_dataset.h5",
         ),
     ),
     simulator=replace(
