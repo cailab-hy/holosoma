@@ -240,8 +240,16 @@ def select_rows(bins, ep_id, term_bin, term_bad, wall_bins, per_cell, span_n,
         z = np.load(cache, allow_pickle=True)
         if rhash is None or str(z["rhash"]) == str(rhash):
             print(f"[rows] loaded cached indices from {cache}")
-            return {tuple(k): v for k, v in zip(z["cell_keys"], z["cell_idx"])}, z["span_idx"]
-        print("[rows] cache rhash mismatch -> reselecting")
+            cached_cells = {
+                (int(k[0]), str(k[1])): np.asarray(v, dtype=np.int64)
+                for k, v in zip(z["cell_keys"], z["cell_idx"])
+            }
+            required_cells = {(int(b), lab) for b in wall_bins for lab in ("SURV", "FAIL")}
+            if required_cells.issubset(cached_cells):
+                return cached_cells, np.asarray(z["span_idx"], dtype=np.int64)
+            print("[rows] cache does not contain all requested bins -> reselecting")
+        else:
+            print("[rows] cache rhash mismatch -> reselecting")
     rng = np.random.default_rng(seed)
     cells = {}
     for b in wall_bins:
