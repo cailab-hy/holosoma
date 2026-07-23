@@ -10,6 +10,7 @@ from loguru import logger
 from holosoma.agents.base_algo.base_algo import BaseAlgo
 from holosoma.config_types.experiment import ExperimentConfig
 from holosoma.utils.config_utils import CONFIG_NAME
+from holosoma.utils.common import seeding
 from holosoma.utils.eval_phase_utils import (
     attach_terminal_motion_phases as _attach_terminal_motion_phases,
     bad_tracking_phase_bin_counts as _bad_tracking_phase_bin_counts,
@@ -362,13 +363,20 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
         return False
 
     num_repeats = max(1, int(tyro_config.training.eval_num_repeats))
+    reseed_each_repeat = bool(tyro_config.training.eval_reseed_each_repeat)
+    base_seed = int(tyro_config.training.seed)
+    seed_stride = int(tyro_config.training.eval_seed_stride)
     failure_phase_bins = max(1, int(tyro_config.training.eval_failure_phase_bins))
     max_eval_steps = tyro_config.training.max_eval_steps
     logger.info(
-        "[Eval] starting repeated evaluation with num_envs={} repeats={} max_eval_steps={}",
+        "[Eval] starting repeated evaluation with num_envs={} repeats={} max_eval_steps={} "
+        "reseed_each_repeat={} base_seed={} seed_stride={}",
         tyro_config.training.num_envs,
         num_repeats,
         max_eval_steps,
+        reseed_each_repeat,
+        base_seed,
+        seed_stride,
     )
     repeat_summaries: list[dict[str, float]] = []
     all_eval_results: list[dict[str, Any]] = []
@@ -378,6 +386,12 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
         logger.info("[Eval] deferring automatic environment resets during vectorized evaluation.")
     try:
         for repeat_idx in range(num_repeats):
+            repeat_seed = base_seed + repeat_idx * seed_stride
+            if reseed_each_repeat:
+                seeding(
+                    repeat_seed,
+                    torch_deterministic=tyro_config.training.torch_deterministic,
+                )
             if callable(evaluate_vectorized_episodes_fn):
                 eval_batch_results = evaluate_vectorized_episodes_fn(
                     max_eval_steps=max_eval_steps,
@@ -406,10 +420,11 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
             repeat_summary = _summarize_eval_results(repeat_results)
             repeat_summaries.append(repeat_summary)
             logger.info(
-                "[Eval Repeat] repeat={}/{} episodes={} success={:.2f}% bad_tracking={:.2f}% "
+                "[Eval Repeat] repeat={}/{} seed={} episodes={} success={:.2f}% bad_tracking={:.2f}% "
                 "timeout={:.2f}% return_mean={:.4f} length_mean={:.2f}",
                 repeat_idx + 1,
                 num_repeats,
+                repeat_seed if reseed_each_repeat else "continued_rng",
                 int(repeat_summary["num_episodes"]),
                 100.0 * repeat_summary["success_ratio"],
                 100.0 * repeat_summary["bad_tracking_ratio"],

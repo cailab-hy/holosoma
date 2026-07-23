@@ -88,6 +88,12 @@ class TrainingConfig:
     eval_num_repeats: int = 5
     """Number of full vectorized evaluation repeats for eval_agent.py."""
 
+    eval_reseed_each_repeat: bool = True
+    """Reset Python/NumPy/Torch RNGs before each eval repeat."""
+
+    eval_seed_stride: int = 1
+    """Seed increment between eval repeats; repeat i uses seed + i * stride."""
+
     eval_failure_phase_bins: int = 20
     """Number of equal-width motion-phase bins used for bad-tracking eval summaries."""
 
