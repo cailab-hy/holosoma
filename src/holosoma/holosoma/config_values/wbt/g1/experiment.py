@@ -313,7 +313,7 @@ g1_29dof_wbt_fast_sac_d3_seg_c_data = replace(
 g1_29dof_wbt_fast_sac_episode_data = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
-        name="g1_29dof_wbt_fast_sac_episode_data_collect_manager",
+        name="g1_29dof_wbt_fast_sac_episode_data_2m_collect_manager",
         num_envs=4096,
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
@@ -321,7 +321,7 @@ g1_29dof_wbt_fast_sac_episode_data = ExperimentConfig(
         algo.fast_sac_episode_data,
         config=replace(
             algo.fast_sac_episode_data.config,
-            num_learning_iterations=30000,
+            num_learning_iterations=20000,
             v_max=20.0,
             v_min=-20.0,
             gamma=0.99,  # For motion tracking, high gamma + high num_steps is better
@@ -869,9 +869,6 @@ g1_29dof_wbt_td3_bc = ExperimentConfig(
 
 
 
-
-
-
 g1_29dof_wbt_w_object = replace(
     g1_29dof_wbt,
     command=command.g1_29dof_wbt_command_w_object,
@@ -951,7 +948,8 @@ g1_29dof_wbt_fast_sac_w_object_episode_data = replace(
         g1_29dof_wbt_fast_sac_episode_data.algo,
         config=replace(
             g1_29dof_wbt_fast_sac_episode_data.algo.config,
-            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_w_object_episode_dataset_Replay64.h5",
+            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_w_object_episode_2m_env128.h5",
+            episode_data_active_envs=128,
         ),
     ),
     command=command.g1_29dof_wbt_command_w_object,
