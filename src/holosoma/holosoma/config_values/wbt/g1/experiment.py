@@ -1,6 +1,6 @@
 from dataclasses import asdict, replace
 
-from holosoma.config_types.algo import AWCQLAlgoConfig, AWCQLConfig
+from holosoma.config_types.algo import AWCQLAlgoConfig, AWCQLConfig, WBCAlgoConfig, WBCConfig
 from holosoma.config_types.experiment import ExperimentConfig, NightlyConfig, TrainingConfig
 from holosoma.config_values import (
     action,
@@ -814,6 +814,16 @@ g1_29dof_wbt_bc = ExperimentConfig(
     ),
 )
 
+g1_29dof_wbt_w_bc = replace(
+    g1_29dof_wbt_bc,
+    training=replace(g1_29dof_wbt_bc.training, name="g1_29dof_wbt_w_bc_manager"),
+    algo=WBCAlgoConfig(
+        _target_="holosoma.agents.w_bc.w_bc_agent.WBCAgent",
+        _recursive_=False,
+        config=WBCConfig(**asdict(g1_29dof_wbt_bc.algo.config)),
+    ),
+)
+
 g1_29dof_wbt_td3_bc = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
@@ -1072,6 +1082,7 @@ __all__ = [
     "g1_29dof_wbt_os_aw_cql",
     "g1_29dof_wbt_bf_cql",
     "g1_29dof_wbt_bc",
+    "g1_29dof_wbt_w_bc",
     "g1_29dof_wbt_fast_sac_w_object",
     "g1_29dof_wbt_fast_sac_w_object_episode_data",
     "g1_29dof_wbt_w_object",

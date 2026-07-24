@@ -2,6 +2,8 @@ import dataclasses
 from holosoma.config_types.algo import (
     BCAlgoConfig,
     BCConfig,
+    WBCAlgoConfig,
+    WBCConfig,
     CODACAlgoConfig,
     CODACConfig,
     FastSACAlgoConfig,
@@ -788,6 +790,12 @@ bc = BCAlgoConfig(
     ),
 )
 
+w_bc = WBCAlgoConfig(
+    _target_="holosoma.agents.w_bc.w_bc_agent.WBCAgent",
+    _recursive_=False,
+    config=WBCConfig(**dataclasses.asdict(bc.config)),
+)
+
 td3_bc = TD3BCAlgoConfig(
     _target_="holosoma.agents.td3.td3_agent.TD3BCAgent",
     _recursive_=False,
@@ -849,5 +857,6 @@ DEFAULTS = {
     "bf_cql": bf_cql,
     "iql": iql,
     "bc": bc,
+    "w_bc": w_bc,
     "td3_bc": td3_bc,
 }

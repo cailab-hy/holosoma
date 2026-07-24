@@ -165,7 +165,6 @@ class BCAgent(BaseAlgo):
             raise ValueError(f"num_updates must be > 0, got {config.num_updates}")
         if config.eval_interval < 0:
             raise ValueError(f"eval_interval must be >= 0, got {config.eval_interval}")
-
     def setup(self) -> None:
         logger.info("Setting up offline BC")
 
@@ -308,6 +307,20 @@ class BCAgent(BaseAlgo):
             return actions.clamp(-1.0, 1.0)
         return self._to_u_actions(actions)
 
+    def _compute_actor_loss(
+        self,
+        data: TensorDict,
+        policy_actions_u: torch.Tensor,
+        dataset_actions_u: torch.Tensor,
+        log_prob_data: torch.Tensor,
+    ) -> torch.Tensor:
+        del data, policy_actions_u, dataset_actions_u
+        return -log_prob_data.mean()
+
+    def _extra_batch_training_metrics(self, data: TensorDict) -> dict[str, torch.Tensor]:
+        del data
+        return {}
+
     def _update_actor(
         self,
         data: TensorDict,
@@ -329,9 +342,13 @@ class BCAgent(BaseAlgo):
             dataset_actions_u = self._maybe_to_u_actions(data["actions"])  # [B, action_dim]
 
             log_prob_data = self.actor.log_prob_dataset_actions(actor_observations, dataset_actions_u)  # [B]
-            actor_loss = -log_prob_data.mean()
-
             policy_actions_u, _, log_std = self.actor(actor_observations)
+            actor_loss = self._compute_actor_loss(
+                data,
+                policy_actions_u,
+                dataset_actions_u,
+                log_prob_data,
+            )
             bc_l1_u = F.l1_loss(policy_actions_u, dataset_actions_u)
             bc_mse_u = F.mse_loss(policy_actions_u, dataset_actions_u)
             action_std = log_std.exp().mean()
@@ -442,6 +459,7 @@ class BCAgent(BaseAlgo):
 
         observations = _sample_cached("observations", torch.float32)
         actions = _sample_cached("actions", torch.float32)
+        sampled_indices = indices
 
         if self.config.use_symmetry:
             observations = self.symmetry_utils.augment_observations(
@@ -450,11 +468,17 @@ class BCAgent(BaseAlgo):
                 obs_list=self.config.actor_obs_keys,
             )
             actions = self.symmetry_utils.augment_actions(actions=actions)
+            augmentation_factor = observations.shape[0] // sampled_indices.shape[0]
+            sampled_indices = sampled_indices.repeat(augmentation_factor)
 
         actions = self._maybe_to_u_actions(actions).clamp(-1.0, 1.0)
         observations = normalize_obs(observations)
 
         total_samples = observations.shape[0]
+        if sampled_indices.shape[0] != total_samples:
+            raise RuntimeError(
+                f"BC dataset indices ({sampled_indices.shape[0]}) do not align with prepared samples ({total_samples})."
+            )
         if total_samples % num_updates != 0:
             raise ValueError(
                 f"Augmented BC batch size {total_samples} is not divisible by num_updates={num_updates}."
@@ -470,6 +494,11 @@ class BCAgent(BaseAlgo):
                 {
                     "observations": observations[start_idx:end_idx],
                     "actions": actions[start_idx:end_idx],
+                    "dataset_index": sampled_indices[start_idx:end_idx].to(
+                        device=self.device,
+                        dtype=torch.long,
+                        non_blocking=True,
+                    ),
                 },
                 batch_size=samples_per_update,
                 device=self.device,
@@ -570,18 +599,18 @@ class BCAgent(BaseAlgo):
                         dataset_abs_u_mean,
                     ) = update_actor(data)
 
-                    self.training_metrics.add(
-                        {
-                            "actor_grad_norm": actor_grad_norm,
-                            "actor_loss": actor_loss,
-                            "log_prob_data_mean": log_prob_data_mean,
-                            "bc_l1_u": bc_l1_u,
-                            "bc_mse_u": bc_mse_u,
-                            "action_std": action_std,
-                            "policy_abs_u_mean": policy_abs_u_mean,
-                            "dataset_abs_u_mean": dataset_abs_u_mean,
-                        }
-                    )
+                    batch_metrics = {
+                        "actor_grad_norm": actor_grad_norm,
+                        "actor_loss": actor_loss,
+                        "log_prob_data_mean": log_prob_data_mean,
+                        "bc_l1_u": bc_l1_u,
+                        "bc_mse_u": bc_mse_u,
+                        "action_std": action_std,
+                        "policy_abs_u_mean": policy_abs_u_mean,
+                        "dataset_abs_u_mean": dataset_abs_u_mean,
+                    }
+                    batch_metrics.update(self._extra_batch_training_metrics(data))
+                    self.training_metrics.add(batch_metrics)
 
             should_log = (self.global_step % args.logging_interval == 0) or (self.global_step <= 10)
             if should_log:

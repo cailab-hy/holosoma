@@ -1926,6 +1926,14 @@ class BCConfig:
 
 
 @dataclass(frozen=True)
+class WBCConfig(BCConfig):
+    """Advantage-weighted behavior cloning using AW-CQL's fixed transition sidecar."""
+
+    aw_weights_path: str = ""
+    """Path to the .aw_weights.npz sidecar; empty = offline_dataset_path + '.aw_weights.npz'."""
+
+
+@dataclass(frozen=True)
 class TD3BCConfig:
     num_learning_iterations: int = 25000
     """total gradient update iterations"""
@@ -2232,6 +2240,20 @@ class BCAlgoConfig:
 
 
 @dataclass(frozen=True)
+class WBCAlgoConfig:
+    """Configuration for advantage-weighted behavior cloning."""
+
+    _target_: str
+    """Target algorithm class."""
+
+    _recursive_: bool
+    """Whether to recursively instantiate."""
+
+    config: WBCConfig
+    """Algorithm-specific configuration."""
+
+
+@dataclass(frozen=True)
 class TD3BCAlgoConfig:
     """Configuration for TD3+BC algorithm wrapper."""
 
@@ -2260,6 +2282,7 @@ AlgoInitConfig = Union[
     OS_CALQLConfig,
     IQLConfig,
     BCConfig,
+    WBCConfig,
     TD3BCConfig,
 ]
 
@@ -2278,5 +2301,6 @@ AlgoConfig = Union[
     OS_CALQLAlgoConfig,
     IQLAlgoConfig,
     BCAlgoConfig,
+    WBCAlgoConfig,
     TD3BCAlgoConfig,
 ]
