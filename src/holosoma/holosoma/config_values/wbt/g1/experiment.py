@@ -988,6 +988,7 @@ g1_29dof_wbt_cql_w_object = replace(
         g1_29dof_wbt_cql.algo,
         config=replace(
             g1_29dof_wbt_cql.algo.config,
+            num_learning_iterations= 100000,
             offline_dataset_path=(
                 "offline_data/g1_29dof_wbt_fastsac_w_object_episode_4m_env64.h5"
             ),
@@ -1018,6 +1019,7 @@ g1_29dof_wbt_iql_w_object = replace(
         g1_29dof_wbt_iql.algo,
         config=replace(
             g1_29dof_wbt_iql.algo.config,
+            num_learning_iterations= 100000,
             offline_dataset_path=(
                 "offline_data/g1_29dof_wbt_fastsac_w_object_episode_4m_env64.h5"
             ),
@@ -1048,6 +1050,7 @@ g1_29dof_wbt_bc_w_object = replace(
         g1_29dof_wbt_bc.algo,
         config=replace(
             g1_29dof_wbt_bc.algo.config,
+            num_learning_iterations= 100000,
             offline_dataset_path=(
                 "offline_data/g1_29dof_wbt_fastsac_w_object_episode_4m_env64.h5"
             ),
@@ -1077,6 +1080,7 @@ g1_29dof_wbt_td3_bc_w_object = replace(
         g1_29dof_wbt_td3_bc.algo,
         config=replace(
             g1_29dof_wbt_td3_bc.algo.config,
+            num_learning_iterations= 100000,
             offline_dataset_path=(
                 "offline_data/g1_29dof_wbt_fastsac_w_object_episode_4m_env64.h5"
             ),

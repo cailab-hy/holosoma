@@ -15,10 +15,17 @@ Output: <h5>.aw_weights.npz  {weight, advantage, gH, phase_bin, meta...}
         + printed report: ESS table over {0.5,1,2}*sigma, per-bin stats, gate verdicts.
 
 Usage:
+  Pairing verification (exit 0=paired, 1=mismatch):
+    python scripts/aw_precompute_weights.py --verify offline_data/xxx.h5
+
+  Stage-0 report without rewriting the sidecar (exit 0=launch, 2=do not launch):
+    python scripts/aw_precompute_weights.py offline_data/xxx.h5 --report-only
+
+  Sidecar generation:
     python aw_precompute_weights.py offline_data/xxx.h5 \
         --gamma 0.99 --H 50 --n-bins 20 --w-max 10.0 --beta-scale 1.0
 """
-import argparse, os, sys
+import argparse, hashlib, os, sys
 import numpy as np
 
 
@@ -30,6 +37,77 @@ def find_key(f, candidates, required=True, label=""):
         raise KeyError(f"none of {candidates} found in h5 (looking for {label}); "
                        f"available: {list(f.keys())[:40]}")
     return None
+
+
+def reward_fingerprint(rewards):
+    """Return the sidecar/H5 pairing hash used by AW-CQL v0."""
+    rewards = np.asarray(rewards, dtype=np.float64).reshape(-1)
+    return hashlib.sha256(
+        np.ascontiguousarray(rewards[:1000]).tobytes()
+        + np.ascontiguousarray(rewards[-1000:]).tobytes()
+    ).hexdigest()[:16]
+
+
+def h5_reward_fingerprint(path):
+    """Compute the AW pairing hash without loading the full HDF5 dataset."""
+    import h5py
+
+    with h5py.File(path, "r") as h5_file:
+        reward_key = find_key(h5_file, ["rewards", "reward"], label="rewards")
+        reward_dataset = h5_file[reward_key]
+        num_rows = int(reward_dataset.shape[0])
+        first = np.asarray(reward_dataset[: min(1000, num_rows)], dtype=np.float64).reshape(-1)
+        last = np.asarray(reward_dataset[max(0, num_rows - 1000) : num_rows], dtype=np.float64).reshape(-1)
+    fingerprint = hashlib.sha256(
+        np.ascontiguousarray(first).tobytes() + np.ascontiguousarray(last).tobytes()
+    ).hexdigest()[:16]
+    return fingerprint, num_rows, reward_key
+
+
+def verify_sidecar(h5_path, sidecar_path):
+    """Verify row count, reward hash, and metadata pairing without recomputing weights."""
+    try:
+        actual_hash, h5_rows, reward_key = h5_reward_fingerprint(h5_path)
+        with np.load(sidecar_path, allow_pickle=False) as sidecar:
+            required = ("weight", "n", "rhash")
+            missing = [key for key in required if key not in sidecar]
+            if missing:
+                print(f"[verify] FAIL: sidecar missing required keys {missing}")
+                return False
+            stored_hash = str(np.asarray(sidecar["rhash"]).item())
+            sidecar_rows = int(np.asarray(sidecar["n"]).item())
+            weight_rows = int(np.asarray(sidecar["weight"]).reshape(-1).shape[0])
+            stored_h5_name = (
+                str(np.asarray(sidecar["h5"]).item())
+                if "h5" in sidecar
+                else "N/A(metadata missing)"
+            )
+    except (FileNotFoundError, KeyError, OSError, ValueError) as error:
+        print(f"[verify] FAIL: {error}")
+        return False
+
+    expected_h5_name = os.path.basename(h5_path)
+    checks = {
+        "rhash": stored_hash == actual_hash,
+        "sidecar_n": sidecar_rows == h5_rows,
+        "weight_rows": weight_rows == h5_rows,
+        "h5_basename": stored_h5_name == expected_h5_name,
+    }
+    print(f"[verify] h5:      {h5_path}")
+    print(f"[verify] sidecar: {sidecar_path}")
+    print(f"[verify] reward_key={reward_key} rows={h5_rows:,}")
+    print(f"[verify] rhash stored={stored_hash} actual={actual_hash} match={checks['rhash']}")
+    print(
+        f"[verify] n sidecar={sidecar_rows:,} weight_rows={weight_rows:,} "
+        f"h5_rows={h5_rows:,} match={checks['sidecar_n'] and checks['weight_rows']}"
+    )
+    print(
+        f"[verify] h5 metadata stored={stored_h5_name!r} expected={expected_h5_name!r} "
+        f"match={checks['h5_basename']}"
+    )
+    passed = all(checks.values())
+    print(f"[verify] {'PASS: sidecar is paired with this H5' if passed else 'FAIL: sidecar/H5 pairing mismatch'}")
+    return passed
 
 
 def load_arrays(path):
@@ -116,9 +194,14 @@ def make_weights(A, beta, w_max):
     return w.astype(np.float32), clip_frac
 
 
-def main():
+def parse_args(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("h5")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--verify", action="store_true",
+                      help="verify the existing sidecar's rhash/row pairing and exit")
+    mode.add_argument("--report-only", action="store_true",
+                      help="compute and print the Stage-0 report without writing a sidecar")
     ap.add_argument("--gamma", type=float, default=0.99)
     ap.add_argument("--H", type=int, default=50)
     ap.add_argument("--n-bins", type=int, default=20)
@@ -129,7 +212,24 @@ def main():
                     help="absolute beta (reward units); overrides beta-scale. "
                          "Use for cross-dataset checks (expert 0-b).")
     ap.add_argument("--out", default=None)
-    a = ap.parse_args()
+    ap.add_argument("--npz", default=None,
+                    help="sidecar path for --verify; default: <h5>.aw_weights.npz")
+    ap.add_argument("--pathology-min-ess", type=float, default=0.2,
+                    help="cell-2 pathology threshold: ESS/N below this is flagged")
+    ap.add_argument("--pathology-max-clip-frac", type=float, default=0.02,
+                    help="cell-2 pathology threshold: clip fraction at/above this is flagged")
+    ap.add_argument("--pathology-min-tail-z", type=float, default=-0.5,
+                    help="cell-2 pathology threshold: motion-end tail mean A/sigma at/below this is flagged")
+    return ap.parse_args(argv)
+
+
+def main(argv=None):
+    a = parse_args(argv)
+    sidecar_path = a.npz or a.out or (a.h5 + ".aw_weights.npz")
+    if a.verify:
+        return 0 if verify_sidecar(a.h5, sidecar_path) else 1
+    if a.report_only and a.out is not None:
+        raise ValueError("--report-only cannot be combined with --out because it never writes a sidecar.")
 
     r, phase, dones, truncs, mid, sem, bad, mends, tmo = load_arrays(a.h5)
     N = len(r)
@@ -184,7 +284,10 @@ def main():
     src = "ABS (cross-dataset mode)" if a.beta_abs is not None else f"{a.beta_scale}*sigma"
     w, clip_frac = make_weights(A, beta, a.w_max)
     e = ess_frac(w)
-    print(f"\n[chosen] beta={beta:.6f} ({src})  ESS/N={e:.3f}  clip%={100*clip_frac:.2f}")
+    print(
+        f"\n[chosen] beta={beta:.6f} ({src})  ESS/N={e:.3f}  "
+        f"clip%={100*clip_frac:.2f}  max_w={float(w.max()):.3f}"
+    )
 
     # ---- diag: does G^H penalize censoring, or is it censoring-agnostic? ----
     # A over the last H steps of motion_ends episodes. The phase-bin baseline should
@@ -193,6 +296,7 @@ def main():
     # early-success arrival is being penalized -> success trajectories' tails get
     # down-weighted, late-bin anchors weaken, and a kappa-2 (motion_ends) failure could
     # be a weighting bug instead of the method. Look at this BEFORE launching.
+    tail_mean_z = float("nan")
     if mends is not None:
         tail = np.zeros(N, bool)
         for s_i, e_i in zip(starts, ends):
@@ -200,6 +304,7 @@ def main():
                 tail[max(s_i, e_i - a.H + 1): e_i + 1] = True
         if tail.any():
             tA = A[tail] / max(sigma, 1e-12)
+            tail_mean_z = float(tA.mean())
             q10, q50, q90 = np.percentile(tA, [10, 50, 90])
             print(f"[diag motion_ends-tail] n={int(tail.sum()):,}  mean(A)/sigma={tA.mean():+.3f}  "
                   f"p10/p50/p90={q10:+.3f}/{q50:+.3f}/{q90:+.3f}  mean_w={w[tail].mean():.3f} (global=1)")
@@ -239,16 +344,40 @@ def main():
     if std_by_bin.max() < 0.05:
         print("KILL(0-c lite): within-bin std(w) ~0 everywhere -> no filtering signal where it matters."); ok = False
 
-    import hashlib
-    rh = hashlib.sha256(np.ascontiguousarray(r[:1000]).tobytes()
-                        + np.ascontiguousarray(r[-1000:]).tobytes()).hexdigest()[:16]
+    print("\n== CELL-2 SIGNAL PATHOLOGY CHECK ==")
+    pathology_reasons = []
+    if e < a.pathology_min_ess:
+        pathology_reasons.append(f"ESS/N={e:.3f} < {a.pathology_min_ess:.3f}")
+    if clip_frac >= a.pathology_max_clip_frac:
+        pathology_reasons.append(
+            f"clip_frac={clip_frac:.3f} >= {a.pathology_max_clip_frac:.3f}"
+        )
+    if np.isfinite(tail_mean_z) and tail_mean_z <= a.pathology_min_tail_z:
+        pathology_reasons.append(
+            f"motion_end_tail_A/sigma={tail_mean_z:+.3f} <= {a.pathology_min_tail_z:+.3f}"
+        )
+    print(
+        f"  ESS/N={e:.3f}, clip%={100.0 * clip_frac:.2f}, max_w={float(w.max()):.3f}, "
+        f"tail_A/sigma={tail_mean_z:+.3f}, top_bin_std={order[:3].tolist()}"
+    )
+    if pathology_reasons:
+        print("  FAIL: " + "; ".join(pathology_reasons))
+        ok = False
+    else:
+        print("  PASS: no configured cell-2 pathology trigger fired")
+
+    rh = reward_fingerprint(r)
     out = a.out or (a.h5 + ".aw_weights.npz")
-    np.savez_compressed(out, weight=w, advantage=A.astype(np.float32),
-                        gH=g.astype(np.float32), phase_bin=bins.astype(np.int16),
-                        beta=beta, sigma=sigma, gamma=a.gamma, H=a.H,
-                        w_max=a.w_max, n=N, ess_frac=e, clip_frac=clip_frac,
-                        h5=os.path.basename(a.h5), rhash=rh)
-    print(f"\n[saved] {out}  rhash={rh}  ({'LAUNCH OK' if ok else 'DO NOT LAUNCH'})")
+    if a.report_only:
+        print(f"\n[report-only] no sidecar written; would target {out}")
+        print(f"[report-only] rhash={rh}  ({'LAUNCH OK' if ok else 'DO NOT LAUNCH'})")
+    else:
+        np.savez_compressed(out, weight=w, advantage=A.astype(np.float32),
+                            gH=g.astype(np.float32), phase_bin=bins.astype(np.int16),
+                            beta=beta, sigma=sigma, gamma=a.gamma, H=a.H,
+                            w_max=a.w_max, n=N, ess_frac=e, clip_frac=clip_frac,
+                            h5=os.path.basename(a.h5), rhash=rh)
+        print(f"\n[saved] {out}  rhash={rh}  ({'LAUNCH OK' if ok else 'DO NOT LAUNCH'})")
     print("[loader] guard (2 lines): recompute sha256(rewards[:1000]+rewards[-1000:]).hexdigest()[:16] "
           "from the h5 you actually train on and assert it equals npz['rhash'] (N-aliasing block).")
     return 0 if ok else 2

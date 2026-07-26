@@ -64,6 +64,9 @@ class AWCQLAgent(CQLAgent):
     def setup(self) -> None:
         super().setup()
         sidecar_path = self.config.aw_weights_path or f"{self._offline_dataset_path}.aw_weights.npz"
+        logger.info(
+            f"AW-CQL pairing paths: h5='{self._offline_dataset_path}', sidecar='{sidecar_path}'"
+        )
         aw = np.load(sidecar_path)
         sidecar_n = int(aw["n"])
         if sidecar_n != self._offline_num_samples:
