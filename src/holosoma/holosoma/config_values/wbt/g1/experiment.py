@@ -1013,6 +1013,19 @@ g1_29dof_wbt_cql_w_object = replace(
     ),
 )
 
+g1_29dof_wbt_aw_cql_w_object = replace(
+    g1_29dof_wbt_cql_w_object,
+    training=replace(
+        g1_29dof_wbt_cql_w_object.training,
+        name="g1_29dof_wbt_aw_cql_w_object_manager",
+    ),
+    algo=AWCQLAlgoConfig(
+        _target_="holosoma.agents.aw_cql.aw_cql_agent.AWCQLAgent",
+        _recursive_=False,
+        config=AWCQLConfig(**asdict(g1_29dof_wbt_cql_w_object.algo.config)),
+    ),
+)
+
 g1_29dof_wbt_iql_w_object = replace(
     g1_29dof_wbt_iql,
     algo=replace(
@@ -1074,6 +1087,20 @@ g1_29dof_wbt_bc_w_object = replace(
         config=replace(simulator.isaacsim.config, scene=replace(simulator.isaacsim.config.scene, env_spacing=0.0)),
     ),
 )
+
+g1_29dof_wbt_w_bc_w_object = replace(
+    g1_29dof_wbt_bc_w_object,
+    training=replace(
+        g1_29dof_wbt_bc_w_object.training,
+        name="g1_29dof_wbt_w_bc_w_object_manager",
+    ),
+    algo=WBCAlgoConfig(
+        _target_="holosoma.agents.w_bc.w_bc_agent.WBCAgent",
+        _recursive_=False,
+        config=WBCConfig(**asdict(g1_29dof_wbt_bc_w_object.algo.config)),
+    ),
+)
+
 g1_29dof_wbt_td3_bc_w_object = replace(
     g1_29dof_wbt_td3_bc,
     algo=replace(
@@ -1127,8 +1154,10 @@ __all__ = [
     "g1_29dof_wbt_fast_sac_w_object_episode_data",
     "g1_29dof_wbt_w_object",
     "g1_29dof_wbt_cql_w_object",
+    "g1_29dof_wbt_aw_cql_w_object",
     "g1_29dof_wbt_iql_w_object",
     "g1_29dof_wbt_bc_w_object",
+    "g1_29dof_wbt_w_bc_w_object",
     "g1_29dof_wbt_td3_bc_w_object",
     "g1_29dof_wbt_fast_sac_w_object_data",
 ]

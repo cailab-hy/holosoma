@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import torch
 
+from holosoma.agents.bc.bc_agent import BCAgent
 from holosoma.agents.w_bc.w_bc_agent import weighted_bc_nll
 from holosoma.config_values.experiment import DEFAULTS
 
@@ -26,6 +27,22 @@ def test_weighted_bc_nll_reduces_to_nll_for_uniform_weights():
     torch.testing.assert_close(weighted_loss, ordinary_nll)
 
 
+def test_bc_converts_small_env_actions_without_value_heuristics():
+    agent = BCAgent.__new__(BCAgent)
+    agent.actor = type(
+        "ActorStub",
+        (),
+        {
+            "action_scale": torch.tensor([2.0, 4.0]),
+            "action_bias": torch.tensor([0.0, 0.0]),
+        },
+    )()
+
+    env_actions = torch.tensor([[0.5, -1.0]])
+
+    torch.testing.assert_close(agent._to_u_actions(env_actions), torch.tensor([[0.25, -0.25]]))
+
+
 def test_wbt_bc_and_wbc_are_a_paired_nll_comparison():
     bc_experiment = DEFAULTS["g1_29dof_wbt_bc"]
     wbc_experiment = DEFAULTS["g1_29dof_wbt_w_bc"]
@@ -35,3 +52,14 @@ def test_wbt_bc_and_wbc_are_a_paired_nll_comparison():
     assert bc_experiment.algo.config.batch_size == wbc_experiment.algo.config.batch_size
     assert bc_experiment.algo.config.num_updates == wbc_experiment.algo.config.num_updates
     assert wbc_experiment.algo._target_ == "holosoma.agents.w_bc.w_bc_agent.WBCAgent"
+
+
+def test_wbt_object_bc_and_wbc_are_paired():
+    bc_experiment = DEFAULTS["g1_29dof_wbt_bc_w_object"]
+    wbc_experiment = DEFAULTS["g1_29dof_wbt_w_bc_w_object"]
+
+    assert wbc_experiment.algo._target_ == "holosoma.agents.w_bc.w_bc_agent.WBCAgent"
+    assert wbc_experiment.algo.config.offline_dataset_path == bc_experiment.algo.config.offline_dataset_path
+    assert wbc_experiment.algo.config.aw_weights_path == ""
+    assert wbc_experiment.command == bc_experiment.command
+    assert wbc_experiment.robot == bc_experiment.robot

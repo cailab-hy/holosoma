@@ -299,14 +299,6 @@ class BCAgent(BaseAlgo):
         action_bias = self.actor.action_bias.to(device=u_actions.device, dtype=u_actions.dtype)
         return u_actions * action_scale + action_bias
 
-    def _maybe_to_u_actions(self, actions: torch.Tensor) -> torch.Tensor:
-        if actions.numel() == 0:
-            return actions
-        max_abs = actions.detach().abs().max()
-        if bool((max_abs <= 1.05).item()):
-            return actions.clamp(-1.0, 1.0)
-        return self._to_u_actions(actions)
-
     def _compute_actor_loss(
         self,
         data: TensorDict,
@@ -339,7 +331,7 @@ class BCAgent(BaseAlgo):
 
         with self._maybe_amp():
             actor_observations = data["observations"]  # [B, actor_obs_dim]
-            dataset_actions_u = self._maybe_to_u_actions(data["actions"])  # [B, action_dim]
+            dataset_actions_u = data["actions"]  # [B, action_dim]
 
             log_prob_data = self.actor.log_prob_dataset_actions(actor_observations, dataset_actions_u)  # [B]
             policy_actions_u, _, log_std = self.actor(actor_observations)
@@ -471,7 +463,7 @@ class BCAgent(BaseAlgo):
             augmentation_factor = observations.shape[0] // sampled_indices.shape[0]
             sampled_indices = sampled_indices.repeat(augmentation_factor)
 
-        actions = self._maybe_to_u_actions(actions).clamp(-1.0, 1.0)
+        actions = self._to_u_actions(actions)
         observations = normalize_obs(observations)
 
         total_samples = observations.shape[0]

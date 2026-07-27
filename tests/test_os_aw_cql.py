@@ -4,6 +4,8 @@ import torch
 
 from holosoma.agents.aw_cql.aw_cql_agent import AWCQLAgent
 from holosoma.agents.os_aw_cql.os_aw_cql_agent import OSAWCQLAgent
+from holosoma.config_values import command
+from holosoma.config_values.experiment import DEFAULTS
 
 
 def test_os_aw_cql_weights_only_dataset_anchor() -> None:
@@ -40,3 +42,14 @@ def test_os_aw_cql_differs_from_full_bracket_weighting() -> None:
     torch.testing.assert_close(aw_loss, weight * (lse - q_data))
     torch.testing.assert_close(os_loss, lse - weight * q_data)
     assert not torch.allclose(aw_loss, os_loss)
+
+
+def test_wbt_object_cql_and_aw_cql_are_paired() -> None:
+    cql_experiment = DEFAULTS["g1_29dof_wbt_cql_w_object"]
+    aw_experiment = DEFAULTS["g1_29dof_wbt_aw_cql_w_object"]
+
+    assert aw_experiment.algo._target_ == "holosoma.agents.aw_cql.aw_cql_agent.AWCQLAgent"
+    assert aw_experiment.algo.config.offline_dataset_path == cql_experiment.algo.config.offline_dataset_path
+    assert aw_experiment.algo.config.aw_weights_path == ""
+    assert aw_experiment.command == command.g1_29dof_wbt_command_w_object
+    assert aw_experiment.robot.object is not None
