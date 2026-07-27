@@ -48,6 +48,11 @@ from holosoma.config_values.wbt.g1.experiment import (
     g1_29dof_wbt_fast_sac_w_object_data,
     g1_29dof_wbt_fast_sac_w_object_episode_data,
 )
+from holosoma.config_values.wbt.g1.fall_and_getup_experiment import (
+    g1_29dof_wbt_fall_and_getup,
+    g1_29dof_wbt_fall_and_getup_fast_sac,
+    g1_29dof_wbt_fall_and_getup_fast_sac_episode_data,
+)
 
 DEFAULTS = {
     "g1_29dof": g1_29dof,
@@ -67,6 +72,11 @@ DEFAULTS = {
     "g1_29dof_wbt": g1_29dof_wbt,
     "g1_29dof_wbt_w_object": g1_29dof_wbt_w_object,
     "g1_29dof_wbt_fast_sac": g1_29dof_wbt_fast_sac,
+    "g1_29dof_wbt_fall_and_getup": g1_29dof_wbt_fall_and_getup,
+    "g1_29dof_wbt_fall_and_getup_fast_sac": g1_29dof_wbt_fall_and_getup_fast_sac,
+    "g1_29dof_wbt_fall_and_getup_fast_sac_episode_data": (
+        g1_29dof_wbt_fall_and_getup_fast_sac_episode_data
+    ),
     "g1_29dof_wbt_fast_sac_data": g1_29dof_wbt_fast_sac_data,
     "g1_29dof_wbt_fast_sac_d3_seg_a_data": g1_29dof_wbt_fast_sac_d3_seg_a_data,
     "g1_29dof_wbt_fast_sac_d3_seg_b_data": g1_29dof_wbt_fast_sac_d3_seg_b_data,
