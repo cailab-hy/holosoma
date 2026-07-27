@@ -378,6 +378,11 @@ class TD3BCAgent(BaseAlgo):
             return (actions + noise).clamp(min_action, max_action)
         return actions + noise
 
+    def _to_normalized_actions(self, actions: torch.Tensor) -> torch.Tensor:
+        action_scale = self.actor.action_scale.to(device=actions.device, dtype=actions.dtype)
+        action_bias = self.actor.action_bias.to(device=actions.device, dtype=actions.dtype)
+        return ((actions - action_bias) / (action_scale + 1e-6)).clamp(-1.0, 1.0)
+
     def _update_q(
         self,
         data: TensorDict,
@@ -400,7 +405,7 @@ class TD3BCAgent(BaseAlgo):
             next_critic_observations = data["next"]["critic_observations"]
             # Action semantics (aligned with IQL): env/scaled action space throughout training.
             actions = data["actions"]
-            rewards = data["next"]["rewards"]
+            rewards = args.reward_scale * data["next"]["rewards"]
             dones = data["next"]["dones"].bool()
             truncations = data["next"]["truncations"].bool()
             bootstrap = (truncations | ~dones).float()
@@ -468,6 +473,8 @@ class TD3BCAgent(BaseAlgo):
             dataset_actions = data["actions"]
 
             policy_actions = self.actor(actor_observations)[0]
+            policy_actions_u = self._to_normalized_actions(policy_actions)
+            dataset_actions_u = self._to_normalized_actions(dataset_actions)
             q1_pi, q2_pi = self.qnet(critic_observations, policy_actions)
             q_pi = torch.minimum(q1_pi, q2_pi)
 
@@ -486,7 +493,7 @@ class TD3BCAgent(BaseAlgo):
                 lambda_coef = torch.zeros_like(lambda_coef)
 
             actor_q_loss = -(lambda_coef * q_pi).mean()
-            bc_loss = F.mse_loss(policy_actions, dataset_actions)
+            bc_loss = F.mse_loss(policy_actions_u, dataset_actions_u)
             actor_total_loss = actor_q_loss + args.bc_coef * bc_loss
 
             policy_abs_action_mean = policy_actions.abs().mean()

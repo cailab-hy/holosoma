@@ -1032,7 +1032,16 @@ g1_29dof_wbt_iql_w_object = replace(
         g1_29dof_wbt_iql.algo,
         config=replace(
             g1_29dof_wbt_iql.algo.config,
-            num_learning_iterations= 100000,
+            num_learning_iterations=100000,
+            critic_learning_rate=3e-4,
+            value_learning_rate=3e-4,
+            actor_learning_rate=3e-4,
+            batch_size=g1_29dof_wbt_cql.algo.config.batch_size,
+            num_updates=g1_29dof_wbt_cql.algo.config.num_updates,
+            discount=g1_29dof_wbt_cql.algo.config.gamma,
+            reward_scale=float(g1_29dof_wbt_cql.algo.config.reward_scale),
+            bootstrap_truncations=g1_29dof_wbt_cql.algo.config.bootstrap_truncations,
+            tau=0.005,
             offline_dataset_path=(
                 "offline_data/g1_29dof_wbt_fastsac_w_object_episode_4m_env64.h5"
             ),
@@ -1103,11 +1112,23 @@ g1_29dof_wbt_w_bc_w_object = replace(
 
 g1_29dof_wbt_td3_bc_w_object = replace(
     g1_29dof_wbt_td3_bc,
+    training=replace(
+        g1_29dof_wbt_td3_bc.training,
+        name="g1_29dof_wbt_td3_bc_w_object_manager",
+        num_envs=g1_29dof_wbt_cql.training.num_envs,
+    ),
     algo=replace(
         g1_29dof_wbt_td3_bc.algo,
         config=replace(
             g1_29dof_wbt_td3_bc.algo.config,
-            num_learning_iterations= 100000,
+            num_learning_iterations=100000,
+            critic_learning_rate=3e-4,
+            actor_learning_rate=3e-4,
+            batch_size=g1_29dof_wbt_cql.algo.config.batch_size,
+            num_updates=g1_29dof_wbt_cql.algo.config.num_updates,
+            discount=g1_29dof_wbt_cql.algo.config.gamma,
+            reward_scale=float(g1_29dof_wbt_cql.algo.config.reward_scale),
+            tau=0.005,
             offline_dataset_path=(
                 "offline_data/g1_29dof_wbt_fastsac_w_object_episode_4m_env64.h5"
             ),

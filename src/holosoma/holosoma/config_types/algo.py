@@ -1774,6 +1774,9 @@ class IQLConfig:
     reward_scale: float = 5.0
     """multiplicative scale applied to dataset rewards before IQL Bellman updates"""
 
+    bootstrap_truncations: bool = False
+    """whether timeout/truncation rows retain bootstrap value in IQL targets"""
+
     tau: float = 0.005
     """soft update coefficient for Q target"""
 
@@ -1955,6 +1958,9 @@ class TD3BCConfig:
 
     discount: float = 0.97
     """discount factor"""
+
+    reward_scale: float = 1.0
+    """multiplicative scale applied to dataset rewards before TD3+BC Bellman updates"""
 
     tau: float = 0.005
     """soft update coefficient for target networks"""
