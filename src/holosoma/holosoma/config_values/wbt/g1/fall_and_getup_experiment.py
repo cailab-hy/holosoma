@@ -144,7 +144,7 @@ g1_29dof_wbt_fall_and_getup_fast_sac_episode_data = ExperimentConfig(
         algo.fast_sac_episode_data,
         config=replace(
             algo.fast_sac_episode_data.config,
-            num_learning_iterations=20000,
+            num_learning_iterations=40000,
             v_max=20.0,
             v_min=-20.0,
             gamma=0.99,
@@ -157,7 +157,7 @@ g1_29dof_wbt_fall_and_getup_fast_sac_episode_data = ExperimentConfig(
             use_symmetry=False,
             offline_dataset_path=(
                 "offline_data/"
-                "g1_29dof_wbt_fall_and_getup_fastsac_episode_env64_dataset.h5"
+                "g1_29dof_wbt_fall_and_getup_fastsac_4m_episode_env64_dataset.h5"
             ),
             episode_data_active_envs=64,
         ),
