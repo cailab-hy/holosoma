@@ -28,6 +28,8 @@ class WholeBodyTrackingManager(BaseTask):
             dtype=torch.float32,
             device=self.device,
         )
+        self._eval_success_root_states = torch.zeros_like(self.simulator.robot_root_states[:])
+        self._eval_success_dof_pos = torch.zeros_like(self.simulator.dof_pos)
         self._configure_default_dof_pos()
         self._init_domain_rand_buffers()
 
@@ -136,6 +138,25 @@ class WholeBodyTrackingManager(BaseTask):
         failure_positions = positions[self._deferred_eval_failure_mask]
         self._visualize_eval_status_marker("success", success_positions)
         self._visualize_eval_status_marker("failure", failure_positions)
+
+    def _capture_deferred_eval_success_states(self, env_ids: torch.Tensor) -> None:
+        self._eval_success_root_states[env_ids] = self.simulator.robot_root_states[env_ids]
+        self._eval_success_root_states[env_ids, 7:13] = 0.0
+        self._eval_success_dof_pos[env_ids] = self.simulator.dof_pos[env_ids]
+
+    def _restore_deferred_eval_success_states(self) -> None:
+        if not self._defer_resets:
+            return
+
+        env_ids = self._deferred_eval_success_mask.nonzero(as_tuple=False).flatten()
+        if env_ids.numel() == 0:
+            return
+
+        self.simulator.robot_root_states[env_ids] = self._eval_success_root_states[env_ids]
+        self.simulator.dof_pos[env_ids] = self._eval_success_dof_pos[env_ids]
+        self.simulator.dof_vel[env_ids] = 0.0
+        self.simulator.set_actor_root_state_tensor_robots(env_ids)
+        self.simulator.set_dof_state_tensor_robots(env_ids)
 
     def _get_average_episode_tracker(self):
         tracker = self.curriculum_manager.get_term("average_episode_tracker")

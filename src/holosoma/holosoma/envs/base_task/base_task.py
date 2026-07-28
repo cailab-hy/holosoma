@@ -380,6 +380,12 @@ class BaseTask:
     # ------------------------------------------------------------------
     # Hooks for subclasses
 
+    def _capture_deferred_eval_success_states(self, env_ids: torch.Tensor) -> None:
+        """Capture terminal states that should remain frozen during deferred evaluation."""
+
+    def _restore_deferred_eval_success_states(self) -> None:
+        """Restore frozen successful states during deferred evaluation."""
+
     def _get_task_name(self) -> str:
         """Return a task identifier for logging/experiment directory naming."""
         training_task_name = getattr(self.training_config, "task_name", None)
@@ -451,10 +457,12 @@ class BaseTask:
             self.action_manager.process_actions(actions)
 
     def _physics_step(self):
+        self._restore_deferred_eval_success_states()
         self.render()
         for _ in range(self.simulator.simulator_config.sim.control_decimation):
             self._apply_force_in_physics_step()
             self.simulator.simulate_at_each_physics_step()
+            self._restore_deferred_eval_success_states()
 
     def _apply_force_in_physics_step(self):
         if self.action_manager is not None:
@@ -500,6 +508,9 @@ class BaseTask:
                     self._deferred_eval_success_mask[new_env_ids] = success_now
                     self._deferred_eval_failure_mask[new_env_ids] = ~success_now
                     self._deferred_reset_mask[new_env_ids] = True
+                    success_env_ids = new_env_ids[success_now]
+                    if success_env_ids.numel() > 0:
+                        self._capture_deferred_eval_success_states(success_env_ids)
                     self._update_eval_status_visualization()
             else:
                 self.reset_envs_idx(env_ids)
