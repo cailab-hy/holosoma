@@ -1,4 +1,4 @@
-"""Whole-body tracking command for the G1 fall-and-get-up motion."""
+"""Whole-body tracking command for fallAndGetUp3 frames [2460, 2580)."""
 
 from holosoma.config_types.command import CommandManagerCfg, CommandTermCfg, MotionConfig, NoiseToInitialPoseConfig
 
@@ -26,6 +26,10 @@ g1_29dof_wbt_fall_and_getup_motion = MotionConfig(
     ],
     body_name_ref=["torso_link"],
     use_adaptive_timesteps_sampler=False,
+    enable_default_pose_prepend=False,
+    default_pose_prepend_duration_s=0.0,
+    enable_default_pose_append=True,
+    default_pose_append_duration_s=2.0,
     noise_to_initial_pose=NoiseToInitialPoseConfig(
         overall_noise_scale=1.0,
         dof_pos=0.1,

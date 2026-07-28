@@ -1,4 +1,4 @@
-"""Standalone G1 fall-and-get-up training and episode-data experiments."""
+"""Standalone experiments for fallAndGetUp3 frames [2460, 2580)."""
 
 from dataclasses import replace
 
@@ -44,7 +44,7 @@ def _fall_and_getup_simulator():
             ),
             sim=replace(
                 simulator.isaacsim.config.sim,
-                max_episode_length_s=20.0,
+                max_episode_length_s=10.0,
             ),
         ),
     )
