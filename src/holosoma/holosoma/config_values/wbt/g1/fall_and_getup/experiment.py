@@ -3,8 +3,6 @@
 from dataclasses import asdict, replace
 
 from holosoma.config_types.algo import (
-    AWCQLAlgoConfig,
-    AWCQLConfig,
     WBCAlgoConfig,
     WBCConfig,
 )
@@ -205,7 +203,7 @@ g1_29dof_wbt_fall_and_getup_cql = ExperimentConfig(
         algo.cql,
         config=replace(
             algo.cql.config,
-            num_learning_iterations=300000,
+            num_learning_iterations=100000,
             gamma=0.99,
             num_updates=4,
             policy_frequency=1,
@@ -277,12 +275,6 @@ g1_29dof_wbt_fall_and_getup_iql = ExperimentConfig(
 )
 
 
-_AW_CQL_CONFIG = replace(
-    AWCQLConfig(**asdict(g1_29dof_wbt_fall_and_getup_cql.algo.config)),
-    offline_dataset_path=_AW_CQL_DATASET,
-    aw_weights_path=_AW_CQL_WEIGHTS,
-)
-
 g1_29dof_wbt_fall_and_getup_aw_cql = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
@@ -291,10 +283,30 @@ g1_29dof_wbt_fall_and_getup_aw_cql = ExperimentConfig(
         eval_num_episodes=1,
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
-    algo=AWCQLAlgoConfig(
-        _target_="holosoma.agents.aw_cql.aw_cql_agent.AWCQLAgent",
-        _recursive_=False,
-        config=_AW_CQL_CONFIG,
+    algo=replace(
+        algo.aw_cql,
+        config=replace(
+            algo.aw_cql.config,
+            num_learning_iterations=100000,
+            gamma=0.99,
+            num_updates=4,
+            policy_frequency=1,
+            target_entropy_ratio=0.5,
+            tau=0.05,
+            cql_weight=5.0,
+            cql_num_action_samples=10,
+            use_symmetry=False,
+            use_lagrange=False,
+            batch_size=1024,
+            cql_target_action_gap=0.0,
+            offline_dataset_path=_AW_CQL_DATASET,
+            aw_weights_path=_AW_CQL_WEIGHTS,
+            use_gpu_cache=True,
+            reward_scale=5.0,
+            bellman_loss_type="mse",
+            huber_beta=5.0,
+            cql_max_target_backup=False,
+        ),
     ),
     simulator=_simulator(),
     robot=_robot(),
