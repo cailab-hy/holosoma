@@ -10,7 +10,7 @@ from holosoma.config_values.wbt.g1.command import (
     g1_29dof_wbt_command_offline_collect,
     g1_29dof_wbt_command_w_object,
 )
-from holosoma.config_values.wbt.g1.fall_and_getup_command import (
+from holosoma.config_values.wbt.g1.fall_and_getup.command import (
     g1_29dof_wbt_fall_and_getup_command,
 )
 

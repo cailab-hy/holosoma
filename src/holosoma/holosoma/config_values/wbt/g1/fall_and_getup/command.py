@@ -1,6 +1,11 @@
 """Whole-body tracking command for fallAndGetUp3 frames [2460, 2580)."""
 
-from holosoma.config_types.command import CommandManagerCfg, CommandTermCfg, MotionConfig, NoiseToInitialPoseConfig
+from holosoma.config_types.command import (
+    CommandManagerCfg,
+    CommandTermCfg,
+    MotionConfig,
+    NoiseToInitialPoseConfig,
+)
 
 
 g1_29dof_wbt_fall_and_getup_motion = MotionConfig(
@@ -46,9 +51,7 @@ g1_29dof_wbt_fall_and_getup_command = CommandManagerCfg(
     setup_terms={
         "motion_command": CommandTermCfg(
             func="holosoma.managers.command.terms.wbt:MotionCommand",
-            params={
-                "motion_config": g1_29dof_wbt_fall_and_getup_motion,
-            },
+            params={"motion_config": g1_29dof_wbt_fall_and_getup_motion},
         ),
     },
     reset_terms={
