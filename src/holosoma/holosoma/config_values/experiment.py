@@ -56,6 +56,7 @@ from holosoma.config_values.wbt.g1.fall_and_getup.experiment import (
     g1_29dof_wbt_fall_and_getup_fast_sac,
     g1_29dof_wbt_fall_and_getup_fast_sac_episode_data,
     g1_29dof_wbt_fall_and_getup_iql,
+    g1_29dof_wbt_fall_and_getup_os_aw_cql,
     g1_29dof_wbt_fall_and_getup_w_bc,
 )
 
@@ -81,6 +82,7 @@ DEFAULTS = {
     "g1_29dof_wbt_fall_and_getup_cql": g1_29dof_wbt_fall_and_getup_cql,
     "g1_29dof_wbt_fall_and_getup_iql": g1_29dof_wbt_fall_and_getup_iql,
     "g1_29dof_wbt_fall_and_getup_aw_cql": g1_29dof_wbt_fall_and_getup_aw_cql,
+    "g1_29dof_wbt_fall_and_getup_os_aw_cql": g1_29dof_wbt_fall_and_getup_os_aw_cql,
     "g1_29dof_wbt_fall_and_getup_bc": g1_29dof_wbt_fall_and_getup_bc,
     "g1_29dof_wbt_fall_and_getup_w_bc": g1_29dof_wbt_fall_and_getup_w_bc,
     "g1_29dof_wbt_fall_and_getup_fast_sac": g1_29dof_wbt_fall_and_getup_fast_sac,
