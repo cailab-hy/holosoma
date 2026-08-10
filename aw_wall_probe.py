@@ -41,8 +41,21 @@ import numpy as np
 #                                                      normalizer the trainer used)
 #   pi_fn(obs [B,Do]) -> act [B,Da]                    (deterministic actor mean)
 # ----------------------------------------------------------------------------
-def build_scorer(algo: str, ckpt_path: str, device: str = "cuda"):
-    """Restore a scalar CQL-family or IQL checkpoint as NumPy scoring callables."""
+def build_scorer(
+    algo: str,
+    ckpt_path: str,
+    device: str = "cuda",
+    *,
+    critic_state_key: str = "qnet_state_dict",
+    include_target_q: bool = False,
+):
+    """Restore an offline-RL checkpoint as NumPy scoring callables.
+
+    ``critic_state_key`` defaults to the online critic used by the original
+    wall probe. Retrospective audits may request ``include_target_q=True`` to
+    receive a third callable backed by ``qnet_target_state_dict`` without
+    loading the checkpoint twice.
+    """
     from pathlib import Path
     from typing import Mapping
 
@@ -51,17 +64,21 @@ def build_scorer(algo: str, ckpt_path: str, device: str = "cuda"):
     if str(source_root) not in sys.path:
         sys.path.insert(0, str(source_root))
 
-    from holosoma.agents.cql.cql import Actor, DoubleQCritic
+    from holosoma.agents.cql.cql import Actor as StochasticActor
+    from holosoma.agents.cql.cql import DoubleQCritic
+    from holosoma.agents.td3.td3 import Actor as DeterministicActor
     from holosoma.utils.safe_torch_import import torch
 
     algo = algo.lower()
-    if algo not in {"cql", "iql"}:
-        raise ValueError(f"unsupported algo '{algo}'; expected one of: cql, iql")
+    if algo not in {"cql", "iql", "td3bc"}:
+        raise ValueError(f"unsupported algo '{algo}'; expected one of: cql, iql, td3bc")
 
     torch_device = torch.device(device)
     checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=False)
-    if "actor_state_dict" not in checkpoint or "qnet_state_dict" not in checkpoint:
-        raise KeyError(f"checkpoint lacks actor_state_dict or qnet_state_dict: {ckpt_path}")
+    if "actor_state_dict" not in checkpoint or critic_state_key not in checkpoint:
+        raise KeyError(
+            f"checkpoint lacks actor_state_dict or {critic_state_key}: {ckpt_path}"
+        )
 
     def strip_prefixes(state_dict):
         cleaned = {}
@@ -83,15 +100,16 @@ def build_scorer(algo: str, ckpt_path: str, device: str = "cuda"):
         raise NotImplementedError("aw_wall_probe.py supports the WBT MLP actor, not CNNActor checkpoints")
 
     actor_state = strip_prefixes(checkpoint["actor_state_dict"])
-    critic_state = strip_prefixes(checkpoint["qnet_state_dict"])
-    if "net.0.weight" not in actor_state or "fc_mu.0.weight" not in actor_state:
+    critic_state = strip_prefixes(checkpoint[critic_state_key])
+    actor_output_key = "fc_mu.weight" if algo == "td3bc" else "fc_mu.0.weight"
+    if "net.0.weight" not in actor_state or actor_output_key not in actor_state:
         raise ValueError(f"unsupported actor state layout: {ckpt_path}")
     if "q1.net.0.weight" not in critic_state:
         raise ValueError(f"unsupported twin-Q state layout: {ckpt_path}")
 
     actor_obs_dim = int(actor_state["net.0.weight"].shape[1])
     actor_hidden_dim = int(actor_state["net.0.weight"].shape[0])
-    action_dim = int(actor_state["fc_mu.0.weight"].shape[0])
+    action_dim = int(actor_state[actor_output_key].shape[0])
     critic_hidden_dim = int(critic_state["q1.net.0.weight"].shape[0])
     critic_obs_dim = int(critic_state["q1.net.0.weight"].shape[1]) - action_dim
     use_layer_norm = bool(args.get("use_layer_norm", "net.1.weight" in actor_state))
@@ -99,18 +117,24 @@ def build_scorer(algo: str, ckpt_path: str, device: str = "cuda"):
     def obs_layout(size, key):
         return {key: {"start": 0, "end": size, "size": size}}
 
-    actor = Actor(
+    actor_kwargs = dict(
         obs_indices=obs_layout(actor_obs_dim, "actor_obs"),
         obs_keys=["actor_obs"],
         n_act=action_dim,
         num_envs=1,
         hidden_dim=actor_hidden_dim,
-        log_std_max=float(args.get("log_std_max", 0.0)),
-        log_std_min=float(args.get("log_std_min", -5.0)),
         use_tanh=bool(args.get("use_tanh", True)),
         use_layer_norm=use_layer_norm,
         device=torch_device,
     )
+    if algo == "td3bc":
+        actor = DeterministicActor(**actor_kwargs)
+    else:
+        actor = StochasticActor(
+            **actor_kwargs,
+            log_std_max=float(args.get("log_std_max", 0.0)),
+            log_std_min=float(args.get("log_std_min", -5.0)),
+        )
     critic = DoubleQCritic(
         obs_indices=obs_layout(critic_obs_dim, "critic_obs"),
         obs_keys=["critic_obs"],
@@ -119,10 +143,29 @@ def build_scorer(algo: str, ckpt_path: str, device: str = "cuda"):
         use_layer_norm=use_layer_norm,
         device=torch_device,
     )
+    target_critic = None
+    if include_target_q:
+        if "qnet_target_state_dict" not in checkpoint:
+            raise KeyError(f"checkpoint lacks qnet_target_state_dict: {ckpt_path}")
+        target_critic = DoubleQCritic(
+            obs_indices=obs_layout(critic_obs_dim, "critic_obs"),
+            obs_keys=["critic_obs"],
+            n_act=action_dim,
+            hidden_dim=critic_hidden_dim,
+            use_layer_norm=use_layer_norm,
+            device=torch_device,
+        )
     actor.load_state_dict(actor_state, strict=True)
     critic.load_state_dict(critic_state, strict=True)
+    if target_critic is not None:
+        target_critic.load_state_dict(
+            strip_prefixes(checkpoint["qnet_target_state_dict"]),
+            strict=True,
+        )
     actor.eval()
     critic.eval()
+    if target_critic is not None:
+        target_critic.eval()
 
     normalize_observations = bool(args.get("obs_normalization", True))
     actor_normalizer = strip_prefixes(checkpoint.get("obs_normalizer_state") or {})
@@ -141,7 +184,7 @@ def build_scorer(algo: str, ckpt_path: str, device: str = "cuda"):
             raise ValueError(f"stored {label} normalizer does not match dimension {expected_dim}")
         return (values - mean) / (std + 1e-2)
 
-    def q_fn(critic_obs, act):
+    def score_critic(model, critic_obs, act):
         with torch.inference_mode():
             critic_obs_tensor = torch.as_tensor(critic_obs, device=torch_device, dtype=torch.float32)
             action_tensor = torch.as_tensor(act, device=torch_device, dtype=torch.float32)
@@ -155,8 +198,11 @@ def build_scorer(algo: str, ckpt_path: str, device: str = "cuda"):
                 critic_obs_dim,
                 "critic observation",
             )
-            q1, q2 = critic(critic_obs_tensor, action_tensor)
+            q1, q2 = model(critic_obs_tensor, action_tensor)
             return torch.minimum(q1, q2).float().cpu().numpy()
+
+    def q_fn(critic_obs, act):
+        return score_critic(critic, critic_obs, act)
 
     def pi_fn(obs):
         with torch.inference_mode():
@@ -165,6 +211,11 @@ def build_scorer(algo: str, ckpt_path: str, device: str = "cuda"):
             deterministic_action = actor(obs_tensor)[0]
             return deterministic_action.float().cpu().numpy()
 
+    if target_critic is not None:
+        def target_q_fn(critic_obs, act):
+            return score_critic(target_critic, critic_obs, act)
+
+        return q_fn, pi_fn, target_q_fn
     return q_fn, pi_fn
 
 
