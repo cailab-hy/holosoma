@@ -1,6 +1,13 @@
 from dataclasses import asdict, replace
 
-from holosoma.config_types.algo import AWCQLAlgoConfig, AWCQLConfig, WBCAlgoConfig, WBCConfig
+from holosoma.config_types.algo import (
+    AWCQLAlgoConfig,
+    AWCQLConfig,
+    DWCQLAlgoConfig,
+    DWCQLConfig,
+    WBCAlgoConfig,
+    WBCConfig,
+)
 from holosoma.config_types.experiment import ExperimentConfig, NightlyConfig, TrainingConfig
 from holosoma.config_values import (
     action,
@@ -589,6 +596,20 @@ g1_29dof_wbt_os_aw_cql = replace(
 )
 
 
+# DW-CQL: same sidecar, data, and hyperparameters as AW-CQL. The separate
+# agent propagates the same fixed w to TD and actor losses as a placement-only
+# ablation; target construction and alpha/Lagrange paths remain unchanged.
+g1_29dof_wbt_dw_cql = replace(
+    g1_29dof_wbt_aw_cql,
+    training=replace(g1_29dof_wbt_aw_cql.training, name="g1_29dof_wbt_dw_cql_manager_pu1_4096_seed2"),
+    algo=DWCQLAlgoConfig(
+        _target_="holosoma.agents.dw_cql.dw_cql_agent.DWCQLAgent",
+        _recursive_=False,
+        config=DWCQLConfig(**asdict(g1_29dof_wbt_aw_cql.algo.config)),
+    ),
+)
+
+
 # MCQ (Lyu et al., NeurIPS 2022): same task/sim/data stack as g1_29dof_wbt_cql,
 # with the CQL push-down replaced by MCB in-support anchoring (see MCQConfig).
 g1_29dof_wbt_mcq = replace(
@@ -1168,6 +1189,7 @@ __all__ = [
     "g1_29dof_wbt_vc_cql",
     "g1_29dof_wbt_aw_cql",
     "g1_29dof_wbt_os_aw_cql",
+    "g1_29dof_wbt_dw_cql",
     "g1_29dof_wbt_bf_cql",
     "g1_29dof_wbt_bc",
     "g1_29dof_wbt_w_bc",

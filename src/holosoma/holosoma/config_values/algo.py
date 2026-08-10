@@ -23,6 +23,7 @@ from holosoma.config_types.algo import (
     CQLAlgoConfig,
     VCCQLAlgoConfig,
     AWCQLAlgoConfig,
+    DWCQLAlgoConfig,
     MCQAlgoConfig,
     MCQConfig,
     CALQLAlgoConfig,
@@ -31,6 +32,7 @@ from holosoma.config_types.algo import (
     CQLConfig,
     VCCQLConfig,
     AWCQLConfig,
+    DWCQLConfig,
     CALQLConfig,
     OS_CQLConfig,
     OS_CALQLConfig,
@@ -352,6 +354,14 @@ os_aw_cql = AWCQLAlgoConfig(
     _target_="holosoma.agents.os_aw_cql.os_aw_cql_agent.OSAWCQLAgent",
     _recursive_=False,
     config=AWCQLConfig(**dataclasses.asdict(aw_cql.config)),
+)
+
+# DW-CQL placement ablation: same fixed AW sidecar and all AW-CQL
+# hyperparameters; only the weight placement expands to TD and actor losses.
+dw_cql = DWCQLAlgoConfig(
+    _target_="holosoma.agents.dw_cql.dw_cql_agent.DWCQLAgent",
+    _recursive_=False,
+    config=DWCQLConfig(**dataclasses.asdict(aw_cql.config)),
 )
 
 
@@ -850,6 +860,7 @@ DEFAULTS = {
     "vc_cql": vc_cql,
     "aw_cql": aw_cql,
     "os_aw_cql": os_aw_cql,
+    "dw_cql": dw_cql,
     "mcq": mcq,
     "cal_ql": cal_ql,
     "os_cql": os_cql,

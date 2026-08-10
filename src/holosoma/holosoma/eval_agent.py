@@ -356,11 +356,11 @@ def _run_q_gradient_diagnostic(algo: BaseAlgo, checkpoint_cfg: CheckpointConfig)
     return True
 
 
-def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) -> bool:
+def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) -> dict[str, Any] | None:
     evaluate_vectorized_episodes_fn = getattr(algo, "evaluate_vectorized_episodes", None)
     evaluate_one_episode_fn = getattr(algo, "evaluate_one_episode", None)
     if not callable(evaluate_vectorized_episodes_fn) and not callable(evaluate_one_episode_fn):
-        return False
+        return None
 
     num_repeats = max(1, int(tyro_config.training.eval_num_repeats))
     reseed_each_repeat = bool(tyro_config.training.eval_reseed_each_repeat)
@@ -379,6 +379,7 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
         seed_stride,
     )
     repeat_summaries: list[dict[str, float]] = []
+    repeat_records: list[dict[str, Any]] = []
     all_eval_results: list[dict[str, Any]] = []
 
     defer_resets = _set_defer_eval_resets(algo, True)
@@ -419,6 +420,13 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
             all_eval_results.extend(repeat_results)
             repeat_summary = _summarize_eval_results(repeat_results)
             repeat_summaries.append(repeat_summary)
+            repeat_records.append(
+                {
+                    "repeat": repeat_idx + 1,
+                    "seed": repeat_seed if reseed_each_repeat else None,
+                    **repeat_summary,
+                }
+            )
             logger.info(
                 "[Eval Repeat] repeat={}/{} seed={} episodes={} success={:.2f}% bad_tracking={:.2f}% "
                 "timeout={:.2f}% return_mean={:.4f} length_mean={:.2f}",
@@ -463,7 +471,6 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
 
     if not all_eval_results:
         logger.warning("No evaluation episodes were completed; cannot summarize eval ratios.")
-        return True
 
     total_summary = _summarize_eval_results(all_eval_results)
     success_ratios = [summary["success_ratio"] for summary in repeat_summaries]
@@ -552,7 +559,22 @@ def _log_repeated_eval_summary(algo: BaseAlgo, tyro_config: ExperimentConfig) ->
             writer.add_scalar(key, value, 0)
         writer.flush()
 
-    return True
+    return {
+        "num_repeats": num_repeats,
+        "repeat_summaries": repeat_records,
+        "total_summary": total_summary,
+        "success_ratio_std": success_std,
+        "bad_tracking_ratio_std": bad_tracking_std,
+        "timeout_ratio_std": timeout_std,
+        "stop_reason_counts": stop_reason_counts,
+        "bad_tracking_detail_counts": detail_counts,
+        "bad_tracking_detail_percentages": detail_percentages,
+        "bad_tracking_multi_detail_total": multi_detail_total,
+        "bad_tracking_phase_counts": phase_count_summary,
+        "bad_tracking_phase_percentages": phase_percentage_summary,
+        "bad_tracking_phase_unresolved": phase_unresolved,
+        "eval_metrics": eval_metrics,
+    }
 
 
 def run_eval_with_tyro(

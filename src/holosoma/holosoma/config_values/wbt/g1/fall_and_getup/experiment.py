@@ -3,6 +3,8 @@
 from dataclasses import asdict, replace
 
 from holosoma.config_types.algo import (
+    DWCQLAlgoConfig,
+    DWCQLConfig,
     WBCAlgoConfig,
     WBCConfig,
 )
@@ -41,6 +43,8 @@ _AW_CQL_DATASET = "offline_data/g1_29dof_wbt_fall_and_getup_fastsac_4m_episode_e
 _AW_CQL_WEIGHTS = f"{_AW_CQL_DATASET}.aw_weights.npz"
 _OS_AW_CQL_DATASET = "offline_data/g1_29dof_wbt_fall_and_getup_fastsac_4m_episode_env64_dataset.h5"
 _OS_AW_CQL_WEIGHTS = f"{_OS_AW_CQL_DATASET}.aw_weights.npz"
+_DW_CQL_DATASET = "offline_data/g1_29dof_wbt_fall_and_getup_fastsac_4m_episode_env64_dataset.h5"
+_DW_CQL_WEIGHTS = f"{_DW_CQL_DATASET}.aw_weights.npz"
 _BC_DATASET = "offline_data/g1_29dof_wbt_fall_and_getup_fastsac_4m_episode_env64_dataset.h5"
 _W_BC_DATASET = "offline_data/g1_29dof_wbt_fall_and_getup_fastsac_4m_episode_env64_dataset.h5" 
 _W_BC_WEIGHTS = f"{_W_BC_DATASET}.aw_weights.npz"
@@ -371,6 +375,56 @@ g1_29dof_wbt_fall_and_getup_os_aw_cql = ExperimentConfig(
 )
 
 
+g1_29dof_wbt_fall_and_getup_dw_cql = ExperimentConfig(
+    training=TrainingConfig(
+        project="WholeBodyTracking",
+        name="g1_29dof_wbt_fall_and_getup_dw_cql_manager",
+        num_envs=4096,
+        eval_num_episodes=1,
+    ),
+    env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
+    algo=DWCQLAlgoConfig(
+        _target_="holosoma.agents.dw_cql.dw_cql_agent.DWCQLAgent",
+        _recursive_=False,
+        config=DWCQLConfig(
+            **{
+                **asdict(algo.aw_cql.config),
+                "num_learning_iterations": 100000,
+                "gamma": 0.99,
+                "num_updates": 4,
+                "policy_frequency": 1,
+                "target_entropy_ratio": 0.5,
+                "tau": 0.05,
+                "cql_weight": 5.0,
+                "cql_num_action_samples": 10,
+                "use_symmetry": False,
+                "use_lagrange": False,
+                "batch_size": 1024,
+                "cql_target_action_gap": 0.0,
+                "offline_dataset_path": _DW_CQL_DATASET,
+                "aw_weights_path": _DW_CQL_WEIGHTS,
+                "use_gpu_cache": True,
+                "reward_scale": 5.0,
+                "bellman_loss_type": "mse",
+                "huber_beta": 5.0,
+                "cql_max_target_backup": False,
+            }
+        ),
+    ),
+    simulator=_simulator(),
+    robot=_robot(),
+    terrain=terrain.terrain_locomotion_plane,
+    observation=g1_29dof_wbt_fall_and_getup_observation,
+    action=action.g1_29dof_joint_pos,
+    termination=g1_29dof_wbt_fall_and_getup_termination,
+    randomization=g1_29dof_wbt_fall_and_getup_randomization,
+    command=g1_29dof_wbt_fall_and_getup_command,
+    curriculum=g1_29dof_wbt_fall_and_getup_curriculum,
+    reward=g1_29dof_wbt_fall_and_getup_fast_sac_reward,
+    nightly=_NIGHTLY,
+)
+
+
 g1_29dof_wbt_fall_and_getup_bc = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
@@ -441,6 +495,7 @@ __all__ = [
     "g1_29dof_wbt_fall_and_getup_aw_cql",
     "g1_29dof_wbt_fall_and_getup_bc",
     "g1_29dof_wbt_fall_and_getup_cql",
+    "g1_29dof_wbt_fall_and_getup_dw_cql",
     "g1_29dof_wbt_fall_and_getup_fast_sac",
     "g1_29dof_wbt_fall_and_getup_fast_sac_episode_data",
     "g1_29dof_wbt_fall_and_getup_iql",

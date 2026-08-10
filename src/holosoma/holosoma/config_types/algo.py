@@ -777,6 +777,17 @@ class AWCQLConfig(CQLConfig):
 
 
 @dataclass(frozen=True)
+class DWCQLConfig(AWCQLConfig):
+    """Distributed-placement AW-CQL ablation configuration.
+
+    Uses AW-CQL's fixed, globally mean-normalized transition sidecar but
+    propagates its weight to the Bellman residual and SAC actor objective in
+    addition to the conservative bracket. It introduces no new weight signal
+    or normalization hyperparameter.
+    """
+
+
+@dataclass(frozen=True)
 class MCQConfig(CQLConfig):
     """Mildly Conservative Q-learning (Lyu et al., NeurIPS 2022).
 
@@ -2146,6 +2157,20 @@ class AWCQLAlgoConfig:
 
 
 @dataclass(frozen=True)
+class DWCQLAlgoConfig:
+    """Configuration for distributed-placement AW-CQL."""
+
+    _target_: str
+    """Target algorithm class."""
+
+    _recursive_: bool
+    """Whether to recursively instantiate."""
+
+    config: DWCQLConfig
+    """Algorithm-specific configuration."""
+
+
+@dataclass(frozen=True)
 class MCQAlgoConfig:
     """Configuration for mildly conservative Q-learning algorithm wrapper."""
 
@@ -2281,6 +2306,7 @@ AlgoInitConfig = Union[
     CQLConfig,
     VCCQLConfig,
     AWCQLConfig,
+    DWCQLConfig,
     MCQConfig,
     BFCQLConfig,
     CALQLConfig,
@@ -2300,6 +2326,7 @@ AlgoConfig = Union[
     CQLAlgoConfig,
     VCCQLAlgoConfig,
     AWCQLAlgoConfig,
+    DWCQLAlgoConfig,
     MCQAlgoConfig,
     BFCQLAlgoConfig,
     CALQLAlgoConfig,
