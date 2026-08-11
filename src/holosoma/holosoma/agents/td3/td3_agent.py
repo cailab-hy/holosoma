@@ -91,6 +91,7 @@ class TD3Env:
             "episode_all": info_dict["episode_all"],
             "raw_episode": info_dict.get("raw_episode", {}),
             "raw_episode_all": info_dict.get("raw_episode_all", {}),
+            "termination_reasons": info_dict.get("termination_reasons", {}),
             "to_log": info_dict["to_log"],
         }
         return actor_obs, rew_buf, reset_buf, extras
@@ -805,9 +806,9 @@ class TD3BCAgent(BaseAlgo):
             update_actor = self._update_actor
 
         if self.env.num_envs > 1 and self.is_main_process:
-            logger.warning(
-                "Offline TD3+BC does not use vectorized environment rollouts. "
-                f"Current num_envs={self.env.num_envs} only increases simulator memory usage."
+            logger.info(
+                "Offline TD3+BC gradient updates sample only the fixed dataset. "
+                f"Current num_envs={self.env.num_envs} is used for vectorized evaluation."
             )
 
         if self.obs_normalization:
@@ -964,6 +965,42 @@ class TD3BCAgent(BaseAlgo):
 
         return policy_fn
 
+    def _eval_termination_reason_flags(self, infos: dict[str, Any], num_envs: int) -> dict[str, torch.Tensor]:
+        raw_reasons = infos.get("termination_reasons", {})
+        if not isinstance(raw_reasons, dict):
+            raw_reasons = {}
+
+        reason_flags: dict[str, torch.Tensor] = {}
+        for reason, value in raw_reasons.items():
+            if isinstance(value, torch.Tensor):
+                reason_flags[str(reason)] = value.to(device=self.device, dtype=torch.bool)
+
+        if "timeout" not in reason_flags:
+            time_outs = infos.get("time_outs")
+            if isinstance(time_outs, torch.Tensor):
+                reason_flags["timeout"] = time_outs.to(device=self.device, dtype=torch.bool)
+            else:
+                reason_flags["timeout"] = torch.zeros(num_envs, device=self.device, dtype=torch.bool)
+
+        return reason_flags
+
+    def _eval_stop_reason_for_env(
+        self,
+        reason_flags: dict[str, torch.Tensor],
+        env_idx: int,
+        fallback: str | None = None,
+    ) -> str | None:
+        for reason in ("bad_tracking", "motion_ends", "timeout"):
+            flags = reason_flags.get(reason)
+            if flags is not None and bool(flags[env_idx].item()):
+                return reason
+        for reason, flags in reason_flags.items():
+            if reason in {"bad_tracking", "motion_ends", "timeout"}:
+                continue
+            if bool(flags[env_idx].item()):
+                return reason
+        return fallback
+
     @property
     def actor_onnx_wrapper(self):
         actor = copy.deepcopy(self.actor).to("cpu")
@@ -1110,6 +1147,105 @@ class TD3BCAgent(BaseAlgo):
             "episode_length": int(episode_length),
             "stop_reason": stop_reason,
         }
+
+    @torch.no_grad()
+    def evaluate_vectorized_episodes(
+        self,
+        max_eval_steps: int | None = None,
+        use_early_termination: bool = False,
+    ) -> list[dict[str, float | int | str | list[str] | None]]:
+        self.env.set_is_evaluating()
+        was_training = self.actor.training
+
+        self.actor.eval()
+        if self.obs_normalization:
+            self.obs_normalizer.eval()
+
+        obs = self.env.reset()
+        num_envs = int(self.env.num_envs)
+        episode_returns = torch.zeros(num_envs, device=self.device, dtype=torch.float32)
+        episode_lengths = torch.zeros(num_envs, device=self.device, dtype=torch.long)
+        finished = torch.zeros(num_envs, device=self.device, dtype=torch.bool)
+        stop_reasons: list[str | None] = [None] * num_envs
+        bad_tracking_details: list[list[str]] = [[] for _ in range(num_envs)]
+
+        def _info_bool(name: str, infos: dict[str, Any]) -> torch.Tensor:
+            value = infos.get(name)
+            if isinstance(value, torch.Tensor):
+                return value.to(device=self.device, dtype=torch.bool)
+            return torch.zeros(num_envs, device=self.device, dtype=torch.bool)
+
+        for step_idx in itertools.count():
+            if max_eval_steps is not None and step_idx >= max_eval_steps:
+                unfinished_indices = torch.nonzero(~finished, as_tuple=False).flatten().detach().cpu().tolist()
+                for env_idx in unfinished_indices:
+                    stop_reasons[int(env_idx)] = "max_eval_steps"
+                break
+
+            if self.obs_normalization:
+                normalized_obs = self.obs_normalizer(obs, update=False)
+            else:
+                normalized_obs = obs
+
+            actions = self.actor(normalized_obs)[0]
+            obs, rewards, dones, infos = self.env.step(actions)
+
+            active = ~finished
+            step_rewards = rewards.to(device=self.device, dtype=torch.float32)
+            episode_returns += torch.where(active, step_rewards, torch.zeros_like(episode_returns))
+            episode_lengths += active.to(torch.long)
+
+            reason_flags = self._eval_termination_reason_flags(infos, num_envs)
+            timeout_flags = reason_flags.get("timeout", _info_bool("time_outs", infos))
+            early_flags = _info_bool("early_termination", infos) if use_early_termination else torch.zeros_like(finished)
+            done_flags = dones.to(device=self.device, dtype=torch.bool)
+
+            newly_timed_out = active & timeout_flags
+            newly_early_terminated = active & ~newly_timed_out & early_flags
+            newly_done = active & ~newly_timed_out & ~newly_early_terminated & done_flags
+
+            for env_idx in torch.nonzero(newly_timed_out, as_tuple=False).flatten().detach().cpu().tolist():
+                env_idx_int = int(env_idx)
+                stop_reason = self._eval_stop_reason_for_env(reason_flags, env_idx_int, "timeout")
+                stop_reasons[env_idx_int] = stop_reason
+                if stop_reason == "bad_tracking":
+                    bad_tracking_details[env_idx_int] = self._eval_bad_tracking_details_for_env(
+                        reason_flags, env_idx_int
+                    )
+            for env_idx in torch.nonzero(newly_early_terminated, as_tuple=False).flatten().detach().cpu().tolist():
+                stop_reasons[int(env_idx)] = "early_termination"
+            for env_idx in torch.nonzero(newly_done, as_tuple=False).flatten().detach().cpu().tolist():
+                env_idx_int = int(env_idx)
+                stop_reason = self._eval_stop_reason_for_env(reason_flags, env_idx_int, "done")
+                stop_reasons[env_idx_int] = stop_reason
+                if stop_reason == "bad_tracking":
+                    bad_tracking_details[env_idx_int] = self._eval_bad_tracking_details_for_env(
+                        reason_flags, env_idx_int
+                    )
+
+            finished |= newly_timed_out | newly_early_terminated | newly_done
+            if bool(finished.all().item()):
+                break
+
+        if was_training:
+            self.actor.train()
+            if self.obs_normalization:
+                self.obs_normalizer.train()
+
+        if hasattr(self.env, "set_is_training"):
+            self.env.set_is_training()
+
+        returns = episode_returns.detach().cpu().tolist()
+        lengths = episode_lengths.detach().cpu().tolist()
+        return [
+            {
+                "episode_return": float(returns[env_idx]),
+                "episode_length": int(lengths[env_idx]),
+                "stop_reason": stop_reasons[env_idx],
+                "bad_tracking_details": bad_tracking_details[env_idx],
+            }
+            for env_idx in range(num_envs)
+        ]
 
 
 class TD3Agent(TD3BCAgent):

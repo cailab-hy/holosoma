@@ -848,7 +848,7 @@ g1_29dof_wbt_w_bc = replace(
 g1_29dof_wbt_td3_bc = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
-        name="g1_29dof_wbt_td3_bc_manager",
+        name="g1_29dof_wbt_td3_bc_manager_seed1",
         num_envs=4096,
         eval_num_episodes=1,
     ),
@@ -857,7 +857,7 @@ g1_29dof_wbt_td3_bc = ExperimentConfig(
         algo.td3_bc,
         config=replace(
             algo.td3_bc.config,
-            num_learning_iterations=100000,
+            num_learning_iterations=300000,
             critic_learning_rate=3e-4,
             actor_learning_rate=3e-4,
             batch_size=1024,

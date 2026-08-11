@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import torch
+from torch import nn
 
 from holosoma.agents.td3.td3_agent import TD3BCAgent
 from holosoma.agents.td3.td3_utils import EmpiricalNormalization
@@ -107,3 +108,71 @@ def test_fall_and_getup_td3_bc_is_registered_and_matches_cql_budget():
         DEFAULTS["g1_29dof_wbt_fall_and_getup_td3_bc"],
         DEFAULTS["g1_29dof_wbt_fall_and_getup_cql"],
     )
+
+
+class _VectorEvalActor(nn.Module):
+    def forward(self, observations):
+        return torch.zeros(observations.shape[0], 2, device=observations.device), None
+
+
+class _VectorEvalEnv:
+    num_envs = 3
+
+    def __init__(self):
+        self.step_count = 0
+        self.is_evaluating = False
+
+    def set_is_evaluating(self):
+        self.is_evaluating = True
+
+    def set_is_training(self):
+        self.is_evaluating = False
+
+    def reset(self):
+        self.step_count = 0
+        return torch.zeros(self.num_envs, 4)
+
+    def step(self, actions):
+        assert actions.shape == (self.num_envs, 2)
+        self.step_count += 1
+        observations = torch.zeros(self.num_envs, 4)
+        rewards = torch.ones(self.num_envs)
+
+        if self.step_count == 1:
+            dones = torch.tensor([True, False, False])
+            reasons = {
+                "bad_tracking": torch.tensor([True, False, False]),
+                "bad_tracking_body_pos": torch.tensor([True, False, False]),
+                "motion_ends": torch.zeros(self.num_envs, dtype=torch.bool),
+                "timeout": torch.zeros(self.num_envs, dtype=torch.bool),
+            }
+        else:
+            dones = torch.tensor([False, True, True])
+            reasons = {
+                "bad_tracking": torch.zeros(self.num_envs, dtype=torch.bool),
+                "bad_tracking_body_pos": torch.zeros(self.num_envs, dtype=torch.bool),
+                "motion_ends": torch.tensor([False, True, False]),
+                "timeout": torch.tensor([False, False, True]),
+            }
+
+        return observations, rewards, dones, {
+            "time_outs": reasons["timeout"],
+            "termination_reasons": reasons,
+        }
+
+
+def test_td3_bc_vectorized_eval_returns_one_episode_per_env():
+    agent = TD3BCAgent.__new__(TD3BCAgent)
+    agent.env = _VectorEvalEnv()
+    agent.actor = _VectorEvalActor()
+    agent.obs_normalization = False
+    agent.device = "cpu"
+
+    results = agent.evaluate_vectorized_episodes(max_eval_steps=3)
+
+    assert len(results) == agent.env.num_envs
+    assert [result["stop_reason"] for result in results] == ["bad_tracking", "motion_ends", "timeout"]
+    assert [result["episode_length"] for result in results] == [1, 2, 2]
+    assert [result["episode_return"] for result in results] == [1.0, 2.0, 2.0]
+    assert results[0]["bad_tracking_details"] == ["body_pos"]
+    assert agent.env.is_evaluating is False
