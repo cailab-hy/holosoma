@@ -182,17 +182,6 @@ class TD3BCAgent(BaseAlgo):
             raise ValueError(f"target_noise_clip must be >= 0, got {config.target_noise_clip}")
         if config.td3bc_alpha <= 0.0:
             raise ValueError(f"td3bc_alpha must be > 0, got {config.td3bc_alpha}")
-        if config.bc_coef < 0.0:
-            raise ValueError(f"bc_coef must be >= 0, got {config.bc_coef}")
-        if config.actor_bc_warmup_steps < 0:
-            raise ValueError(f"actor_bc_warmup_steps must be >= 0, got {config.actor_bc_warmup_steps}")
-        if config.td3bc_lambda_min < 0.0:
-            raise ValueError(f"td3bc_lambda_min must be >= 0, got {config.td3bc_lambda_min}")
-        if config.td3bc_lambda_max < config.td3bc_lambda_min:
-            raise ValueError(
-                "td3bc_lambda_max must be >= td3bc_lambda_min, "
-                f"got min={config.td3bc_lambda_min}, max={config.td3bc_lambda_max}"
-            )
 
     def setup(self) -> None:
         logger.info("Setting up offline TD3+BC")
@@ -289,19 +278,15 @@ class TD3BCAgent(BaseAlgo):
         )
         self.qnet_target.load_state_dict(self.qnet.state_dict())
 
-        self.actor_optimizer = optim.AdamW(
+        self.actor_optimizer = optim.Adam(
             self.actor.parameters(),
             lr=args.actor_learning_rate,
-            weight_decay=args.weight_decay,
             fused=True,
-            betas=(0.9, 0.95),
         )
-        self.q_optimizer = optim.AdamW(
+        self.q_optimizer = optim.Adam(
             self.qnet.parameters(),
             lr=args.critic_learning_rate,
-            weight_decay=args.weight_decay,
             fused=True,
-            betas=(0.9, 0.95),
         )
 
         self.policy = self.actor.explore
@@ -408,7 +393,7 @@ class TD3BCAgent(BaseAlgo):
             rewards = args.reward_scale * data["next"]["rewards"]
             dones = data["next"]["dones"].bool()
             truncations = data["next"]["truncations"].bool()
-            bootstrap = (truncations | ~dones).float()
+            bootstrap = (~dones | (truncations & args.bootstrap_truncations)).float()
             discount = args.discount ** data["next"]["effective_n_steps"]
 
             with torch.no_grad():
@@ -448,12 +433,23 @@ class TD3BCAgent(BaseAlgo):
             next_actions.abs().mean().detach(),
         )
 
+    @staticmethod
+    def _td3bc_actor_objective(
+        q1_pi: torch.Tensor,
+        policy_actions_u: torch.Tensor,
+        dataset_actions_u: torch.Tensor,
+        alpha: float,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Official TD3+BC objective: -lambda*mean(Q1) + MSE(pi(s), a_D)."""
+        lambda_coef = alpha / q1_pi.detach().abs().mean().clamp_min(1e-6)
+        actor_q_loss = -lambda_coef * q1_pi.mean()
+        bc_loss = F.mse_loss(policy_actions_u, dataset_actions_u)
+        return actor_q_loss + bc_loss, actor_q_loss, bc_loss, lambda_coef
+
     def _update_actor(
         self,
         data: TensorDict,
     ) -> tuple[
-        torch.Tensor,
-        torch.Tensor,
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
@@ -469,32 +465,20 @@ class TD3BCAgent(BaseAlgo):
         with self._maybe_amp():
             actor_observations = data["observations"]
             critic_observations = data["critic_observations"]
-            # Dataset actions remain in env/scaled space (no explicit u-space conversion path).
+            # The critic uses env-scaled actions; BC uses normalized coordinates because the
+            # official TD3+BC objective assumes every action dimension lies in [-1, 1].
             dataset_actions = data["actions"]
 
             policy_actions = self.actor(actor_observations)[0]
             policy_actions_u = self._to_normalized_actions(policy_actions)
             dataset_actions_u = self._to_normalized_actions(dataset_actions)
-            q1_pi, q2_pi = self.qnet(critic_observations, policy_actions)
-            q_pi = torch.minimum(q1_pi, q2_pi)
-
-            q_abs_mean = q_pi.detach().abs().mean()
-            if args.use_adaptive_lambda:
-                lambda_raw = args.td3bc_alpha / (q_abs_mean + 1e-6)
-            else:
-                lambda_raw = torch.tensor(args.td3bc_alpha, device=q_abs_mean.device, dtype=q_abs_mean.dtype)
-
-            lambda_coef = lambda_raw.clamp(min=args.td3bc_lambda_min, max=args.td3bc_lambda_max)
-            bc_warmup_active = torch.tensor(
-                float(self._critic_update_step < args.actor_bc_warmup_steps),
-                device=policy_actions.device,
+            q1_pi, _ = self.qnet(critic_observations, policy_actions)
+            actor_total_loss, actor_q_loss, bc_loss, lambda_coef = self._td3bc_actor_objective(
+                q1_pi,
+                policy_actions_u,
+                dataset_actions_u,
+                args.td3bc_alpha,
             )
-            if bool(bc_warmup_active.item()):
-                lambda_coef = torch.zeros_like(lambda_coef)
-
-            actor_q_loss = -(lambda_coef * q_pi).mean()
-            bc_loss = F.mse_loss(policy_actions_u, dataset_actions_u)
-            actor_total_loss = actor_q_loss + args.bc_coef * bc_loss
 
             policy_abs_action_mean = policy_actions.abs().mean()
             dataset_abs_action_mean = dataset_actions.abs().mean()
@@ -520,11 +504,29 @@ class TD3BCAgent(BaseAlgo):
             actor_q_loss.detach(),
             bc_loss.detach(),
             lambda_coef.detach(),
-            q_pi.mean().detach(),
+            q1_pi.mean().detach(),
             policy_abs_action_mean.detach(),
             dataset_abs_action_mean.detach(),
-            lambda_raw.detach(),
-            bc_warmup_active.detach(),
+        )
+
+    def _ensure_offline_normalizers_fitted(self) -> None:
+        if not self.obs_normalization:
+            return
+        if not isinstance(self.obs_normalizer, EmpiricalNormalization) or not isinstance(
+            self.critic_obs_normalizer, EmpiricalNormalization
+        ):
+            raise TypeError("TD3+BC observation normalization requires EmpiricalNormalization.")
+        if self.obs_normalizer.count.item() > 0 and self.critic_obs_normalizer.count.item() > 0:
+            return
+
+        offline_cache = self._load_offline_dataset_cache()
+        self.obs_normalizer.fit(offline_cache["observations"])
+        self.critic_obs_normalizer.fit(offline_cache["critic_observations"])
+        self.obs_normalizer.eval()
+        self.critic_obs_normalizer.eval()
+        logger.info(
+            "Fitted and froze TD3+BC observation normalization over the complete fixed dataset "
+            f"({self._offline_num_samples} rows)."
         )
 
     def _load_offline_dataset_cache(self) -> dict[str, torch.Tensor]:
@@ -661,10 +663,14 @@ class TD3BCAgent(BaseAlgo):
             )  # type: ignore[index]
             large_data = augmented_large_data
 
-        large_data["observations"] = normalize_obs(large_data["observations"])
-        large_data["next"]["observations"] = normalize_obs(large_data["next"]["observations"])
-        large_data["critic_observations"] = normalize_critic_obs(large_data["critic_observations"])
-        large_data["next"]["critic_observations"] = normalize_critic_obs(large_data["next"]["critic_observations"])
+        large_data["observations"] = normalize_obs(large_data["observations"], update=False)
+        large_data["next"]["observations"] = normalize_obs(large_data["next"]["observations"], update=False)
+        large_data["critic_observations"] = normalize_critic_obs(
+            large_data["critic_observations"], update=False
+        )
+        large_data["next"]["critic_observations"] = normalize_critic_obs(
+            large_data["next"]["critic_observations"], update=False
+        )
 
         prepared_batches: list[TensorDict] = []
         for i in range(num_updates):
@@ -702,6 +708,13 @@ class TD3BCAgent(BaseAlgo):
             logger.warning(
                 "Loading a legacy TD3+BC checkpoint with different action semantics "
                 f"(action_space_mode={checkpoint_action_mode})."
+            )
+        checkpoint_implementation = torch_checkpoint.get("td3bc_implementation", "legacy")
+        if checkpoint_implementation != "official_q1_fixed_dataset_norm_v1":
+            logger.warning(
+                "Loading a TD3+BC checkpoint created before the official Q1-only actor objective "
+                "and fixed-dataset normalization were enforced "
+                f"(td3bc_implementation={checkpoint_implementation})."
             )
 
         checkpoint_args = torch_checkpoint.get("args", {})
@@ -779,6 +792,8 @@ class TD3BCAgent(BaseAlgo):
         if target_step <= self.global_step:
             return
 
+        self._ensure_offline_normalizers_fitted()
+
         if args.compile:
             if not hasattr(self, "_compiled_update_q"):
                 self._compiled_update_q = torch.compile(self._update_q)
@@ -795,8 +810,12 @@ class TD3BCAgent(BaseAlgo):
                 f"Current num_envs={self.env.num_envs} only increases simulator memory usage."
             )
 
-        normalize_obs = self.obs_normalizer.forward
-        normalize_critic_obs = self.critic_obs_normalizer.forward
+        if self.obs_normalization:
+            normalize_obs = self.obs_normalizer.forward
+            normalize_critic_obs = self.critic_obs_normalizer.forward
+        else:
+            normalize_obs = lambda values, update=False: values
+            normalize_critic_obs = lambda values, update=False: values
 
         pbar = tqdm.tqdm(total=max(target_step - self.global_step, 0), initial=0, leave=False)
         while self.global_step < target_step:
@@ -839,8 +858,6 @@ class TD3BCAgent(BaseAlgo):
                             q_pi_mean,
                             policy_abs_action_mean,
                             dataset_abs_action_mean,
-                            actor_lambda_raw,
-                            actor_bc_warmup_active,
                         ) = update_actor(data)
                         self._soft_update_targets()
                     else:
@@ -853,8 +870,6 @@ class TD3BCAgent(BaseAlgo):
                         q_pi_mean = zero
                         policy_abs_action_mean = zero
                         dataset_abs_action_mean = zero
-                        actor_lambda_raw = zero
-                        actor_bc_warmup_active = zero
 
                     self.training_metrics.add(
                         {
@@ -871,8 +886,6 @@ class TD3BCAgent(BaseAlgo):
                             "actor_q_loss": actor_q_loss,
                             "actor_bc_loss": actor_bc_loss,
                             "actor_lambda": actor_lambda,
-                            "actor_lambda_raw": actor_lambda_raw,
-                            "actor_bc_warmup_active": actor_bc_warmup_active,
                             "q_pi_mean": q_pi_mean,
                             "policy_abs_action_mean": policy_abs_action_mean,
                             "dataset_abs_action_mean": dataset_abs_action_mean,

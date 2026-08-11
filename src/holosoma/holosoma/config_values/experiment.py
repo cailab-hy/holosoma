@@ -24,6 +24,7 @@ from holosoma.config_values.wbt.g1.experiment import (
     g1_29dof_wbt_w_bc,
     g1_29dof_wbt_bc_w_object,
     g1_29dof_wbt_iql,
+    g1_29dof_wbt_td3_bc,
     g1_29dof_wbt_cql,
     g1_29dof_wbt_lr_cql,
     g1_29dof_wbt_vc_cql,
@@ -59,6 +60,7 @@ from holosoma.config_values.wbt.g1.fall_and_getup.experiment import (
     g1_29dof_wbt_fall_and_getup_iql,
     g1_29dof_wbt_fall_and_getup_dw_cql,
     g1_29dof_wbt_fall_and_getup_os_aw_cql,
+    g1_29dof_wbt_fall_and_getup_td3_bc,
     g1_29dof_wbt_fall_and_getup_w_bc,
 )
 
@@ -86,6 +88,7 @@ DEFAULTS = {
     "g1_29dof_wbt_fall_and_getup_dw_cql": g1_29dof_wbt_fall_and_getup_dw_cql,
     "g1_29dof_wbt_fall_and_getup_aw_cql": g1_29dof_wbt_fall_and_getup_aw_cql,
     "g1_29dof_wbt_fall_and_getup_os_aw_cql": g1_29dof_wbt_fall_and_getup_os_aw_cql,
+    "g1_29dof_wbt_fall_and_getup_td3_bc": g1_29dof_wbt_fall_and_getup_td3_bc,
     "g1_29dof_wbt_fall_and_getup_bc": g1_29dof_wbt_fall_and_getup_bc,
     "g1_29dof_wbt_fall_and_getup_w_bc": g1_29dof_wbt_fall_and_getup_w_bc,
     "g1_29dof_wbt_fall_and_getup_fast_sac": g1_29dof_wbt_fall_and_getup_fast_sac,
@@ -109,6 +112,7 @@ DEFAULTS = {
     "g1_29dof_wbt_bf_cql": g1_29dof_wbt_bf_cql,
     "g1_29dof_wbt_bc": g1_29dof_wbt_bc,
     "g1_29dof_wbt_w_bc": g1_29dof_wbt_w_bc,
+    "g1_29dof_wbt_td3_bc": g1_29dof_wbt_td3_bc,
     "g1_29dof_wbt_fast_sac_w_object": g1_29dof_wbt_fast_sac_w_object,
     "g1_29dof_wbt_cql_w_object": g1_29dof_wbt_cql_w_object,
     "g1_29dof_wbt_aw_cql_w_object": g1_29dof_wbt_aw_cql_w_object,

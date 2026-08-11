@@ -12,9 +12,9 @@ from holosoma.config_types.algo import TD3BCConfig
 
 
 class EmpiricalNormalization(nn.Module):
-    """Normalize mean and variance of values based on empirical values."""
+    """Normalize values with statistics fitted once from the fixed offline dataset."""
 
-    def __init__(self, shape, device, eps=1e-2, until=None):
+    def __init__(self, shape, device, eps=1e-3, until=None):
         super().__init__()
         self.eps = eps
         self.until = until
@@ -31,6 +31,30 @@ class EmpiricalNormalization(nn.Module):
     @property
     def std(self):
         return self._std.squeeze(0).clone()
+
+    @torch.no_grad()
+    def fit(self, values: torch.Tensor, chunk_size: int = 65536) -> None:
+        """Fit population mean/std over all dataset rows without materializing float64 copies."""
+        if values.ndim < 2 or values.shape[1:] != self._mean.shape[1:]:
+            raise ValueError(f"Expected input of shape (N,{self._mean.shape[1:]}), got {values.shape}")
+        if values.shape[0] <= 0:
+            raise ValueError("Cannot fit normalization from an empty dataset.")
+
+        feature_shape = values.shape[1:]
+        total = torch.zeros(feature_shape, dtype=torch.float64, device="cpu")
+        total_sq = torch.zeros_like(total)
+        for start in range(0, values.shape[0], chunk_size):
+            chunk = values[start : start + chunk_size].to(device="cpu", dtype=torch.float64)
+            total += chunk.sum(dim=0)
+            total_sq += chunk.square().sum(dim=0)
+
+        count = int(values.shape[0])
+        mean = total / count
+        var = (total_sq / count - mean.square()).clamp_min(0.0)
+        self._mean.copy_(mean.to(device=self._mean.device, dtype=self._mean.dtype).unsqueeze(0))
+        self._var.copy_(var.to(device=self._var.device, dtype=self._var.dtype).unsqueeze(0))
+        self._std.copy_(self._var.sqrt())
+        self.count.fill_(count)
 
     @torch.no_grad()
     def forward(self, x: torch.Tensor, center: bool = True, update: bool = True) -> torch.Tensor:
@@ -128,6 +152,7 @@ def save_params(
         "global_step": global_step,
         "critic_update_step": critic_update_step,
         "action_space_mode": "env_scaled_action_training_v1",
+        "td3bc_implementation": "official_q1_fixed_dataset_norm_v1",
     }
     if env_state:
         save_dict["env_state"] = env_state

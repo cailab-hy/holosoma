@@ -848,8 +848,9 @@ g1_29dof_wbt_w_bc = replace(
 g1_29dof_wbt_td3_bc = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
-        name="g1_29dof_wbt_td3_manager",
-        num_envs=1,
+        name="g1_29dof_wbt_td3_bc_manager",
+        num_envs=4096,
+        eval_num_episodes=1,
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
     algo=replace(
@@ -857,8 +858,17 @@ g1_29dof_wbt_td3_bc = ExperimentConfig(
         config=replace(
             algo.td3_bc.config,
             num_learning_iterations=100000,
+            critic_learning_rate=3e-4,
+            actor_learning_rate=3e-4,
+            batch_size=1024,
             num_updates=4,
+            discount=0.99,
+            reward_scale=5.0,
+            bootstrap_truncations=True,
+            tau=0.005,
+            policy_delay=2,
             use_symmetry=False,
+            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_episode1m_env256_dataset.h5",
         ),
     ),
     simulator=replace(
@@ -867,7 +877,7 @@ g1_29dof_wbt_td3_bc = ExperimentConfig(
             simulator.isaacsim.config,
             sim=replace(
                 simulator.isaacsim.config.sim,
-                max_episode_length_s=10.0,
+                max_episode_length_s=12.0,
             ),
         ),
     ),
@@ -1136,7 +1146,7 @@ g1_29dof_wbt_td3_bc_w_object = replace(
     training=replace(
         g1_29dof_wbt_td3_bc.training,
         name="g1_29dof_wbt_td3_bc_w_object_manager",
-        num_envs=g1_29dof_wbt_cql.training.num_envs,
+        num_envs=4096,
     ),
     algo=replace(
         g1_29dof_wbt_td3_bc.algo,
@@ -1145,14 +1155,13 @@ g1_29dof_wbt_td3_bc_w_object = replace(
             num_learning_iterations=100000,
             critic_learning_rate=3e-4,
             actor_learning_rate=3e-4,
-            batch_size=g1_29dof_wbt_cql.algo.config.batch_size,
-            num_updates=g1_29dof_wbt_cql.algo.config.num_updates,
-            discount=g1_29dof_wbt_cql.algo.config.gamma,
-            reward_scale=float(g1_29dof_wbt_cql.algo.config.reward_scale),
+            batch_size=1024,
+            num_updates=4,
+            discount=0.99,
+            reward_scale=5.0,
+            bootstrap_truncations=True,
             tau=0.005,
-            offline_dataset_path=(
-                "offline_data/g1_29dof_wbt_fastsac_w_object_episode_4m_env64.h5"
-            ),
+            offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_w_object_episode_4m_env64.h5",
         ),
     ),
     command=command.g1_29dof_wbt_command_w_object,
@@ -1193,6 +1202,7 @@ __all__ = [
     "g1_29dof_wbt_bf_cql",
     "g1_29dof_wbt_bc",
     "g1_29dof_wbt_w_bc",
+    "g1_29dof_wbt_td3_bc",
     "g1_29dof_wbt_fast_sac_w_object",
     "g1_29dof_wbt_fast_sac_w_object_episode_data",
     "g1_29dof_wbt_w_object",

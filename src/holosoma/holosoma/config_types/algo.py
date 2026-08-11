@@ -1973,6 +1973,9 @@ class TD3BCConfig:
     reward_scale: float = 1.0
     """multiplicative scale applied to dataset rewards before TD3+BC Bellman updates"""
 
+    bootstrap_truncations: bool = True
+    """whether timeout/truncation rows retain bootstrap value in TD3 targets"""
+
     tau: float = 0.005
     """soft update coefficient for target networks"""
 
@@ -1987,21 +1990,6 @@ class TD3BCConfig:
 
     td3bc_alpha: float = 2.5
     """alpha used in lambda = alpha / mean(|Q|) for TD3+BC actor objective"""
-
-    use_adaptive_lambda: bool = True
-    """whether to use adaptive lambda scaling based on Q magnitude"""
-
-    bc_coef: float = 1.0
-    """coefficient for behavior cloning MSE loss in actor update"""
-
-    actor_bc_warmup_steps: int = 1000
-    """critic update steps to run actor as pure BC (Q-term disabled)"""
-
-    td3bc_lambda_min: float = 0.0
-    """minimum clamp for adaptive lambda"""
-
-    td3bc_lambda_max: float = 10.0
-    """maximum clamp for adaptive lambda to prevent early actor explosion"""
 
     critic_hidden_dim: int = 768
     """hidden dimension of Q networks"""
@@ -2032,9 +2020,6 @@ class TD3BCConfig:
 
     amp_dtype: str = "bf16"
     """AMP dtype: bf16 or fp16"""
-
-    weight_decay: float = 0.001
-    """weight decay for optimizers"""
 
     save_interval: int = 1000
     """checkpoint interval"""

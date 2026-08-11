@@ -39,6 +39,7 @@ _EPISODE_COLLECT_DATASET = (
 )
 _CQL_DATASET = "offline_data/g1_29dof_wbt_fall_and_getup_fastsac_4m_episode_env64_dataset.h5"
 _IQL_DATASET = "offline_data/g1_29dof_wbt_fall_and_getup_fastsac_4m_episode_env64_dataset.h5"
+_TD3_BC_DATASET = "offline_data/g1_29dof_wbt_fall_and_getup_fastsac_4m_episode_env64_dataset.h5"
 _AW_CQL_DATASET = "offline_data/g1_29dof_wbt_fall_and_getup_fastsac_4m_episode_env64_dataset.h5"
 _AW_CQL_WEIGHTS = f"{_AW_CQL_DATASET}.aw_weights.npz"
 _OS_AW_CQL_DATASET = "offline_data/g1_29dof_wbt_fall_and_getup_fastsac_4m_episode_env64_dataset.h5"
@@ -227,6 +228,46 @@ g1_29dof_wbt_fall_and_getup_cql = ExperimentConfig(
             bellman_loss_type="mse",
             huber_beta=5.0,
             cql_max_target_backup=False,
+        ),
+    ),
+    simulator=_simulator(),
+    robot=_robot(),
+    terrain=terrain.terrain_locomotion_plane,
+    observation=g1_29dof_wbt_fall_and_getup_observation,
+    action=action.g1_29dof_joint_pos,
+    termination=g1_29dof_wbt_fall_and_getup_termination,
+    randomization=g1_29dof_wbt_fall_and_getup_randomization,
+    command=g1_29dof_wbt_fall_and_getup_command,
+    curriculum=g1_29dof_wbt_fall_and_getup_curriculum,
+    reward=g1_29dof_wbt_fall_and_getup_fast_sac_reward,
+    nightly=_NIGHTLY,
+)
+
+
+g1_29dof_wbt_fall_and_getup_td3_bc = ExperimentConfig(
+    training=TrainingConfig(
+        project="WholeBodyTracking",
+        name="g1_29dof_wbt_fall_and_getup_td3_bc_manager",
+        num_envs=4096,
+        eval_num_episodes=1,
+    ),
+    env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
+    algo=replace(
+        algo.td3_bc,
+        config=replace(
+            algo.td3_bc.config,
+            num_learning_iterations=100000,
+            critic_learning_rate=3e-4,
+            actor_learning_rate=3e-4,
+            batch_size=1024,
+            num_updates=4,
+            discount=0.99,
+            reward_scale=5.0,
+            bootstrap_truncations=True,
+            tau=0.005,
+            policy_delay=2,
+            use_symmetry=False,
+            offline_dataset_path=_TD3_BC_DATASET,
         ),
     ),
     simulator=_simulator(),
@@ -500,5 +541,6 @@ __all__ = [
     "g1_29dof_wbt_fall_and_getup_fast_sac_episode_data",
     "g1_29dof_wbt_fall_and_getup_iql",
     "g1_29dof_wbt_fall_and_getup_os_aw_cql",
+    "g1_29dof_wbt_fall_and_getup_td3_bc",
     "g1_29dof_wbt_fall_and_getup_w_bc",
 ]
