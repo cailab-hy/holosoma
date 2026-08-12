@@ -596,6 +596,19 @@ g1_29dof_wbt_os_aw_cql = replace(
 )
 
 
+# LSE-AW-CQL: paired AW-CQL ablation using the same sidecar weights and all
+# hyperparameters, with w applied only to the logsumexp OOD term.
+g1_29dof_wbt_lse_aw_cql = replace(
+    g1_29dof_wbt_aw_cql,
+    training=replace(g1_29dof_wbt_aw_cql.training, name="g1_29dof_wbt_lse_aw_cql_manager_pu1_4096_seed2"),
+    algo=AWCQLAlgoConfig(
+        _target_="holosoma.agents.lse_aw_cql.lse_aw_cql_agent.LSEAWCQLAgent",
+        _recursive_=False,
+        config=AWCQLConfig(**asdict(g1_29dof_wbt_aw_cql.algo.config)),
+    ),
+)
+
+
 # DW-CQL: same sidecar, data, and hyperparameters as AW-CQL. The separate
 # agent propagates the same fixed w to TD and actor losses as a placement-only
 # ablation; target construction and alpha/Lagrange paths remain unchanged.
@@ -865,7 +878,7 @@ g1_29dof_wbt_td3_bc = ExperimentConfig(
             discount=0.99,
             reward_scale=5.0,
             bootstrap_truncations=True,
-            tau=0.005,
+            tau=0.05,
             policy_delay=2,
             use_symmetry=False,
             td3bc_alpha =2.5,
@@ -1058,6 +1071,19 @@ g1_29dof_wbt_aw_cql_w_object = replace(
     ),
 )
 
+g1_29dof_wbt_lse_aw_cql_w_object = replace(
+    g1_29dof_wbt_aw_cql_w_object,
+    training=replace(
+        g1_29dof_wbt_aw_cql_w_object.training,
+        name="g1_29dof_wbt_lse_aw_cql_w_object_manager",
+    ),
+    algo=AWCQLAlgoConfig(
+        _target_="holosoma.agents.lse_aw_cql.lse_aw_cql_agent.LSEAWCQLAgent",
+        _recursive_=False,
+        config=AWCQLConfig(**asdict(g1_29dof_wbt_aw_cql_w_object.algo.config)),
+    ),
+)
+
 g1_29dof_wbt_iql_w_object = replace(
     g1_29dof_wbt_iql,
     algo=replace(
@@ -1199,6 +1225,7 @@ __all__ = [
     "g1_29dof_wbt_vc_cql",
     "g1_29dof_wbt_aw_cql",
     "g1_29dof_wbt_os_aw_cql",
+    "g1_29dof_wbt_lse_aw_cql",
     "g1_29dof_wbt_dw_cql",
     "g1_29dof_wbt_bf_cql",
     "g1_29dof_wbt_bc",
@@ -1209,6 +1236,7 @@ __all__ = [
     "g1_29dof_wbt_w_object",
     "g1_29dof_wbt_cql_w_object",
     "g1_29dof_wbt_aw_cql_w_object",
+    "g1_29dof_wbt_lse_aw_cql_w_object",
     "g1_29dof_wbt_iql_w_object",
     "g1_29dof_wbt_bc_w_object",
     "g1_29dof_wbt_w_bc_w_object",

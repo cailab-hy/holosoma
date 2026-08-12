@@ -356,6 +356,12 @@ os_aw_cql = AWCQLAlgoConfig(
     config=AWCQLConfig(**dataclasses.asdict(aw_cql.config)),
 )
 
+lse_aw_cql = AWCQLAlgoConfig(
+    _target_="holosoma.agents.lse_aw_cql.lse_aw_cql_agent.LSEAWCQLAgent",
+    _recursive_=False,
+    config=AWCQLConfig(**dataclasses.asdict(aw_cql.config)),
+)
+
 # DW-CQL placement ablation: same fixed AW sidecar and all AW-CQL
 # hyperparameters; only the weight placement expands to TD and actor losses.
 dw_cql = DWCQLAlgoConfig(
@@ -854,6 +860,7 @@ DEFAULTS = {
     "vc_cql": vc_cql,
     "aw_cql": aw_cql,
     "os_aw_cql": os_aw_cql,
+    "lse_aw_cql": lse_aw_cql,
     "dw_cql": dw_cql,
     "mcq": mcq,
     "cal_ql": cal_ql,
