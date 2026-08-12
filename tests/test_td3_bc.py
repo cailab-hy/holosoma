@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import pytest
 import torch
 from torch import nn
 
+from holosoma.agents.td3.td3 import Actor
 from holosoma.agents.td3.td3_agent import TD3BCAgent
 from holosoma.agents.td3.td3_utils import EmpiricalNormalization
 from holosoma.config_values.experiment import DEFAULTS
@@ -24,6 +26,73 @@ def test_td3_bc_normalizes_bc_actions_per_dimension():
     torch.testing.assert_close(agent._to_normalized_actions(env_actions), torch.tensor([[0.5, -0.25]]))
 
 
+def test_td3_bc_action_conversion_round_trip():
+    agent = TD3BCAgent.__new__(TD3BCAgent)
+    agent.actor = type(
+        "ActorStub",
+        (),
+        {
+            "action_scale": torch.tensor([2.0, 4.0]),
+            "action_bias": torch.tensor([0.25, -0.5]),
+        },
+    )()
+    normalized_actions = torch.tensor([[0.5, -0.25]])
+
+    env_actions = agent._to_env_actions(normalized_actions)
+
+    torch.testing.assert_close(env_actions, torch.tensor([[1.25, -1.5]]))
+    torch.testing.assert_close(agent._to_normalized_actions(env_actions), normalized_actions)
+
+
+def test_td3_bc_rejects_dataset_actions_outside_configured_bounds():
+    agent = TD3BCAgent.__new__(TD3BCAgent)
+    agent.actor = type(
+        "ActorStub",
+        (),
+        {
+            "action_scale": torch.tensor([2.0, 4.0]),
+            "action_bias": torch.tensor([0.0, 0.0]),
+        },
+    )()
+
+    with pytest.raises(ValueError, match="exceed the configured environment action bounds"):
+        agent._normalize_dataset_actions(torch.tensor([[2.1, 0.0]]))
+
+
+def test_td3_actor_output_stays_normalized_despite_env_scale_buffer():
+    actor = Actor(
+        obs_indices={"actor_obs": {"start": 0, "end": 2, "size": 2}},
+        obs_keys=["actor_obs"],
+        n_act=2,
+        num_envs=1,
+        hidden_dim=16,
+        use_tanh=True,
+        use_layer_norm=False,
+        device="cpu",
+        action_scale=torch.tensor([3.0, 4.0]),
+        action_bias=torch.tensor([0.0, 0.0]),
+    )
+    actor.fc_mu.bias.data.fill_(torch.atanh(torch.tensor(0.5)))
+
+    actions, _ = actor(torch.zeros(1, 2))
+
+    torch.testing.assert_close(actions, torch.full((1, 2), 0.5))
+
+
+def test_td3_target_policy_smoothing_is_bounded_in_normalized_space():
+    agent = TD3BCAgent.__new__(TD3BCAgent)
+    agent.config = type(
+        "ConfigStub",
+        (),
+        {"target_policy_noise": 10.0, "target_noise_clip": 0.2},
+    )()
+
+    smoothed = agent._apply_target_policy_smoothing(torch.full((128, 3), 0.95))
+
+    assert float(smoothed.abs().max().item()) <= 1.0
+    assert float((smoothed - 0.95).abs().max().item()) <= 0.200001
+
+
 def test_td3_bc_actor_objective_matches_official_q1_formula():
     q1 = torch.tensor([2.0, -4.0])
     policy_actions = torch.tensor([[0.5, -0.5], [0.0, 0.25]])
@@ -42,6 +111,23 @@ def test_td3_bc_actor_objective_matches_official_q1_formula():
     torch.testing.assert_close(q_loss, -expected_lambda * q1.mean())
     torch.testing.assert_close(bc_loss, expected_bc)
     torch.testing.assert_close(total_loss, q_loss + bc_loss)
+
+
+def test_td3_bc_zero_alpha_reduces_actor_objective_to_bc():
+    q1 = torch.tensor([100.0, -100.0])
+    policy_actions = torch.tensor([[0.5, -0.5], [0.0, 0.25]])
+    dataset_actions = torch.zeros_like(policy_actions)
+
+    total_loss, q_loss, bc_loss, lambda_coef = TD3BCAgent._td3bc_actor_objective(
+        q1,
+        policy_actions,
+        dataset_actions,
+        alpha=0.0,
+    )
+
+    torch.testing.assert_close(lambda_coef, torch.tensor(0.0))
+    torch.testing.assert_close(q_loss, torch.tensor(0.0))
+    torch.testing.assert_close(total_loss, bc_loss)
 
 
 def test_td3_bc_normalizer_fits_complete_fixed_dataset():
@@ -134,6 +220,7 @@ class _VectorEvalEnv:
 
     def step(self, actions):
         assert actions.shape == (self.num_envs, 2)
+        torch.testing.assert_close(actions, torch.zeros_like(actions))
         self.step_count += 1
         observations = torch.zeros(self.num_envs, 4)
         rewards = torch.ones(self.num_envs)
@@ -165,6 +252,8 @@ def test_td3_bc_vectorized_eval_returns_one_episode_per_env():
     agent = TD3BCAgent.__new__(TD3BCAgent)
     agent.env = _VectorEvalEnv()
     agent.actor = _VectorEvalActor()
+    agent.actor.action_scale = torch.tensor([2.0, 4.0])
+    agent.actor.action_bias = torch.tensor([0.0, 0.0])
     agent.obs_normalization = False
     agent.device = "cpu"
 

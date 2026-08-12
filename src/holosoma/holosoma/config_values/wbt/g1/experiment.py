@@ -466,7 +466,7 @@ g1_29dof_wbt_cql = ExperimentConfig(
         algo.cql,
         config=replace(
             algo.cql.config,
-            num_learning_iterations=300000,
+            num_learning_iterations=100000,
             gamma=0.99,  # For motion tracking, high gamma + high num_steps is better
             num_updates=4,
             policy_frequency=1,
@@ -535,7 +535,7 @@ g1_29dof_wbt_vc_cql = replace(
         algo.vc_cql,
         config=replace(
             algo.vc_cql.config,
-            num_learning_iterations=400000,
+            num_learning_iterations=100000,
             gamma=0.99,
             num_updates=4,
             policy_frequency=2,
@@ -857,7 +857,7 @@ g1_29dof_wbt_td3_bc = ExperimentConfig(
         algo.td3_bc,
         config=replace(
             algo.td3_bc.config,
-            num_learning_iterations=300000,
+            num_learning_iterations=100000,
             critic_learning_rate=3e-4,
             actor_learning_rate=3e-4,
             batch_size=1024,

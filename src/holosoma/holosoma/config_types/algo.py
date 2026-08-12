@@ -1989,7 +1989,7 @@ class TD3BCConfig:
     """absolute clip for target policy smoothing noise"""
 
     td3bc_alpha: float = 2.5
-    """alpha used in lambda = alpha / mean(|Q|) for TD3+BC actor objective"""
+    """alpha used in lambda = alpha / mean(|Q|); set to 0 only for a pure-BC diagnostic"""
 
     critic_hidden_dim: int = 768
     """hidden dimension of Q networks"""
