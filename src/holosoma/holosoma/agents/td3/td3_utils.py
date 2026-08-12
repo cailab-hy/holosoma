@@ -151,8 +151,8 @@ def save_params(
         "args": vars(args),
         "global_step": global_step,
         "critic_update_step": critic_update_step,
-        "action_space_mode": "normalized_action_training_v2",
-        "td3bc_implementation": "official_q1_fixed_dataset_norm_normalized_action_v2",
+        "action_space_mode": "env_scaled_action_training_v2",
+        "td3bc_implementation": "q1_fixed_dataset_norm_env_scaled_action_v2",
     }
     if env_state:
         save_dict["env_state"] = env_state

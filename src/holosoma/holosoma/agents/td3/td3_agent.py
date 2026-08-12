@@ -292,18 +292,10 @@ class TD3BCAgent(BaseAlgo):
             fused=True,
         )
 
-        def _env_policy(
-            obs: torch.Tensor,
-            dones: torch.Tensor | None = None,
-            deterministic: bool = False,
-        ) -> torch.Tensor:
-            normalized_actions = self.actor.explore(obs, dones=dones, deterministic=deterministic)
-            return self._to_env_actions(normalized_actions)
-
-        self.policy = _env_policy
+        self.policy = self.actor.explore
         logger.info(
-            "TD3+BC action semantics: actor, critic, BC loss, and target smoothing use normalized [-1, 1] "
-            "actions; per-joint environment scaling is applied only at rollout/export boundaries."
+            "TD3+BC action semantics: actor output, critic input, dataset actions, and BC loss all use the "
+            "environment-scaled action space, matching CQL/AW-CQL."
         )
         logger.info(f"TD3+BC dims: actor_obs_dim={actor_obs_dim}, critic_obs_dim={critic_obs_dim}, n_act={n_act}")
 
@@ -357,38 +349,33 @@ class TD3BCAgent(BaseAlgo):
             torch._foreach_add_(tgt_actor, src_actor, alpha=self.config.tau)
 
     def _apply_target_policy_smoothing(self, actions: torch.Tensor) -> torch.Tensor:
-        """Apply the official TD3 target smoothing directly in normalized action space."""
+        """Apply normalized TD3 noise magnitudes in environment-scaled action space."""
         if self.config.target_policy_noise <= 0.0:
             return actions
 
-        noise = torch.randn_like(actions) * self.config.target_policy_noise
-        noise = noise.clamp(-self.config.target_noise_clip, self.config.target_noise_clip)
-        return (actions + noise).clamp(-1.0, 1.0)
-
-    def _to_normalized_actions(self, actions: torch.Tensor) -> torch.Tensor:
         action_scale = self.actor.action_scale.to(device=actions.device, dtype=actions.dtype)
         action_bias = self.actor.action_bias.to(device=actions.device, dtype=actions.dtype)
-        return ((actions - action_bias) / (action_scale + 1e-6)).clamp(-1.0, 1.0)
 
-    def _to_env_actions(self, normalized_actions: torch.Tensor) -> torch.Tensor:
-        action_scale = self.actor.action_scale.to(device=normalized_actions.device, dtype=normalized_actions.dtype)
-        action_bias = self.actor.action_bias.to(device=normalized_actions.device, dtype=normalized_actions.dtype)
-        return normalized_actions * action_scale + action_bias
+        normalized_noise = torch.randn_like(actions) * self.config.target_policy_noise
+        normalized_noise = normalized_noise.clamp(-self.config.target_noise_clip, self.config.target_noise_clip)
+        noise = normalized_noise * action_scale
+        min_action = action_bias - action_scale
+        max_action = action_bias + action_scale
+        return (actions + noise).clamp(min_action, max_action)
 
-    def _normalize_dataset_actions(self, actions: torch.Tensor) -> torch.Tensor:
+    def _validate_dataset_action_bounds(self, actions: torch.Tensor) -> None:
         action_scale = self.actor.action_scale.to(device=actions.device, dtype=actions.dtype)
         action_bias = self.actor.action_bias.to(device=actions.device, dtype=actions.dtype)
-        normalized_actions = (actions - action_bias) / (action_scale + 1e-6)
-        overflow = normalized_actions.abs() > 1.001
+        relative_actions = (actions - action_bias) / (action_scale + 1e-6)
+        overflow = relative_actions.abs() > 1.001
         if bool(overflow.any().item()):
             overflow_fraction = float(overflow.float().mean().item())
-            max_abs = float(normalized_actions.abs().max().item())
+            max_abs = float(relative_actions.abs().max().item())
             raise ValueError(
-                "TD3+BC dataset actions exceed the configured environment action bounds after normalization: "
-                f"overflow_fraction={overflow_fraction:.6%}, max_abs_normalized_action={max_abs:.6f}. "
+                "TD3+BC dataset actions exceed the configured environment action bounds: "
+                f"overflow_fraction={overflow_fraction:.6%}, max_relative_action={max_abs:.6f}. "
                 "The collection and offline-training robot/action configs are inconsistent."
             )
-        return normalized_actions.clamp(-1.0, 1.0)
 
     def _update_q(
         self,
@@ -410,7 +397,7 @@ class TD3BCAgent(BaseAlgo):
             critic_observations = data["critic_observations"]
             next_observations = data["next"]["observations"]
             next_critic_observations = data["next"]["critic_observations"]
-            # Dataset actions are normalized once when the fixed cache is loaded.
+            # CQL/AW-CQL-compatible environment-scaled action semantics.
             actions = data["actions"]
             rewards = args.reward_scale * data["next"]["rewards"]
             dones = data["next"]["dones"].bool()
@@ -487,7 +474,7 @@ class TD3BCAgent(BaseAlgo):
         with self._maybe_amp():
             actor_observations = data["observations"]
             critic_observations = data["critic_observations"]
-            # Actor, critic, and BC all share the official normalized action coordinates.
+            # Actor, critic, dataset anchor, and BC all share environment-scaled coordinates.
             dataset_actions = data["actions"]
 
             policy_actions = self.actor(actor_observations)[0]
@@ -591,15 +578,10 @@ class TD3BCAgent(BaseAlgo):
                 return tensor
 
             raw_actions = _load_tensor("actions", torch.float32)
-            normalized_actions = self._normalize_dataset_actions(raw_actions)
-            if torch.cuda.is_available():
-                try:
-                    normalized_actions = normalized_actions.pin_memory()
-                except RuntimeError:
-                    pass
+            self._validate_dataset_action_bounds(raw_actions)
             self._offline_dataset_cache = {
                 "observations": _load_tensor("observations", torch.float32),
-                "actions": normalized_actions,
+                "actions": raw_actions,
                 "critic_observations": _load_tensor("critic_observations", torch.float32),
                 "next_observations": _load_tensor("next_observations", torch.float32),
                 "next_critic_observations": _load_tensor("next_critic_observations", torch.float32),
@@ -609,10 +591,9 @@ class TD3BCAgent(BaseAlgo):
             }
 
         logger.info(
-            "TD3+BC normalized fixed-dataset actions: "
+            "TD3+BC environment-scaled fixed-dataset actions: "
             f"env_abs_mean={raw_actions.abs().mean().item():.6f}, "
-            f"normalized_abs_mean={normalized_actions.abs().mean().item():.6f}, "
-            f"normalized_abs_max={normalized_actions.abs().max().item():.6f}."
+            f"env_abs_max={raw_actions.abs().max().item():.6f}."
         )
 
         logger.info(
@@ -737,14 +718,14 @@ class TD3BCAgent(BaseAlgo):
 
         torch_checkpoint = torch.load(ckpt_path, map_location=self.device, weights_only=False)
         checkpoint_action_mode = torch_checkpoint.get("action_space_mode", "legacy")
-        if checkpoint_action_mode != "normalized_action_training_v2":
+        if checkpoint_action_mode != "env_scaled_action_training_v2":
             raise RuntimeError(
                 "This TD3+BC checkpoint uses incompatible action semantics "
-                f"(action_space_mode={checkpoint_action_mode}). Retrain with normalized_action_training_v2; "
-                "resuming an env-scaled critic in normalized coordinates is invalid."
+                f"(action_space_mode={checkpoint_action_mode}). Retrain with env_scaled_action_training_v2; "
+                "mixing normalized and environment-scaled critics is invalid."
             )
         checkpoint_implementation = torch_checkpoint.get("td3bc_implementation", "legacy")
-        if checkpoint_implementation != "official_q1_fixed_dataset_norm_normalized_action_v2":
+        if checkpoint_implementation != "q1_fixed_dataset_norm_env_scaled_action_v2":
             logger.warning(
                 "Loading a TD3+BC checkpoint with different implementation metadata "
                 f"(td3bc_implementation={checkpoint_implementation})."
@@ -993,8 +974,7 @@ class TD3BCAgent(BaseAlgo):
                 normalized_obs = obs_normalizer(obs["actor_obs"], update=False)
             else:
                 normalized_obs = obs["actor_obs"]
-            normalized_actions = policy(normalized_obs)[0]
-            return self._to_env_actions(normalized_actions)
+            return policy(normalized_obs)[0]
 
         return policy_fn
 
@@ -1038,30 +1018,23 @@ class TD3BCAgent(BaseAlgo):
     def actor_onnx_wrapper(self):
         actor = copy.deepcopy(self.actor).to("cpu")
         obs_normalizer = copy.deepcopy(self.obs_normalizer).to("cpu")
-        action_scale = copy.deepcopy(self.actor.action_scale).to("cpu")
-        action_bias = copy.deepcopy(self.actor.action_bias).to("cpu")
 
         class ActorWrapper(nn.Module):
-            def __init__(self, actor, obs_normalizer, action_scale, action_bias):
+            def __init__(self, actor, obs_normalizer):
                 super().__init__()
                 self.actor = actor
                 self.obs_normalizer = obs_normalizer
-                self.register_buffer("action_scale", action_scale)
-                self.register_buffer("action_bias", action_bias)
 
             def forward(self, actor_obs):
                 if self.obs_normalizer is not None:
                     normalized_obs = self.obs_normalizer(actor_obs, update=False)
                 else:
                     normalized_obs = actor_obs
-                normalized_actions = self.actor(normalized_obs)[0]
-                return normalized_actions * self.action_scale + self.action_bias
+                return self.actor(normalized_obs)[0]
 
         return ActorWrapper(
             actor,
             obs_normalizer if self.obs_normalization else None,
-            action_scale,
-            action_bias,
         )
 
     def export(self, onnx_file_path: str) -> None:
@@ -1123,8 +1096,8 @@ class TD3BCAgent(BaseAlgo):
                 normalized_obs = self.obs_normalizer(obs, update=False)
             else:
                 normalized_obs = obs
-            normalized_actions = self.actor(normalized_obs)[0]
-            obs, _, _, _ = self.env.step(self._to_env_actions(normalized_actions))
+            actions = self.actor(normalized_obs)[0]
+            obs, _, _, _ = self.env.step(actions)
 
     @torch.no_grad()
     def evaluate_one_episode(
@@ -1155,8 +1128,8 @@ class TD3BCAgent(BaseAlgo):
             else:
                 normalized_obs = obs
 
-            normalized_actions = self.actor(normalized_obs)[0]
-            obs, rewards, dones, infos = self.env.step(self._to_env_actions(normalized_actions))
+            actions = self.actor(normalized_obs)[0]
+            obs, rewards, dones, infos = self.env.step(actions)
 
             episode_return += float(rewards[eval_env_idx].item())
             episode_length += 1
@@ -1227,8 +1200,8 @@ class TD3BCAgent(BaseAlgo):
             else:
                 normalized_obs = obs
 
-            normalized_actions = self.actor(normalized_obs)[0]
-            obs, rewards, dones, infos = self.env.step(self._to_env_actions(normalized_actions))
+            actions = self.actor(normalized_obs)[0]
+            obs, rewards, dones, infos = self.env.step(actions)
 
             active = ~finished
             step_rewards = rewards.to(device=self.device, dtype=torch.float32)

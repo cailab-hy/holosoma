@@ -10,7 +10,7 @@ from holosoma.agents.td3.td3_utils import EmpiricalNormalization
 from holosoma.config_values.experiment import DEFAULTS
 
 
-def test_td3_bc_normalizes_bc_actions_per_dimension():
+def test_td3_bc_accepts_dataset_actions_inside_environment_bounds():
     agent = TD3BCAgent.__new__(TD3BCAgent)
     agent.actor = type(
         "ActorStub",
@@ -21,27 +21,7 @@ def test_td3_bc_normalizes_bc_actions_per_dimension():
         },
     )()
 
-    env_actions = torch.tensor([[1.0, -1.0]])
-
-    torch.testing.assert_close(agent._to_normalized_actions(env_actions), torch.tensor([[0.5, -0.25]]))
-
-
-def test_td3_bc_action_conversion_round_trip():
-    agent = TD3BCAgent.__new__(TD3BCAgent)
-    agent.actor = type(
-        "ActorStub",
-        (),
-        {
-            "action_scale": torch.tensor([2.0, 4.0]),
-            "action_bias": torch.tensor([0.25, -0.5]),
-        },
-    )()
-    normalized_actions = torch.tensor([[0.5, -0.25]])
-
-    env_actions = agent._to_env_actions(normalized_actions)
-
-    torch.testing.assert_close(env_actions, torch.tensor([[1.25, -1.5]]))
-    torch.testing.assert_close(agent._to_normalized_actions(env_actions), normalized_actions)
+    agent._validate_dataset_action_bounds(torch.tensor([[1.0, -1.0]]))
 
 
 def test_td3_bc_rejects_dataset_actions_outside_configured_bounds():
@@ -56,10 +36,10 @@ def test_td3_bc_rejects_dataset_actions_outside_configured_bounds():
     )()
 
     with pytest.raises(ValueError, match="exceed the configured environment action bounds"):
-        agent._normalize_dataset_actions(torch.tensor([[2.1, 0.0]]))
+        agent._validate_dataset_action_bounds(torch.tensor([[2.1, 0.0]]))
 
 
-def test_td3_actor_output_stays_normalized_despite_env_scale_buffer():
+def test_td3_actor_output_uses_environment_action_scale():
     actor = Actor(
         obs_indices={"actor_obs": {"start": 0, "end": 2, "size": 2}},
         obs_keys=["actor_obs"],
@@ -76,21 +56,31 @@ def test_td3_actor_output_stays_normalized_despite_env_scale_buffer():
 
     actions, _ = actor(torch.zeros(1, 2))
 
-    torch.testing.assert_close(actions, torch.full((1, 2), 0.5))
+    torch.testing.assert_close(actions, torch.tensor([[1.5, 2.0]]))
 
 
-def test_td3_target_policy_smoothing_is_bounded_in_normalized_space():
+def test_td3_target_policy_smoothing_respects_environment_bounds():
     agent = TD3BCAgent.__new__(TD3BCAgent)
+    agent.actor = type(
+        "ActorStub",
+        (),
+        {
+            "action_scale": torch.tensor([2.0, 4.0, 0.5]),
+            "action_bias": torch.tensor([0.0, 0.0, 0.0]),
+        },
+    )()
     agent.config = type(
         "ConfigStub",
         (),
         {"target_policy_noise": 10.0, "target_noise_clip": 0.2},
     )()
 
-    smoothed = agent._apply_target_policy_smoothing(torch.full((128, 3), 0.95))
+    actions = torch.tensor([[1.9, 3.8, 0.45]]).repeat(128, 1)
+    smoothed = agent._apply_target_policy_smoothing(actions)
 
-    assert float(smoothed.abs().max().item()) <= 1.0
-    assert float((smoothed - 0.95).abs().max().item()) <= 0.200001
+    assert bool((smoothed.abs() <= agent.actor.action_scale + 1e-6).all().item())
+    max_delta = torch.tensor([0.4, 0.8, 0.1]) + 1e-6
+    assert bool(((smoothed - actions).abs() <= max_delta).all().item())
 
 
 def test_td3_bc_actor_objective_matches_official_q1_formula():
