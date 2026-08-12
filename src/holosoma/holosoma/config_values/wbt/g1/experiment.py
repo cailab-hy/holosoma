@@ -868,6 +868,7 @@ g1_29dof_wbt_td3_bc = ExperimentConfig(
             tau=0.005,
             policy_delay=2,
             use_symmetry=False,
+            td3bc_alpha =2.5,
             offline_dataset_path="offline_data/g1_29dof_wbt_fastsac_episode1m_env256_dataset.h5",
         ),
     ),
