@@ -19,6 +19,14 @@ ckpt-load + normalize + critic/actor forward code you already used for the
 IQL weight-stats probe. Everything else is complete.
 
 Usage:
+  # Checkpoint directory + retrospective grid. A:B includes every saved
+  # checkpoint in the inclusive interval, while individual steps are exact.
+  python aw_wall_probe.py <h5> \
+      --ckpt-dir logs/WholeBodyTracking/<run> \
+      --steps '20k,60k,100k,140k,170k,180k:220k,230k,260k,300k' \
+      --run-label cql_alpha1 --algo cql \
+      --bins 4 5 --index-cache probe_rows_cell1.npz
+
   python aw_wall_probe.py <h5> \
       --ckpt aw,cql,100000,/path/aw/model_0100000.pt \
       --ckpt aw,cql,300000,/path/aw/model_0300000.pt \
@@ -26,11 +34,128 @@ Usage:
       --ckpt iql,iql,300000,/path/iql/model_0300000.pt \
       [--bins 4 5] [--per-cell 2000] [--span-n 20000] [--dry-run]
 
-  --ckpt format: RUNLABEL,ALGO,STEP,PATH   (ALGO in {cql, iql}; cql covers AW/B too)
+  --ckpt format: RUNLABEL,ALGO,STEP,PATH   (ALGO in {cql, iql, td3bc}; cql covers AW variants)
   --dry-run: random stub instead of real models -> verifies plumbing + CSV.
 """
-import argparse, csv, os, sys
+import argparse, csv, os, re, sys
+from pathlib import Path
+
 import numpy as np
+
+
+CHECKPOINT_PATTERN = re.compile(r"^model_(\d+)\.pt$")
+
+
+def parse_step(value: str | int) -> int:
+    """Parse checkpoint steps such as ``20000``, ``20k``, or ``0.3m``."""
+    if isinstance(value, int):
+        return value
+    text = str(value).strip().lower().replace("_", "")
+    match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)([km]?)", text)
+    if match is None:
+        raise ValueError(f"invalid checkpoint step: {value!r}")
+    scale = {"": 1, "k": 1_000, "m": 1_000_000}[match.group(2)]
+    parsed = float(match.group(1)) * scale
+    if not parsed.is_integer():
+        raise ValueError(f"checkpoint step must be integral: {value!r}")
+    return int(parsed)
+
+
+def discover_checkpoints(directory: str | Path) -> list[tuple[int, Path]]:
+    """Discover unique ``model_{step}.pt`` checkpoints below a run directory."""
+    root = Path(directory).expanduser()
+    if not root.is_dir():
+        raise NotADirectoryError(f"checkpoint directory not found: {root}")
+    paths = list(root.glob("model_*.pt")) or list(root.rglob("model_*.pt"))
+    by_step: dict[int, Path] = {}
+    for path in paths:
+        match = CHECKPOINT_PATTERN.fullmatch(path.name)
+        if match is None:
+            continue
+        step = int(match.group(1))
+        if step in by_step:
+            raise ValueError(f"duplicate checkpoint step {step}: {by_step[step]} and {path}")
+        by_step[step] = path
+    if not by_step:
+        raise FileNotFoundError(f"no model_{{step}}.pt checkpoints found under {root}")
+    return sorted(by_step.items())
+
+
+def select_checkpoint_grid(
+    checkpoints: list[tuple[int, Path]],
+    grid: str | None,
+    *,
+    label: str = "run",
+) -> list[tuple[int, Path]]:
+    """Select exact steps and inclusive saved-checkpoint ranges from ``grid``.
+
+    A token such as ``20k`` requests an exact checkpoint. ``180k:220k`` or
+    ``180k-220k`` selects every checkpoint actually saved in that interval.
+    Missing exact steps are reported but do not abort the retrospective scan.
+    """
+    if not grid:
+        print(f"[grid:{label}] no grid supplied -> using all {len(checkpoints)} checkpoints")
+        return checkpoints
+
+    by_step = dict(checkpoints)
+    selected: set[int] = set()
+    missing: list[int] = []
+    range_reports: list[tuple[int, int, list[int]]] = []
+    tokens = [token.strip() for token in grid.split(",") if token.strip()]
+    if not tokens:
+        raise ValueError("checkpoint grid is empty")
+
+    for token in tokens:
+        range_match = re.fullmatch(r"(.+?)\s*[:-]\s*(.+)", token)
+        if range_match is None:
+            step = parse_step(token)
+            if step in by_step:
+                selected.add(step)
+            else:
+                missing.append(step)
+            continue
+        start = parse_step(range_match.group(1))
+        end = parse_step(range_match.group(2))
+        if start > end:
+            raise ValueError(f"checkpoint range start exceeds end: {token!r}")
+        found = [step for step, _ in checkpoints if start <= step <= end]
+        selected.update(found)
+        range_reports.append((start, end, found))
+
+    for start, end, found in range_reports:
+        if found:
+            gaps = [right - left for left, right in zip(found, found[1:])]
+            max_gap = max(gaps) if gaps else 0
+            print(
+                f"[grid:{label}] dense range [{start}, {end}]: "
+                f"found={found}, max_saved_gap={max_gap}"
+            )
+        else:
+            print(f"[grid:{label}] WARNING dense range [{start}, {end}] has no saved checkpoint")
+    if missing:
+        print(f"[grid:{label}] WARNING missing exact checkpoints: {sorted(set(missing))}")
+    chosen = [(step, by_step[step]) for step in sorted(selected)]
+    if not chosen:
+        raise ValueError(f"checkpoint grid selected no available checkpoints for {label}")
+    chosen_steps = [step for step, _ in chosen]
+    gaps = [right - left for left, right in zip(chosen_steps, chosen_steps[1:])]
+    print(
+        f"[grid:{label}] selected={chosen_steps}; "
+        f"temporal_resolution_max_gap={max(gaps) if gaps else 0}"
+    )
+    return chosen
+
+
+def checkpoint_specs_from_directory(
+    directory: str | Path,
+    grid: str | None,
+    run_label: str | None,
+    algo: str,
+) -> list[str]:
+    root = Path(directory).expanduser()
+    label = run_label or root.name
+    selected = select_checkpoint_grid(discover_checkpoints(root), grid, label=label)
+    return [f"{label},{algo},{step},{path}" for step, path in selected]
 
 
 # ----------------------------------------------------------------------------
@@ -286,7 +411,7 @@ def label_rows(phase, dones, truncs, bad, n_bins=20):
 
 
 def select_rows(bins, ep_id, term_bin, term_bad, wall_bins, per_cell, span_n,
-                cache, rhash, seed=0):
+                cache, rhash, seed=0, strict_cache=False):
     if cache and os.path.exists(cache):
         z = np.load(cache, allow_pickle=True)
         if rhash is None or str(z["rhash"]) == str(rhash):
@@ -298,9 +423,18 @@ def select_rows(bins, ep_id, term_bin, term_bad, wall_bins, per_cell, span_n,
             required_cells = {(int(b), lab) for b in wall_bins for lab in ("SURV", "FAIL")}
             if required_cells.issubset(cached_cells):
                 return cached_cells, np.asarray(z["span_idx"], dtype=np.int64)
+            if strict_cache:
+                missing = sorted(required_cells.difference(cached_cells))
+                raise KeyError(f"strict index cache lacks requested cells: {missing}")
             print("[rows] cache does not contain all requested bins -> reselecting")
         else:
+            if strict_cache:
+                raise ValueError(
+                    f"strict index cache rhash mismatch: cache={str(z['rhash'])}, dataset={rhash}"
+                )
             print("[rows] cache rhash mismatch -> reselecting")
+    elif strict_cache:
+        raise FileNotFoundError(f"strict index cache not found: {cache}")
     rng = np.random.default_rng(seed)
     cells = {}
     for b in wall_bins:
@@ -333,26 +467,50 @@ def batched(fn, *arrs, bs=4096):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("h5")
-    ap.add_argument("--ckpt", action="append", required=True,
+    ap.add_argument("--ckpt", action="append", default=[],
                     help="RUNLABEL,ALGO,STEP,PATH (repeatable)")
+    ap.add_argument("--ckpt-dir", help="run directory containing model_{step}.pt checkpoints")
+    ap.add_argument(
+        "--steps",
+        help=(
+            "checkpoint grid for --ckpt-dir; comma-separated exact steps and inclusive "
+            "saved ranges, e.g. 20k,60k,180k:220k,300k"
+        ),
+    )
+    ap.add_argument("--run-label", help="CSV run label for --ckpt-dir (default: directory name)")
+    ap.add_argument("--algo", choices=("cql", "iql", "td3bc"), default="cql")
     ap.add_argument("--bins", type=int, nargs="+", default=[4, 5])
     ap.add_argument("--per-cell", type=int, default=2000)
     ap.add_argument("--span-n", type=int, default=20000)
     ap.add_argument("--index-cache", default="probe_rows.npz")
+    ap.add_argument(
+        "--strict-index-cache",
+        action="store_true",
+        help="require the existing cache to match dataset rhash and requested bins; never reselect rows",
+    )
     ap.add_argument("--out", default="probe_results.csv")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
 
+    checkpoint_specs = list(a.ckpt)
+    if a.ckpt_dir:
+        checkpoint_specs.extend(
+            checkpoint_specs_from_directory(a.ckpt_dir, a.steps, a.run_label, a.algo)
+        )
+    if not checkpoint_specs:
+        ap.error("provide at least one --ckpt or --ckpt-dir")
+
     r, phase, dones, truncs, bad, obs, cobs, acts, rh = load_arrays(a.h5)
     print(f"[load] N={len(r):,}  rhash={rh}")
     bins, ep_id, term_bin, term_bad = label_rows(phase, dones, truncs, bad)
     cells, span_idx = select_rows(bins, ep_id, term_bin, term_bad, a.bins,
-                                  a.per_cell, a.span_n, a.index_cache, rh)
+                                  a.per_cell, a.span_n, a.index_cache, rh,
+                                  strict_cache=a.strict_index_cache)
 
     rows_out = []
     stub_rng = np.random.default_rng(1)
-    for spec in a.ckpt:
+    for spec in checkpoint_specs:
         run, algo, step, path = spec.split(",", 3)
         step = int(step)
         if a.dry_run:

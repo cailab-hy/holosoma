@@ -2,8 +2,9 @@
 """Retrospectively apply the registered two-channel checkpoint stopping rule.
 
 The script never trains or changes a policy. It reuses fixed SURV/FAIL rows from
-an existing ``aw_wall_probe.py`` cache, evaluates every ``model_{step}.pt`` in a
-run directory, and audits two failure channels:
+an existing ``aw_wall_probe.py`` cache, evaluates the selected
+``model_{step}.pt`` checkpoints in a run directory, and audits two failure
+channels:
 
 * contrast: wall-bin ``Delta_hat`` first crosses below ``tau`` after the contrast
   has previously formed (``Delta_hat >= 2 * tau``), and
@@ -30,7 +31,7 @@ from typing import Any
 import h5py
 import numpy as np
 
-from aw_wall_probe import batched, build_scorer, find_key
+from aw_wall_probe import batched, build_scorer, find_key, select_checkpoint_grid
 
 
 CHECKPOINT_PATTERN = re.compile(r"^model_(\d+)\.pt$")
@@ -53,6 +54,7 @@ class RunSpec:
     out: Path
     device: str
     batch_size: int
+    checkpoint_grid: str | None = None
 
 
 @dataclass(frozen=True)
@@ -427,7 +429,11 @@ def write_audit_csv(
 
 
 def audit_run(spec: RunSpec) -> dict[str, Any]:
-    checkpoints = discover_checkpoints(spec.ckpt_dir)
+    checkpoints = select_checkpoint_grid(
+        discover_checkpoints(spec.ckpt_dir),
+        spec.checkpoint_grid,
+        label=spec.label,
+    )
     probe = load_fixed_probe_data(spec)
     log_values = load_level_log(spec.level_from_log) if spec.level_from_log else None
     scorer_type = scorer_agent_type(spec.agent_type)
@@ -575,6 +581,7 @@ def run_spec_from_mapping(
         out=out,
         device=str(_value(merged, "device", "cuda")),
         batch_size=int(_value(merged, "batch_size", 4096)),
+        checkpoint_grid=_value(merged, "steps"),
     )
 
 
@@ -613,6 +620,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-label")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--batch-size", type=int, default=4096)
+    parser.add_argument(
+        "--steps",
+        help=(
+            "checkpoint grid; comma-separated exact steps and inclusive saved ranges, "
+            "e.g. 20k,60k,180k:220k,300k"
+        ),
+    )
     parser.add_argument("--batch-config", help="YAML with defaults and a runs list")
     return parser.parse_args()
 
@@ -643,6 +657,7 @@ def direct_spec(args: argparse.Namespace) -> RunSpec:
         out=Path(args.out).expanduser(),
         device=args.device,
         batch_size=args.batch_size,
+        checkpoint_grid=args.steps,
     )
 
 
