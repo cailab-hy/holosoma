@@ -48,8 +48,8 @@ def test_grid_selects_exact_steps_and_every_saved_step_in_range(tmp_path: Path) 
     ]
 
 
-def test_default_cell1_grid_selects_10k_steps_through_last_checkpoint(tmp_path: Path) -> None:
-    for step in (5_000, 10_000, 20_000, 25_000, 30_000):
+def test_default_cell1_grid_selects_1k_steps_through_last_checkpoint(tmp_path: Path) -> None:
+    for step in (500, 1_000, 2_000, 2_500, 3_000):
         _touch_checkpoint(tmp_path, step)
 
     selected = select_checkpoint_grid(
@@ -59,7 +59,7 @@ def test_default_cell1_grid_selects_10k_steps_through_last_checkpoint(tmp_path: 
     )
 
     assert DEFAULT_H5.endswith("g1_29dof_wbt_fastsac_episode1m_env256_dataset.h5")
-    assert [step for step, _ in selected] == [10_000, 20_000, 30_000]
+    assert [step for step, _ in selected] == [1_000, 2_000, 3_000]
 
 
 def test_directory_specs_use_actual_checkpoint_step(tmp_path: Path) -> None:

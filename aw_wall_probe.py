@@ -19,7 +19,7 @@ ckpt-load + normalize + critic/actor forward code you already used for the
 IQL weight-stats probe. Everything else is complete.
 
 Usage:
-  # Cell-1 defaults: the dataset, bins 4/5, fixed-row cache, and a 10k grid
+  # Cell-1 defaults: the dataset, bins 4/5, fixed-row cache, and a 1k grid
   # through the final saved checkpoint are built in. Only the run is required.
   python aw_wall_probe.py --ckpt-dir logs/WholeBodyTracking/<run>
 
@@ -49,7 +49,7 @@ import numpy as np
 
 CHECKPOINT_PATTERN = re.compile(r"^model_(\d+)\.pt$")
 DEFAULT_H5 = "offline_data/g1_29dof_wbt_fastsac_episode1m_env256_dataset.h5"
-DEFAULT_GRID = "10k:end:10k"
+DEFAULT_GRID = "1k:end:1k"
 DEFAULT_INDEX_CACHE = "probe_rows_cell1.npz"
 DEFAULT_OUTPUT = "probe_results_cell1.csv"
 
@@ -514,7 +514,7 @@ def main():
         default=DEFAULT_GRID,
         help=(
             "checkpoint grid for --ckpt-dir; comma-separated exact steps and inclusive "
-            "saved ranges, or start:end:stride (default: 10k:end:10k)"
+            "saved ranges, or start:end:stride (default: 1k:end:1k)"
         ),
     )
     ap.add_argument("--run-label", help="CSV run label for --ckpt-dir (default: directory name)")
