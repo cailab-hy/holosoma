@@ -378,11 +378,11 @@ def build_scorer(
     return q_fn, pi_fn
 
 
-def _stub_scorer(rng):
+def _stub_scorer(rng, action_dim):
     def q_fn(co, a):
         return rng.normal(0, 10, size=len(co))
     def pi_fn(o):
-        return rng.normal(0, 1, size=(len(o), 3))
+        return rng.normal(0, 1, size=(len(o), action_dim))
     return q_fn, pi_fn
 
 
@@ -554,7 +554,7 @@ def main():
         run, algo, step, path = spec.split(",", 3)
         step = int(step)
         if a.dry_run:
-            q_fn, pi_fn = _stub_scorer(stub_rng)
+            q_fn, pi_fn = _stub_scorer(stub_rng, acts.shape[-1])
         else:
             assert os.path.exists(path), f"ckpt not found: {path}"
             q_fn, pi_fn = build_scorer(algo, path, a.device)

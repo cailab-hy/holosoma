@@ -8,6 +8,7 @@ import pytest
 from aw_wall_probe import checkpoint_specs_from_directory
 from aw_wall_probe import DEFAULT_GRID
 from aw_wall_probe import DEFAULT_H5
+from aw_wall_probe import _stub_scorer
 from aw_wall_probe import discover_checkpoints
 from aw_wall_probe import parse_step
 from aw_wall_probe import select_rows
@@ -96,3 +97,12 @@ def test_strict_index_cache_rejects_reward_hash_mismatch(tmp_path: Path) -> None
             rhash="new-hash",
             strict_cache=True,
         )
+
+
+def test_dry_run_stub_uses_dataset_action_dimension() -> None:
+    rng = np.random.default_rng(1)
+    _, pi_fn = _stub_scorer(rng, action_dim=29)
+
+    actions = pi_fn(np.zeros((8, 154), dtype=np.float32))
+
+    assert actions.shape == (8, 29)
