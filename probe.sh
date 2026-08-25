@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 H5="${H5:-offline_data/g1_29dof_wbt_fastsac_episode1m_env256_dataset.h5}"
-CACHE="${CACHE:-probe_rows_cell1_v3_full.npz}"
+CACHE="${CACHE:-probe_rows_cell1_v3.npz}"
 DEVICE="${DEVICE:-cuda:0}"
 BATCH_SIZE="${BATCH_SIZE:-4096}"
 STEPS="${STEPS:-1k:end:1k}"
