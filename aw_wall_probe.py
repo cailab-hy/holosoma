@@ -261,6 +261,17 @@ def build_scorer(
 
     actor_state = strip_prefixes(checkpoint["actor_state_dict"])
     critic_state = strip_prefixes(checkpoint[critic_state_key])
+
+    def state_checksum(state_dict) -> str:
+        digest = hashlib.sha256()
+        for key in sorted(state_dict):
+            tensor = state_dict[key].detach().cpu().contiguous()
+            digest.update(key.encode("utf-8"))
+            digest.update(str(tensor.dtype).encode("ascii"))
+            digest.update(np.asarray(tensor.float()).tobytes())
+        return digest.hexdigest()[:16]
+
+    critic_checksum = state_checksum(critic_state)
     actor_output_key = "fc_mu.weight" if algo == "td3bc" else "fc_mu.0.weight"
     if "net.0.weight" not in actor_state or actor_output_key not in actor_state:
         raise ValueError(f"unsupported actor state layout: {ckpt_path}")
@@ -364,6 +375,34 @@ def build_scorer(
     def q_fn(critic_obs, act):
         return score_critic(critic, critic_obs, act)
 
+    def direct_reference_q_fn(critic_obs, act):
+        """Independent MLP Q path bypassing q_fn and critic/QNetwork.forward."""
+        with torch.inference_mode():
+            critic_obs_tensor = torch.as_tensor(
+                critic_obs,
+                device=torch_device,
+                dtype=torch.float32,
+            )
+            action_tensor = torch.as_tensor(act, device=torch_device, dtype=torch.float32)
+            critic_obs_tensor = normalize(
+                critic_obs_tensor,
+                critic_normalizer,
+                critic_obs_dim,
+                "critic observation",
+            )
+            critic_input = torch.cat([critic_obs_tensor, action_tensor], dim=1)
+            q1 = critic.q1.net(critic_input).squeeze(-1)
+            q2 = critic.q2.net(critic_input).squeeze(-1)
+            return torch.minimum(q1, q2).float().cpu().numpy()
+
+    q_fn.probe_metadata = {
+        "critic_checksum": critic_checksum,
+        "first_layer_sum": float(critic_state["q1.net.0.weight"].float().sum().item()),
+        "checkpoint_global_step": int(checkpoint.get("global_step", -1)),
+        "checkpoint_path": str(ckpt_path),
+    }
+    q_fn.direct_reference_q_fn = direct_reference_q_fn
+
     def pi_fn(obs):
         with torch.inference_mode():
             obs_tensor = torch.as_tensor(obs, device=torch_device, dtype=torch.float32)
@@ -384,6 +423,12 @@ def _stub_scorer(rng, action_dim):
         return rng.normal(0, 10, size=len(co))
     def pi_fn(o):
         return rng.normal(0, 1, size=(len(o), action_dim))
+    q_fn.probe_metadata = {
+        "critic_checksum": "dry-run",
+        "first_layer_sum": float("nan"),
+        "checkpoint_global_step": -1,
+        "checkpoint_path": "dry-run",
+    }
     return q_fn, pi_fn
 
 
@@ -713,6 +758,7 @@ def main():
 
     rows_out = []
     stub_rng = np.random.default_rng(1)
+    checksum_paths: dict[str, str] = {}
     for spec in checkpoint_specs:
         run, algo, step, path = spec.split(",", 3)
         step = int(step)
@@ -721,8 +767,32 @@ def main():
         else:
             assert os.path.exists(path), f"ckpt not found: {path}"
             q_fn, pi_fn = build_scorer(algo, path, a.device)
+        checkpoint_metadata = getattr(q_fn, "probe_metadata", {})
+        critic_checksum = str(checkpoint_metadata.get("critic_checksum", "unknown"))
+        first_layer_sum = float(checkpoint_metadata.get("first_layer_sum", float("nan")))
+        checkpoint_global_step = int(checkpoint_metadata.get("checkpoint_global_step", -1))
+        print(
+            f"[ckpt] run={run} requested_step={step} loaded_step={checkpoint_global_step} "
+            f"critic_checksum={critic_checksum} first_layer_sum={first_layer_sum:+.9f} "
+            f"path={path}"
+        )
+        previous_path = checksum_paths.get(critic_checksum)
+        if previous_path is not None and previous_path != path and critic_checksum != "dry-run":
+            print(
+                f"[ckpt] WARNING identical critic checksum loaded from distinct paths: "
+                f"{previous_path} and {path}"
+            )
+        checksum_paths[critic_checksum] = path
+
+        # All checkpoint-dependent Q evaluation stays inside this loop, after
+        # this checkpoint's state dict has been loaded into a fresh critic.
         q_span = batched(q_fn, cobs[span_idx], acts[span_idx], bs=a.batch_size)
         span = float(np.percentile(q_span, 99) - np.percentile(q_span, 1))
+        print(
+            f"[span] run={run} step={step} span={span:.9f} "
+            f"mean={q_span.mean():+.9f} p01={np.percentile(q_span, 1):+.9f} "
+            f"p99={np.percentile(q_span, 99):+.9f}"
+        )
         if a.audit_sample_n > 0:
             print(
                 f"[audit:q] run={run} step={step} global "
@@ -753,16 +823,33 @@ def main():
                         acts[sample_idx],
                         bs=a.batch_size,
                     )
+                    direct_q_fn = getattr(q_fn, "direct_reference_q_fn", None)
+                    direct_mean = float("nan")
+                    direct_max_abs_diff = float("nan")
+                    if direct_q_fn is not None:
+                        q_direct = direct_q_fn(cobs[sample_idx], acts[sample_idx])
+                        direct_mean = float(q_direct.mean())
+                        direct_max_abs_diff = float(np.max(np.abs(q_direct - q_sample)))
+                        if not np.allclose(q_direct, q_sample, rtol=1e-5, atol=1e-5):
+                            raise RuntimeError(
+                                f"independent direct-Q mismatch for run={run}, step={step}, "
+                                f"bin={b}, label={lab}: max_abs_diff={direct_max_abs_diff}"
+                            )
                     print(
                         f"[audit:q] run={run} step={step} bin={b} label={lab} "
                         f"full_n={len(idx):,} full_mean={q.mean():+.6f} "
                         f"full_std={q.std():.6f} sample_n={sample_size:,} "
                         f"sample_mean={q_sample.mean():+.6f} "
-                        f"sample_std={q_sample.std():.6f}"
+                        f"sample_std={q_sample.std():.6f} "
+                        f"direct_mean={direct_mean:+.6f} "
+                        f"direct_max_abs_diff={direct_max_abs_diff:.3e}"
                     )
             (qs, ds, ns), (qf, df, nf) = stats["SURV"], stats["FAIL"]
             delta = qs - qf
             rows_out.append(dict(run=run, algo=algo, step=step, bin=b,
+                                 checkpoint_global_step=checkpoint_global_step,
+                                 critic_checksum=critic_checksum,
+                                 first_layer_sum=round(first_layer_sum, 9),
                                  n_surv=ns, n_fail=nf,
                                  Q_surv=round(qs, 4), Q_fail=round(qf, 4),
                                  Delta=round(delta, 4), span=round(span, 4),
