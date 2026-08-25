@@ -50,9 +50,8 @@ import numpy as np
 CHECKPOINT_PATTERN = re.compile(r"^model_(\d+)\.pt$")
 DEFAULT_H5 = "offline_data/g1_29dof_wbt_fastsac_episode1m_env256_dataset.h5"
 DEFAULT_GRID = "1k:end:1k"
-DEFAULT_INDEX_CACHE = "probe_rows_cell1_v3_full.npz"
-DEFAULT_OUTPUT = "probe_results_cell1_v3_full.csv"
-DEFAULT_SPAN_N = 3_000_000
+DEFAULT_INDEX_CACHE = "probe_rows_cell1.npz"
+DEFAULT_OUTPUT = "probe_results_cell1.csv"
 
 
 def parse_step(value: str | int) -> int:
@@ -447,55 +446,27 @@ def label_rows(phase, dones, truncs, bad, n_bins=20):
 
 def select_rows(bins, ep_id, term_bin, term_bad, wall_bins, per_cell, span_n,
                 cache, rhash, seed=0, strict_cache=False):
-    per_cell_mode = "all" if per_cell is None else str(per_cell)
-    span_n_mode = "all" if span_n >= len(bins) else str(span_n)
     if cache and os.path.exists(cache):
-        with np.load(cache, allow_pickle=True) as z:
-            cached_hash = str(np.asarray(z["rhash"]).item()) if "rhash" in z.files else ""
-            cache_per_cell_mode = (
-                str(np.asarray(z["per_cell_mode"]).item()) if "per_cell_mode" in z.files else ""
-            )
-            cache_span_n_mode = (
-                str(np.asarray(z["span_n_mode"]).item()) if "span_n_mode" in z.files else ""
-            )
-            hash_matches = rhash is None or cached_hash == str(rhash)
-            mode_mismatches = []
-            if cache_per_cell_mode != per_cell_mode:
-                mode_mismatches.append(
-                    f"per-cell cache={cache_per_cell_mode or '<missing>'} current={per_cell_mode}"
+        z = np.load(cache, allow_pickle=True)
+        if rhash is None or str(z["rhash"]) == str(rhash):
+            print(f"[rows] loaded cached indices from {cache}")
+            cached_cells = {
+                (int(k[0]), str(k[1])): np.asarray(v, dtype=np.int64)
+                for k, v in zip(z["cell_keys"], z["cell_idx"])
+            }
+            required_cells = {(int(b), lab) for b in wall_bins for lab in ("SURV", "FAIL")}
+            if required_cells.issubset(cached_cells):
+                return cached_cells, np.asarray(z["span_idx"], dtype=np.int64)
+            if strict_cache:
+                missing = sorted(required_cells.difference(cached_cells))
+                raise KeyError(f"strict index cache lacks requested cells: {missing}")
+            print("[rows] cache does not contain all requested bins -> reselecting")
+        else:
+            if strict_cache:
+                raise ValueError(
+                    f"strict index cache rhash mismatch: cache={str(z['rhash'])}, dataset={rhash}"
                 )
-            if cache_span_n_mode != span_n_mode:
-                mode_mismatches.append(
-                    f"span-n cache={cache_span_n_mode or '<missing>'} current={span_n_mode}"
-                )
-
-            if not hash_matches:
-                if strict_cache:
-                    raise ValueError(
-                        f"strict index cache rhash mismatch: cache={cached_hash}, dataset={rhash}"
-                    )
-                print("[rows] cache rhash mismatch -> reselecting")
-            elif mode_mismatches:
-                message = "; ".join(mode_mismatches)
-                if strict_cache:
-                    raise ValueError(f"strict index cache selection mode mismatch: {message}")
-                print(f"[rows] cache selection mode mismatch ({message}) -> reselecting")
-            else:
-                print(
-                    f"[rows] loaded cached indices from {cache} "
-                    f"(per-cell={per_cell_mode}, span-n={span_n_mode})"
-                )
-                cached_cells = {
-                    (int(k[0]), str(k[1])): np.asarray(v, dtype=np.int64)
-                    for k, v in zip(z["cell_keys"], z["cell_idx"])
-                }
-                required_cells = {(int(b), lab) for b in wall_bins for lab in ("SURV", "FAIL")}
-                if required_cells.issubset(cached_cells):
-                    return cached_cells, np.asarray(z["span_idx"], dtype=np.int64)
-                if strict_cache:
-                    missing = sorted(required_cells.difference(cached_cells))
-                    raise KeyError(f"strict index cache lacks requested cells: {missing}")
-                print("[rows] cache does not contain all requested bins -> reselecting")
+            print("[rows] cache rhash mismatch -> reselecting")
     elif strict_cache:
         raise FileNotFoundError(f"strict index cache not found: {cache}")
     rng = np.random.default_rng(seed)
@@ -507,24 +478,15 @@ def select_rows(bins, ep_id, term_bin, term_bad, wall_bins, per_cell, span_n,
         idx = np.flatnonzero(m)
         for lab, lm in (("SURV", ~is_fail), ("FAIL", is_fail)):
             pool = idx[lm]
-            if per_cell is None or len(pool) <= per_cell:
-                take = pool
-            else:
-                take = rng.choice(pool, per_cell, replace=False)
+            take = pool if len(pool) <= per_cell else rng.choice(pool, per_cell, replace=False)
             cells[(b, lab)] = np.sort(take)
             print(f"[rows] bin {b} {lab}: {len(take):,} rows (pool {len(pool):,})")
-    if span_n >= len(bins):
-        span_idx = np.arange(len(bins), dtype=np.int64)
-    else:
-        span_idx = np.sort(rng.choice(len(bins), span_n, replace=False))
-    print(f"[rows] span: {len(span_idx):,} rows (mode={span_n_mode})")
+    span_idx = np.sort(rng.choice(len(bins), min(span_n, len(bins)), replace=False))
     if cache:
         np.savez_compressed(cache,
                             cell_keys=np.array(list(cells.keys())),
                             cell_idx=np.array(list(cells.values()), dtype=object),
-                            span_idx=span_idx, rhash=str(rhash),
-                            per_cell_mode=per_cell_mode,
-                            span_n_mode=span_n_mode)
+                            span_idx=span_idx, rhash=str(rhash))
     return cells, span_idx
 
 
@@ -558,18 +520,8 @@ def main():
     ap.add_argument("--run-label", help="CSV run label for --ckpt-dir (default: directory name)")
     ap.add_argument("--algo", choices=("cql", "iql", "td3bc"), default="cql")
     ap.add_argument("--bins", type=int, nargs="+", default=[4, 5])
-    ap.add_argument(
-        "--per-cell",
-        default="all",
-        help="'all' = use each cell's entire pool (deterministic), or an integer sample size",
-    )
-    ap.add_argument("--span-n", type=int, default=DEFAULT_SPAN_N)
-    ap.add_argument(
-        "--batch-size",
-        type=int,
-        default=4096,
-        help="inference chunk size; lower to 2048 on GPU OOM without changing results",
-    )
+    ap.add_argument("--per-cell", type=int, default=2000)
+    ap.add_argument("--span-n", type=int, default=20000)
     ap.add_argument("--index-cache", default=DEFAULT_INDEX_CACHE)
     ap.add_argument(
         "--strict-index-cache",
@@ -588,25 +540,12 @@ def main():
         )
     if not checkpoint_specs:
         ap.error("provide at least one --ckpt or --ckpt-dir")
-    if str(a.per_cell).lower() == "all":
-        per_cell = None
-    else:
-        try:
-            per_cell = int(a.per_cell)
-        except ValueError:
-            ap.error("--per-cell must be 'all' or a positive integer")
-        if per_cell <= 0:
-            ap.error("--per-cell must be 'all' or a positive integer")
-    if a.span_n <= 0:
-        ap.error("--span-n must be a positive integer")
-    if a.batch_size <= 0:
-        ap.error("--batch-size must be a positive integer")
 
     r, phase, dones, truncs, bad, obs, cobs, acts, rh = load_arrays(a.h5)
     print(f"[load] N={len(r):,}  rhash={rh}")
     bins, ep_id, term_bin, term_bad = label_rows(phase, dones, truncs, bad)
     cells, span_idx = select_rows(bins, ep_id, term_bin, term_bad, a.bins,
-                                  per_cell, a.span_n, a.index_cache, rh,
+                                  a.per_cell, a.span_n, a.index_cache, rh,
                                   strict_cache=a.strict_index_cache)
 
     rows_out = []
@@ -619,14 +558,14 @@ def main():
         else:
             assert os.path.exists(path), f"ckpt not found: {path}"
             q_fn, pi_fn = build_scorer(algo, path, a.device)
-        q_span = batched(q_fn, cobs[span_idx], acts[span_idx], bs=a.batch_size)
+        q_span = batched(q_fn, cobs[span_idx], acts[span_idx])
         span = float(np.percentile(q_span, 99) - np.percentile(q_span, 1))
         for b in a.bins:
             stats = {}
             for lab in ("SURV", "FAIL"):
                 idx = cells[(b, lab)]
-                q = batched(q_fn, cobs[idx], acts[idx], bs=a.batch_size)
-                pa = batched(pi_fn, obs[idx], bs=a.batch_size)
+                q = batched(q_fn, cobs[idx], acts[idx])
+                pa = batched(pi_fn, obs[idx])
                 d = np.linalg.norm(pa - acts[idx], axis=-1)
                 stats[lab] = (float(q.mean()), float(d.mean()), len(idx))
             (qs, ds, ns), (qf, df, nf) = stats["SURV"], stats["FAIL"]
