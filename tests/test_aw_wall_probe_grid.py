@@ -14,6 +14,7 @@ from aw_wall_probe import discover_checkpoints
 from aw_wall_probe import parse_step
 from aw_wall_probe import select_rows
 from aw_wall_probe import select_checkpoint_grid
+from aw_wall_probe import validate_selected_rows
 
 
 def _touch_checkpoint(directory: Path, step: int) -> Path:
@@ -200,3 +201,50 @@ def test_non_strict_cache_reselects_on_selection_mode_mismatch(tmp_path: Path) -
     with np.load(cache, allow_pickle=True) as payload:
         assert str(payload["per_cell_mode"]) == "all"
         assert str(payload["span_n_mode"]) == "all"
+
+
+def test_validate_selected_rows_rejects_swapped_cell_indices() -> None:
+    bins = np.array([4, 4, 4, 4], dtype=np.int64)
+    ep_id = np.array([0, 1, 2, 3], dtype=np.int64)
+    term_bin = np.array([8, 4, 8, 4], dtype=np.int64)
+    term_bad = np.array([False, True, False, True])
+    swapped_cells = {
+        (4, "SURV"): np.array([1, 3], dtype=np.int64),
+        (4, "FAIL"): np.array([0, 2], dtype=np.int64),
+    }
+
+    with pytest.raises(ValueError, match="does not exactly match"):
+        validate_selected_rows(
+            bins,
+            ep_id,
+            term_bin,
+            term_bad,
+            [4],
+            swapped_cells,
+            np.arange(4, dtype=np.int64),
+            require_full_cells=True,
+            require_full_span=True,
+        )
+
+
+def test_validate_selected_rows_accepts_exact_full_cells() -> None:
+    bins = np.array([4, 4, 4, 4], dtype=np.int64)
+    ep_id = np.array([0, 1, 2, 3], dtype=np.int64)
+    term_bin = np.array([8, 4, 8, 4], dtype=np.int64)
+    term_bad = np.array([False, True, False, True])
+    cells = {
+        (4, "SURV"): np.array([0, 2], dtype=np.int64),
+        (4, "FAIL"): np.array([1, 3], dtype=np.int64),
+    }
+
+    validate_selected_rows(
+        bins,
+        ep_id,
+        term_bin,
+        term_bad,
+        [4],
+        cells,
+        np.arange(4, dtype=np.int64),
+        require_full_cells=True,
+        require_full_span=True,
+    )

@@ -8,7 +8,7 @@ For each checkpoint, on FIXED dataset rows in wall bins {4,5}:
 
     Q_surv, Q_fail : mean twin-min Q(s, a_data) per (bin, label) cell
     Delta          : Q_surv - Q_fail            (anchor contrast in Q-space)
-    span           : p99 - p01 of Q(s, a_data) on a fixed global 20k sample
+    span           : p99 - p01 of Q(s, a_data) on the configured global rows
     Delta_hat      : Delta / span               (contrast survives shrinkage?)
     d_surv, d_fail : mean ||pi(s) - a_data||    (freeze signature, actor side)
 
@@ -36,12 +36,12 @@ Usage:
       --ckpt aw,cql,300000,/path/aw/model_0300000.pt \
       --ckpt b,cql,300000,/path/os_aw/model_0300000.pt \
       --ckpt iql,iql,300000,/path/iql/model_0300000.pt \
-      [--bins 4 5] [--per-cell 2000] [--span-n 20000] [--dry-run]
+      [--bins 4 5] [--per-cell all] [--span-n 3000000] [--dry-run]
 
   --ckpt format: RUNLABEL,ALGO,STEP,PATH   (ALGO in {cql, iql, td3bc}; cql covers AW variants)
   --dry-run: random stub instead of real models -> verifies plumbing + CSV.
 """
-import argparse, csv, os, re, sys
+import argparse, csv, hashlib, os, re, sys
 from pathlib import Path
 
 import numpy as np
@@ -528,6 +528,85 @@ def select_rows(bins, ep_id, term_bin, term_bad, wall_bins, per_cell, span_n,
     return cells, span_idx
 
 
+def _index_checksum(indices: np.ndarray) -> str:
+    values = np.ascontiguousarray(indices, dtype=np.int64)
+    return hashlib.sha256(values.tobytes()).hexdigest()[:16]
+
+
+def validate_selected_rows(
+    bins: np.ndarray,
+    ep_id: np.ndarray,
+    term_bin: np.ndarray,
+    term_bad: np.ndarray,
+    wall_bins: list[int],
+    cells: dict[tuple[int, str], np.ndarray],
+    span_idx: np.ndarray,
+    *,
+    require_full_cells: bool,
+    require_full_span: bool,
+    verbose: bool = False,
+) -> None:
+    """Verify that cached row coordinates still encode the requested cells.
+
+    This is deliberately recomputed from the current H5 labels. It prevents a
+    stale or malformed object-array cache from silently pairing a cell name
+    with rows from another phase/outcome cell.
+    """
+    num_rows = len(bins)
+    row_bad_failure = term_bad[ep_id]
+    row_terminal_bin = term_bin[ep_id]
+
+    for bin_index in wall_bins:
+        in_bin = bins == bin_index
+        is_fail = row_bad_failure & (row_terminal_bin >= bin_index) & (
+            row_terminal_bin <= bin_index + 1
+        )
+        for label, label_mask in (("SURV", ~is_fail), ("FAIL", is_fail)):
+            key = (int(bin_index), label)
+            if key not in cells:
+                raise KeyError(f"selected rows lack requested cell {key}")
+            selected = np.asarray(cells[key], dtype=np.int64)
+            if selected.ndim != 1:
+                raise ValueError(f"cell {key} indices must be one-dimensional, got {selected.shape}")
+            if selected.size == 0:
+                raise ValueError(f"cell {key} has no rows")
+            if selected.min() < 0 or selected.max() >= num_rows:
+                raise IndexError(f"cell {key} contains out-of-range dataset indices")
+            if np.unique(selected).size != selected.size:
+                raise ValueError(f"cell {key} contains duplicate indices")
+
+            expected = np.flatnonzero(in_bin & label_mask)
+            if require_full_cells:
+                if not np.array_equal(selected, expected):
+                    raise ValueError(
+                        f"full cell {key} does not exactly match current H5 labels: "
+                        f"selected={len(selected)}, expected={len(expected)}"
+                    )
+            elif not np.all(np.isin(selected, expected, assume_unique=False)):
+                raise ValueError(f"cell {key} contains rows from another phase/outcome cell")
+            if verbose:
+                print(
+                    f"[audit:rows] cell={key} rows={len(selected):,} "
+                    f"checksum={_index_checksum(selected)} "
+                    f"first={selected[:5].tolist()}"
+                )
+
+    span_idx = np.asarray(span_idx, dtype=np.int64)
+    if span_idx.ndim != 1 or span_idx.size == 0:
+        raise ValueError("span indices must be a non-empty one-dimensional array")
+    if span_idx.min() < 0 or span_idx.max() >= num_rows:
+        raise IndexError("span indices contain out-of-range dataset rows")
+    if np.unique(span_idx).size != span_idx.size:
+        raise ValueError("span indices contain duplicates")
+    if require_full_span and not np.array_equal(span_idx, np.arange(num_rows, dtype=np.int64)):
+        raise ValueError("full span cache is not the identity row ordering")
+    if verbose:
+        print(
+            f"[audit:rows] span rows={len(span_idx):,} "
+            f"checksum={_index_checksum(span_idx)} full={require_full_span}"
+        )
+
+
 def batched(fn, *arrs, bs=4096):
     outs = []
     for i in range(0, len(arrs[0]), bs):
@@ -579,6 +658,15 @@ def main():
     ap.add_argument("--out", default=DEFAULT_OUTPUT)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument(
+        "--audit-sample-n",
+        type=int,
+        default=0,
+        help=(
+            "also score a deterministic legacy-size sample from each selected cell; "
+            "use 2000 to compare full-pool v3 against the old estimator"
+        ),
+    )
     a = ap.parse_args()
 
     checkpoint_specs = list(a.ckpt)
@@ -601,6 +689,8 @@ def main():
         ap.error("--span-n must be a positive integer")
     if a.batch_size <= 0:
         ap.error("--batch-size must be a positive integer")
+    if a.audit_sample_n < 0:
+        ap.error("--audit-sample-n must be non-negative")
 
     r, phase, dones, truncs, bad, obs, cobs, acts, rh = load_arrays(a.h5)
     print(f"[load] N={len(r):,}  rhash={rh}")
@@ -608,6 +698,18 @@ def main():
     cells, span_idx = select_rows(bins, ep_id, term_bin, term_bad, a.bins,
                                   per_cell, a.span_n, a.index_cache, rh,
                                   strict_cache=a.strict_index_cache)
+    validate_selected_rows(
+        bins,
+        ep_id,
+        term_bin,
+        term_bad,
+        a.bins,
+        cells,
+        span_idx,
+        require_full_cells=per_cell is None,
+        require_full_span=a.span_n >= len(bins),
+        verbose=a.audit_sample_n > 0,
+    )
 
     rows_out = []
     stub_rng = np.random.default_rng(1)
@@ -621,6 +723,15 @@ def main():
             q_fn, pi_fn = build_scorer(algo, path, a.device)
         q_span = batched(q_fn, cobs[span_idx], acts[span_idx], bs=a.batch_size)
         span = float(np.percentile(q_span, 99) - np.percentile(q_span, 1))
+        if a.audit_sample_n > 0:
+            print(
+                f"[audit:q] run={run} step={step} global "
+                f"mean={q_span.mean():+.6f} std={q_span.std():.6f} "
+                f"p01={np.percentile(q_span, 1):+.6f} "
+                f"p50={np.percentile(q_span, 50):+.6f} "
+                f"p99={np.percentile(q_span, 99):+.6f}"
+            )
+        audit_rng = np.random.default_rng(0)
         for b in a.bins:
             stats = {}
             for lab in ("SURV", "FAIL"):
@@ -629,6 +740,26 @@ def main():
                 pa = batched(pi_fn, obs[idx], bs=a.batch_size)
                 d = np.linalg.norm(pa - acts[idx], axis=-1)
                 stats[lab] = (float(q.mean()), float(d.mean()), len(idx))
+                if a.audit_sample_n > 0:
+                    sample_size = min(a.audit_sample_n, len(idx))
+                    sample_idx = (
+                        idx
+                        if sample_size == len(idx)
+                        else np.sort(audit_rng.choice(idx, sample_size, replace=False))
+                    )
+                    q_sample = batched(
+                        q_fn,
+                        cobs[sample_idx],
+                        acts[sample_idx],
+                        bs=a.batch_size,
+                    )
+                    print(
+                        f"[audit:q] run={run} step={step} bin={b} label={lab} "
+                        f"full_n={len(idx):,} full_mean={q.mean():+.6f} "
+                        f"full_std={q.std():.6f} sample_n={sample_size:,} "
+                        f"sample_mean={q_sample.mean():+.6f} "
+                        f"sample_std={q_sample.std():.6f}"
+                    )
             (qs, ds, ns), (qf, df, nf) = stats["SURV"], stats["FAIL"]
             delta = qs - qf
             rows_out.append(dict(run=run, algo=algo, step=step, bin=b,
