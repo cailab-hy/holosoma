@@ -519,7 +519,7 @@ g1_29dof_wbt_fall_and_getup_bc = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
         name="g1_29dof_wbt_fall_and_getup_bc_manager",
-        num_envs=512,
+        num_envs=4096,
         eval_num_episodes=1,
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",
@@ -557,7 +557,7 @@ g1_29dof_wbt_fall_and_getup_w_bc = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
         name="g1_29dof_wbt_fall_and_getup_w_bc_manager",
-        num_envs=512,
+        num_envs=4096,
         eval_num_episodes=1,
     ),
     env_class="holosoma.envs.wbt.wbt_manager.WholeBodyTrackingManager",

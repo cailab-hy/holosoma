@@ -6,6 +6,8 @@ import numpy as np
 import pytest
 
 from aw_wall_probe import checkpoint_specs_from_directory
+from aw_wall_probe import DEFAULT_GRID
+from aw_wall_probe import DEFAULT_H5
 from aw_wall_probe import discover_checkpoints
 from aw_wall_probe import parse_step
 from aw_wall_probe import select_rows
@@ -44,6 +46,20 @@ def test_grid_selects_exact_steps_and_every_saved_step_in_range(tmp_path: Path) 
         230_000,
         300_000,
     ]
+
+
+def test_default_cell1_grid_selects_10k_steps_through_last_checkpoint(tmp_path: Path) -> None:
+    for step in (5_000, 10_000, 20_000, 25_000, 30_000):
+        _touch_checkpoint(tmp_path, step)
+
+    selected = select_checkpoint_grid(
+        discover_checkpoints(tmp_path),
+        DEFAULT_GRID,
+        label="default-cell1",
+    )
+
+    assert DEFAULT_H5.endswith("g1_29dof_wbt_fastsac_episode1m_env256_dataset.h5")
+    assert [step for step, _ in selected] == [10_000, 20_000, 30_000]
 
 
 def test_directory_specs_use_actual_checkpoint_step(tmp_path: Path) -> None:

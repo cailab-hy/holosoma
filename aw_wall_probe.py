@@ -19,6 +19,10 @@ ckpt-load + normalize + critic/actor forward code you already used for the
 IQL weight-stats probe. Everything else is complete.
 
 Usage:
+  # Cell-1 defaults: the dataset, bins 4/5, fixed-row cache, and a 10k grid
+  # through the final saved checkpoint are built in. Only the run is required.
+  python aw_wall_probe.py --ckpt-dir logs/WholeBodyTracking/<run>
+
   # Checkpoint directory + retrospective grid. A:B includes every saved
   # checkpoint in the inclusive interval, while individual steps are exact.
   python aw_wall_probe.py <h5> \
@@ -44,6 +48,10 @@ import numpy as np
 
 
 CHECKPOINT_PATTERN = re.compile(r"^model_(\d+)\.pt$")
+DEFAULT_H5 = "offline_data/g1_29dof_wbt_fastsac_episode1m_env256_dataset.h5"
+DEFAULT_GRID = "10k:end:10k"
+DEFAULT_INDEX_CACHE = "probe_rows_cell1.npz"
+DEFAULT_OUTPUT = "probe_results_cell1.csv"
 
 
 def parse_step(value: str | int) -> int:
@@ -106,6 +114,32 @@ def select_checkpoint_grid(
         raise ValueError("checkpoint grid is empty")
 
     for token in tokens:
+        stepped_match = re.fullmatch(r"(.+?)\s*:\s*(end|.+?)\s*:\s*(.+)", token)
+        if stepped_match is not None:
+            start = parse_step(stepped_match.group(1))
+            end_text = stepped_match.group(2).strip().lower()
+            end = checkpoints[-1][0] if end_text == "end" else parse_step(end_text)
+            stride = parse_step(stepped_match.group(3))
+            if stride <= 0:
+                raise ValueError(f"checkpoint grid stride must be positive: {token!r}")
+            if start > end:
+                raise ValueError(f"checkpoint grid start exceeds end: {token!r}")
+            expected = list(range(start, end + 1, stride))
+            found = [step for step in expected if step in by_step]
+            missing_grid = [step for step in expected if step not in by_step]
+            selected.update(found)
+            print(
+                f"[grid:{label}] stepped grid [{start}, {end}] stride={stride}: "
+                f"found={len(found)}/{len(expected)}"
+            )
+            if missing_grid:
+                preview = missing_grid[:20]
+                suffix = " ..." if len(missing_grid) > len(preview) else ""
+                print(
+                    f"[grid:{label}] WARNING missing grid checkpoints "
+                    f"({len(missing_grid)}): {preview}{suffix}"
+                )
+            continue
         range_match = re.fullmatch(r"(.+?)\s*[:-]\s*(.+)", token)
         if range_match is None:
             step = parse_step(token)
@@ -466,15 +500,21 @@ def batched(fn, *arrs, bs=4096):
 # --------------------------------- main -------------------------------------
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("h5")
+    ap.add_argument(
+        "h5",
+        nargs="?",
+        default=DEFAULT_H5,
+        help=f"offline H5 dataset (default: {DEFAULT_H5})",
+    )
     ap.add_argument("--ckpt", action="append", default=[],
                     help="RUNLABEL,ALGO,STEP,PATH (repeatable)")
     ap.add_argument("--ckpt-dir", help="run directory containing model_{step}.pt checkpoints")
     ap.add_argument(
         "--steps",
+        default=DEFAULT_GRID,
         help=(
             "checkpoint grid for --ckpt-dir; comma-separated exact steps and inclusive "
-            "saved ranges, e.g. 20k,60k,180k:220k,300k"
+            "saved ranges, or start:end:stride (default: 10k:end:10k)"
         ),
     )
     ap.add_argument("--run-label", help="CSV run label for --ckpt-dir (default: directory name)")
@@ -482,13 +522,13 @@ def main():
     ap.add_argument("--bins", type=int, nargs="+", default=[4, 5])
     ap.add_argument("--per-cell", type=int, default=2000)
     ap.add_argument("--span-n", type=int, default=20000)
-    ap.add_argument("--index-cache", default="probe_rows.npz")
+    ap.add_argument("--index-cache", default=DEFAULT_INDEX_CACHE)
     ap.add_argument(
         "--strict-index-cache",
         action="store_true",
         help="require the existing cache to match dataset rhash and requested bins; never reselect rows",
     )
-    ap.add_argument("--out", default="probe_results.csv")
+    ap.add_argument("--out", default=DEFAULT_OUTPUT)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
