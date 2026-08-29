@@ -76,6 +76,22 @@ def test_t1_29dof_standing_motion_is_wbt_compatible():
     assert loader.body_pos_w.shape[1] == len(t1_29dof_waist_wrist.body_names)
 
 
+def test_motion_loader_prefers_exact_t1_contact_body_before_g1_alias():
+    loader = object.__new__(MotionLoader)
+
+    exact = loader._get_index_of_a_in_b(
+        ["left_foot_contact_point"],
+        ["left_foot_contact_point", "left_ankle_roll_link"],
+    )
+    fallback = loader._get_index_of_a_in_b(
+        ["left_foot_contact_point"],
+        ["left_ankle_roll_link"],
+    )
+
+    assert exact.tolist() == [0]
+    assert fallback.tolist() == [0]
+
+
 def test_t1_29dof_conversion_loader_uses_model_dof_and_embedded_joint_names(tmp_path):
     raw_motion_path = tmp_path / "t1_raw.npz"
     qpos = np.zeros((3, 36), dtype=np.float32)

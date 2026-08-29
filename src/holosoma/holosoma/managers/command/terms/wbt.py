@@ -53,8 +53,9 @@ class MotionLoader:
     def _get_index_of_a_in_b(self, a_names: List[str], b_names: List[str], device: str = "cpu") -> torch.Tensor:
         indexes = []
         for name in a_names:
-            assert name in b_names, f"The specified name ({name}) doesn't exist: {b_names}"
-            indexes.append(b_names.index(name))
+            resolved_name = name if name in b_names else FAKE_BODY_NAME_ALIASES.get(name, name)
+            assert resolved_name in b_names, f"The specified name ({resolved_name}) doesn't exist: {b_names}"
+            indexes.append(b_names.index(resolved_name))
         return torch.tensor(indexes, dtype=torch.long, device=device)
 
     def _load_data_from_motion_npz(self, motion_file: str, device: str) -> tuple[list[str], list[str]]:
@@ -295,14 +296,12 @@ class MotionCommand(CommandTermBase):
         self.device = self._env.device
 
         robot_body_names = self._env.simulator._body_list  # type: ignore[attr-defined]
-        robot_body_names_alias = [FAKE_BODY_NAME_ALIASES.get(bn, bn) for bn in robot_body_names]
-
         robot_joint_names = self._env.simulator.dof_names  # type: ignore[attr-defined]
 
         # 1. load motion data
         self.motion: MotionLoader = MotionLoader(
             self.motion_cfg.motion_file,
-            robot_body_names_alias,
+            robot_body_names,
             robot_joint_names,
             device=self.device,
         )
