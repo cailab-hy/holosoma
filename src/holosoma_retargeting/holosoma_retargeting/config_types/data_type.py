@@ -209,6 +209,23 @@ JOINTS_MAPPINGS = {
         "LeftHand": "left_hand_sphere_link",
         "RightHand": "right_hand_sphere_link",
     },
+    ("lafan", "t1_29dof"): {
+        "Spine1": "Trunk",
+        "LeftUpLeg": "Hip_Pitch_Left",
+        "RightUpLeg": "Hip_Pitch_Right",
+        "LeftLeg": "Shank_Left",
+        "RightLeg": "Shank_Right",
+        "LeftArm": "AL2",
+        "RightArm": "AR2",
+        "LeftForeArm": "AL4",
+        "RightForeArm": "AR4",
+        "LeftFoot": "Ankle_Cross_Left",
+        "RightFoot": "Ankle_Cross_Right",
+        "LeftToeBase": "left_foot_sphere_5_link",
+        "RightToeBase": "right_foot_sphere_5_link",
+        "LeftHand": "left_hand_link",
+        "RightHand": "right_hand_link",
+    },
     ("smplh", "g1"): {
         "Pelvis": "pelvis_contour_link",
         "L_Hip": "left_hip_pitch_link",
@@ -243,6 +260,23 @@ JOINTS_MAPPINGS = {
         "L_Wrist": "left_hand_sphere_link",
         "R_Wrist": "right_hand_sphere_link",
     },
+    ("smplh", "t1_29dof"): {
+        "Pelvis": "Trunk",
+        "L_Hip": "Hip_Pitch_Left",
+        "R_Hip": "Hip_Pitch_Right",
+        "L_Knee": "Shank_Left",
+        "R_Knee": "Shank_Right",
+        "L_Shoulder": "AL2",
+        "R_Shoulder": "AR2",
+        "L_Elbow": "AL4",
+        "R_Elbow": "AR4",
+        "L_Ankle": "Ankle_Cross_Left",
+        "R_Ankle": "Ankle_Cross_Right",
+        "L_Toe": "left_foot_sphere_5_link",
+        "R_Toe": "right_foot_sphere_5_link",
+        "L_Wrist": "left_hand_link",
+        "R_Wrist": "right_hand_link",
+    },
     ("smplx", "g1"): {
         "Pelvis": "pelvis_contour_link",
         "L_Hip": "left_hip_pitch_link",
@@ -259,6 +293,23 @@ JOINTS_MAPPINGS = {
         "R_Foot": "right_ankle_roll_sphere_5_link",
         "L_Wrist": "left_rubber_hand_link",
         "R_Wrist": "right_rubber_hand_link",
+    },
+    ("smplx", "t1_29dof"): {
+        "Pelvis": "Trunk",
+        "L_Hip": "Hip_Pitch_Left",
+        "R_Hip": "Hip_Pitch_Right",
+        "L_Knee": "Shank_Left",
+        "R_Knee": "Shank_Right",
+        "L_Shoulder": "AL2",
+        "R_Shoulder": "AR2",
+        "L_Elbow": "AL4",
+        "R_Elbow": "AR4",
+        "L_Ankle": "Ankle_Cross_Left",
+        "R_Ankle": "Ankle_Cross_Right",
+        "L_Foot": "left_foot_sphere_5_link",
+        "R_Foot": "right_foot_sphere_5_link",
+        "L_Wrist": "left_hand_link",
+        "R_Wrist": "right_hand_link",
     },
     ("mocap", "g1"): {
         "Spine1": "pelvis_contour_link",
@@ -294,6 +345,23 @@ JOINTS_MAPPINGS = {
         "LeftFoot": "Ankle_Cross_Left",
         "RightFoot": "Ankle_Cross_Right",
     },
+    ("mocap", "t1_29dof"): {
+        "Spine1": "Trunk",
+        "LeftUpLeg": "Hip_Pitch_Left",
+        "LeftLeg": "Shank_Left",
+        "LeftToeBase": "left_foot_sphere_5_link",
+        "RightUpLeg": "Hip_Pitch_Right",
+        "RightLeg": "Shank_Right",
+        "RightToeBase": "right_foot_sphere_5_link",
+        "LeftArm": "AL2",
+        "LeftForeArm": "AL4",
+        "LeftHandMiddle3": "left_hand_link",
+        "RightArm": "AR2",
+        "RightForeArm": "AR4",
+        "RightHandMiddle3": "right_hand_link",
+        "LeftFoot": "Ankle_Cross_Left",
+        "RightFoot": "Ankle_Cross_Right",
+    },
 }
 
 # Data format specific constants
@@ -318,6 +386,13 @@ DATA_FORMAT_CONSTANTS: dict[str, FormatConstants] = {
     "mocap": {
         "default_human_height": 1.78,
     },
+}
+
+ROBOT_FORMAT_CONSTANTS: dict[tuple[str, str], FormatConstants] = {
+    # The global LAFAN scale is calibrated for G1's 0.787 m root-to-toe
+    # length. T1's corresponding chain is 0.660 m, so using that scale makes
+    # the solver match the torso while leaving the shorter legs above ground.
+    ("lafan", "t1_29dof"): {"default_scale_factor": 0.626},
 }
 
 # Unified registry: Maps format name to demo joints
@@ -403,6 +478,9 @@ class MotionDataConfig:
     @property
     def default_scale_factor(self) -> float | None:
         """Get default scale factor for this data format (None if calculated per subject)."""
+        robot_format_constants = ROBOT_FORMAT_CONSTANTS.get((self.data_format, self.robot_type))
+        if robot_format_constants is not None:
+            return robot_format_constants.get("default_scale_factor")
         format_constants: FormatConstants = DATA_FORMAT_CONSTANTS.get(self.data_format, {})
         return format_constants.get("default_scale_factor")
 

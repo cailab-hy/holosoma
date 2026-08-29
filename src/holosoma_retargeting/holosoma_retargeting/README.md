@@ -76,6 +76,42 @@ This will convert the BVH files to `.npy` format with global joint positions.
 python examples/robot_retarget.py --data_path demo_data/lafan --task-type robot_only --task-name dance2_subject1 --data_format lafan --task-config.ground-range -10 10 --save_dir demo_results/g1/robot_only/lafan --retargeter.debug --retargeter.visualize --retargeter.foot-sticking-tolerance 0.02
 ```
 
+### T1 29-DoF
+
+The original `t1` retarget target remains the 23-DoF model. Use the separate
+`t1_29dof` target to match Holosoma's simulator joint convention, including the
+six wrist/hand joints:
+
+```bash
+python examples/robot_retarget.py \
+  --robot t1_29dof \
+  --data_path demo_data/lafan \
+  --task-type robot_only \
+  --task-name dance2_subject1 \
+  --data_format lafan \
+  --save_dir demo_results/t1_29dof/robot_only/lafan \
+  --task-config.ground-range -10 10 \
+  --retargeter.foot-sticking-tolerance 0.02
+```
+
+Convert the raw MuJoCo `qpos` result to the WBT motion format:
+
+```bash
+python data_conversion/convert_data_format_mj.py \
+  --robot t1_29dof \
+  --input_file demo_results/t1_29dof/robot_only/lafan/dance2_subject1.npz \
+  --output_fps 50 \
+  --output_name ../../holosoma/holosoma/data/motions/t1_29dof/whole_body_tracking/dance2_subject1_mj.npz \
+  --data_format lafan \
+  --object_name ground \
+  --once
+```
+
+The converted file contains the exact 29 simulator joint names and full-body FK
+arrays required by `MotionLoader`. Point `config_values/wbt/t1/command.py` at the
+converted file. A generated standing reference is bundled so the registered
+`exp:t1-29dof-wbt*` experiments can be smoke-tested before retargeting a clip.
+
 #### Batch Processing for Motion Retargeting on LAFAN
 
 ```bash

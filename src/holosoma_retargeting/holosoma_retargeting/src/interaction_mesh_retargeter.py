@@ -463,12 +463,20 @@ class InteractionMeshRetargeter:
             robot_kpts_handle_list.clear()
 
         # Save results
+        robot_joint_names = [
+            self.robot_model.joint(joint_id).name
+            for joint_id in range(self.robot_model.njnt)
+            if self.robot_model.jnt_type[joint_id] != mujoco.mjtJoint.mjJNT_FREE
+        ][: self.task_constants.ROBOT_DOF]
+        robot_body_names = [self.robot_model.body(body_id).name for body_id in range(self.robot_model.nbody)]
         np.savez(
             dest_res_path,
             qpos=np.array(retargeted_motions)[1:],
             human_joints=human_joint_motions,
             fps=30,
             cost=cost,
+            joint_names=np.asarray(robot_joint_names),
+            body_names=np.asarray(robot_body_names),
         )
         print("Saving results to path:", dest_res_path)
 

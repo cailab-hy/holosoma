@@ -13,12 +13,14 @@ from holosoma.config_values.wbt.g1.command import (
 from holosoma.config_values.wbt.g1.fall_and_getup.command import (
     g1_29dof_wbt_fall_and_getup_command,
 )
+from holosoma.config_values.wbt.t1.command import t1_29dof_wbt_command
 
 none = None
 
 DEFAULTS = {
     "none": none,
     "t1_29dof": t1_29dof_command,
+    "t1_29dof_wbt": t1_29dof_wbt_command,
     "g1_29dof": g1_29dof_command,
     "g1_29dof_wbt": g1_29dof_wbt_command,
     "g1_29dof_wbt_offline_collect" : g1_29dof_wbt_command_offline_collect,

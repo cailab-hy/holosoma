@@ -6,12 +6,14 @@ from holosoma.config_values.wbt.g1.observation import g1_29dof_wbt_observation, 
 from holosoma.config_values.wbt.g1.fall_and_getup.observation import (
     g1_29dof_wbt_fall_and_getup_observation,
 )
+from holosoma.config_values.wbt.t1.observation import t1_29dof_wbt_observation
 
 none = None
 
 DEFAULTS = {
     "none": none,
     "t1_29dof_loco_single_wolinvel": t1_29dof_loco_single_wolinvel,
+    "t1_29dof_wbt": t1_29dof_wbt_observation,
     "g1_29dof_loco_single_wolinvel": g1_29dof_loco_single_wolinvel,
     "g1_29dof_wbt": g1_29dof_wbt_observation,
     "g1_29dof_wbt_fall_and_getup": g1_29dof_wbt_fall_and_getup_observation,

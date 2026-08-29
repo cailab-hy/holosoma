@@ -18,6 +18,7 @@ class RobotDefaults(TypedDict):
 _ROBOT_DEFAULTS: dict[str, RobotDefaults] = {
     "g1": {"robot_dof": 29, "robot_height": 1.32, "object_name": "ground"},
     "t1": {"robot_dof": 23, "robot_height": 1.2, "object_name": "ground"},
+    "t1_29dof": {"robot_dof": 29, "robot_height": 1.2, "object_name": "ground"},
 }
 
 
@@ -110,6 +111,8 @@ class RobotConfig:
         """Get robot name - use override if provided, else compute from robot_type and DOF."""
         if self.robot_name is not None:
             return self.robot_name
+        if self.robot_type == "t1_29dof":
+            return self.robot_type
         return f"{self.robot_type}_{self.ROBOT_DOF}dof"
 
     ROBOT_NAME = property(
@@ -121,6 +124,8 @@ class RobotConfig:
         """Get robot URDF file path."""
         if self.robot_urdf_file is not None:
             return self.robot_urdf_file
+        if self.robot_type == "t1_29dof":
+            return "models/t1/t1_29dof.urdf"
         return f"models/{self.robot_type}/{self.robot_type}_{self.ROBOT_DOF}dof.urdf"
 
     ROBOT_URDF_FILE = property(_robot_urdf_file, doc="Get robot URDF file path.")
@@ -142,6 +147,19 @@ class RobotConfig:
                 "right_ankle_roll_sphere_4_link",
             ]
         if self.robot_type == "t1":
+            return [
+                "left_foot_sphere_1_link",
+                "right_foot_sphere_1_link",
+                "left_foot_sphere_2_link",
+                "right_foot_sphere_2_link",
+                "left_foot_sphere_3_link",
+                "right_foot_sphere_3_link",
+                "left_foot_sphere_4_link",
+                "right_foot_sphere_4_link",
+                "left_foot_sphere_5_link",
+                "right_foot_sphere_5_link",
+            ]
+        if self.robot_type == "t1_29dof":
             return [
                 "left_foot_sphere_1_link",
                 "right_foot_sphere_1_link",
@@ -232,6 +250,8 @@ class RobotConfig:
             return np.arange(19)
         if self.robot_type == "t1":
             return np.concatenate([np.arange(7), np.arange(11, 23)])
+        if self.robot_type == "t1_29dof":
+            return np.array([0, 1], dtype=int)
         # Default: return empty array if robot type not defined (nominal tracking not used)
         return np.array([], dtype=int)
 

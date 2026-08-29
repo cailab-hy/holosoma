@@ -18,6 +18,11 @@ from holosoma.config_values.loco.g1.experiment import (
 
 )
 from holosoma.config_values.loco.t1.experiment import t1_29dof, t1_29dof_fast_sac
+from holosoma.config_values.wbt.t1.experiment import (
+    t1_29dof_wbt,
+    t1_29dof_wbt_fast_sac,
+    t1_29dof_wbt_fast_sac_episode_data,
+)
 from holosoma.config_values.wbt.g1.experiment import (
     g1_29dof_wbt,
     g1_29dof_wbt_bc,
@@ -82,6 +87,9 @@ DEFAULTS = {
     "g1_29dof_os_cql": g1_29dof_os_cql,
     "t1_29dof": t1_29dof,
     "t1_29dof_fast_sac": t1_29dof_fast_sac,
+    "t1_29dof_wbt": t1_29dof_wbt,
+    "t1_29dof_wbt_fast_sac": t1_29dof_wbt_fast_sac,
+    "t1_29dof_wbt_fast_sac_episode_data": t1_29dof_wbt_fast_sac_episode_data,
     "g1_29dof_wbt": g1_29dof_wbt,
     "g1_29dof_wbt_w_object": g1_29dof_wbt_w_object,
     "g1_29dof_wbt_fast_sac": g1_29dof_wbt_fast_sac,
