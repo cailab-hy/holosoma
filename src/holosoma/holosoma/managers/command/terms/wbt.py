@@ -323,12 +323,12 @@ class MotionCommand(CommandTermBase):
             self.motion_cfg.body_names_to_track, robot_body_names, self.device
         )
         self.ankle_body_pos_metric_indexes = self._get_index_of_a_in_b(
-            ["left_ankle_roll_link", "right_ankle_roll_link"],
+            self.motion_cfg.ankle_body_names,
             self.motion_cfg.body_names_to_track,
             self.device,
         )
         self.wrist_body_pos_metric_indexes = self._get_index_of_a_in_b(
-            ["left_wrist_yaw_link", "right_wrist_yaw_link"],
+            self.motion_cfg.wrist_body_names,
             self.motion_cfg.body_names_to_track,
             self.device,
         )

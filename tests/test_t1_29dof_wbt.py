@@ -130,3 +130,10 @@ def test_t1_29dof_wbt_experiments_are_registered_consistently():
         assert experiment.robot.actions_dim == 29
         assert experiment.training.num_envs == 4096
         assert experiment.command.setup_terms["motion_command"].params["motion_config"].body_name_ref == ["Trunk"]
+
+    motion_config = DEFAULTS["t1_29dof_wbt"].command.setup_terms["motion_command"].params["motion_config"]
+    assert motion_config.ankle_body_names == ["left_foot_link", "right_foot_link"]
+    assert motion_config.wrist_body_names == ["left_hand_link", "right_hand_link"]
+    assert set(motion_config.ankle_body_names + motion_config.wrist_body_names) <= set(
+        motion_config.body_names_to_track
+    )

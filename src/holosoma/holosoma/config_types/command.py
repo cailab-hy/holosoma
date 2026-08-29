@@ -94,6 +94,14 @@ class MotionConfig:
     """Body name of the reference frame (in general, torso_link). """
     body_names_to_track: list[str]
     """Key body names to track, used for reward/termination computation."""
+    ankle_body_names: list[str] = field(
+        default_factory=lambda: ["left_ankle_roll_link", "right_ankle_roll_link"]
+    )
+    """Tracked body names used for ankle-specific motion-error metrics."""
+    wrist_body_names: list[str] = field(
+        default_factory=lambda: ["left_wrist_yaw_link", "right_wrist_yaw_link"]
+    )
+    """Tracked body names used for wrist-specific motion-error metrics."""
 
     # motion sampling related
     use_adaptive_timesteps_sampler: bool = False
