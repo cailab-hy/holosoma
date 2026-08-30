@@ -33,7 +33,6 @@ def _t1_wbt_robot():
     return replace(
         robot.t1_29dof_waist_wrist,
         control=replace(robot.t1_29dof_waist_wrist.control, action_scale=1.0),
-        asset=replace(robot.t1_29dof_waist_wrist.asset, enable_self_collisions=True),
         init_state=replace(robot.t1_29dof_waist_wrist.init_state, pos=[0.0, 0.0, 0.68]),
     )
 

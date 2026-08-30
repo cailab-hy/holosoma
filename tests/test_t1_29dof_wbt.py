@@ -128,6 +128,7 @@ def test_t1_29dof_wbt_experiments_are_registered_consistently():
         experiment = DEFAULTS[experiment_name]
         assert experiment.robot.dof_names == t1_29dof_waist_wrist.dof_names
         assert experiment.robot.actions_dim == 29
+        assert experiment.robot.asset.enable_self_collisions is False
         assert experiment.training.num_envs == 4096
         assert experiment.command.setup_terms["motion_command"].params["motion_config"].body_name_ref == ["Trunk"]
 
