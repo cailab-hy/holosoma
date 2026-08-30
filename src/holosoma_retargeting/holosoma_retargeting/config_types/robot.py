@@ -237,6 +237,13 @@ class RobotConfig:
 
         if self.robot_type == "g1":
             return {"19": 0.2, "20": 0.2}  # waist yaw, waist roll
+        if self.robot_type == "t1_29dof":
+            # LAFAN/SMPL skeletons provide a heel-to-toe direction but no
+            # lateral foot-width target, leaving ankle roll underconstrained.
+            # Keep both feet near neutral roll unless tracked contacts require
+            # otherwise. Indices are full qpos coordinates (7 floating-base +
+            # T1's 29 actuated joints).
+            return {"29": 5.0, "35": 5.0}
         return {}
 
     MANUAL_COST = property(_manual_cost, doc="Get manual cost weights.")

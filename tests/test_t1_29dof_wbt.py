@@ -54,6 +54,7 @@ def test_t1_29dof_all_retarget_mappings_exist_in_model():
     assert model.body("left_foot_sphere_5_link").pos[0] > 0.1
     assert model.body("right_foot_sphere_5_link").pos[0] > 0.1
     assert MotionDataConfig(data_format="lafan", robot_type="t1_29dof").default_scale_factor == 0.626
+    assert config.MANUAL_COST == {"29": 5.0, "35": 5.0}
 
 
 def test_t1_29dof_standing_motion_is_wbt_compatible():
