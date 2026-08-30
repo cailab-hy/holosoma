@@ -29,7 +29,10 @@ def replay(tyro_config: ExperimentConfig):
 
     done = False
     while not done:
-        env.simulator.sim.step()
+        # Replay writes the exact reference root/joint state and performs a
+        # kinematic forward/render in step_visualize_motion. A physics step
+        # here integrates gravity, stale actuator targets, and contacts before
+        # every reference write, which makes even a static pose visibly jitter.
         done = env.step_visualize_motion(None)  # type: ignore[attr-defined]
 
     close_simulation_app(simulation_app)
