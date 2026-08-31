@@ -238,12 +238,20 @@ class RobotConfig:
         if self.robot_type == "g1":
             return {"19": 0.2, "20": 0.2}  # waist yaw, waist roll
         if self.robot_type == "t1_29dof":
-            # LAFAN/SMPL skeletons provide a heel-to-toe direction but no
-            # lateral foot-width target, leaving ankle roll underconstrained.
-            # Keep both feet near neutral roll unless tracked contacts require
-            # otherwise. Indices are full qpos coordinates (7 floating-base +
-            # T1's 29 actuated joints).
-            return {"29": 5.0, "35": 5.0}
+            # Position-only skeletons do not constrain wrist orientation or
+            # lateral foot tilt. Keep those null-space joints near neutral
+            # unless positional tracking requires otherwise. Indices are full
+            # qpos coordinates (7 floating-base + T1's 29 actuated joints).
+            return {
+                "13": 0.2,  # left wrist pitch
+                "14": 0.2,  # left wrist yaw
+                "15": 0.2,  # left hand roll
+                "20": 0.2,  # right wrist pitch
+                "21": 0.2,  # right wrist yaw
+                "22": 0.2,  # right hand roll
+                "29": 5.0,  # left ankle roll
+                "35": 5.0,  # right ankle roll
+            }
         return {}
 
     MANUAL_COST = property(_manual_cost, doc="Get manual cost weights.")

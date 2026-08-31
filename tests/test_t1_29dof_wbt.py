@@ -54,7 +54,16 @@ def test_t1_29dof_all_retarget_mappings_exist_in_model():
     assert model.body("left_foot_sphere_5_link").pos[0] > 0.1
     assert model.body("right_foot_sphere_5_link").pos[0] > 0.1
     assert MotionDataConfig(data_format="lafan", robot_type="t1_29dof").default_scale_factor == 0.626
-    assert config.MANUAL_COST == {"29": 5.0, "35": 5.0}
+    assert config.MANUAL_COST == {
+        "13": 0.2,
+        "14": 0.2,
+        "15": 0.2,
+        "20": 0.2,
+        "21": 0.2,
+        "22": 0.2,
+        "29": 5.0,
+        "35": 5.0,
+    }
 
 
 def test_t1_29dof_standing_motion_is_wbt_compatible():
@@ -139,3 +148,60 @@ def test_t1_29dof_wbt_experiments_are_registered_consistently():
     assert set(motion_config.ankle_body_names + motion_config.wrist_body_names) <= set(
         motion_config.body_names_to_track
     )
+
+
+def test_t1_29dof_cropped_dance_experiments_are_independently_registered():
+    experiment_names = (
+        "t1_29dof_wbt_dance",
+        "t1_29dof_wbt_dance_fast_sac",
+        "t1_29dof_wbt_dance_fast_sac_episode_data",
+    )
+    for experiment_name in experiment_names:
+        experiment = DEFAULTS[experiment_name]
+        motion = experiment.command.setup_terms["motion_command"].params["motion_config"]
+        assert experiment.training.num_envs == 4096
+        assert experiment.robot.actions_dim == 29
+        assert experiment.robot.asset.enable_self_collisions is False
+        assert motion.motion_file.endswith("dance2_short_mj.npz")
+        assert motion.start_at_timestep_zero_prob == 1.0
+        assert motion.enable_default_pose_prepend is False
+        assert motion.enable_default_pose_append is False
+        assert experiment.simulator.config.sim.max_episode_length_s == 5.0
+
+    assert (
+        DEFAULTS["t1_29dof_wbt_dance_fast_sac"].algo.config.offline_dataset_path
+        == "offline_data/t1_29dof_wbt_dance_fastsac_dataset.h5"
+    )
+    assert (
+        DEFAULTS["t1_29dof_wbt_dance_fast_sac_episode_data"].algo.config.offline_dataset_path
+        == "offline_data/t1_29dof_wbt_dance_fastsac_episode_dataset.h5"
+    )
+
+    dance_path = (
+        REPO_ROOT
+        / "src/holosoma/holosoma/data/motions/t1_29dof/whole_body_tracking/dance2_short_mj.npz"
+    )
+    with np.load(dance_path) as dance:
+        assert dance["joint_names"].tolist() == t1_29dof_waist_wrist.dof_names
+        assert dance["joint_pos"].shape[1] == 36
+        assert dance["joint_vel"].shape[1] == 35
+        assert dance["joint_pos"].shape[0] / dance["fps"].item() < 5.0
+        wrist_names = (
+            "Left_Wrist_Pitch",
+            "Left_Wrist_Yaw",
+            "Left_Hand_Roll",
+            "Right_Wrist_Pitch",
+            "Right_Wrist_Yaw",
+            "Right_Hand_Roll",
+        )
+        for wrist_name in wrist_names:
+            wrist_index = 7 + dance["joint_names"].tolist().index(wrist_name)
+            assert np.abs(dance["joint_pos"][:, wrist_index]).max() < 0.5
+
+    loader = MotionLoader(
+        "holosoma/data/motions/t1_29dof/whole_body_tracking/dance2_short_mj.npz",
+        t1_29dof_waist_wrist.body_names,
+        t1_29dof_waist_wrist.dof_names,
+        "cpu",
+    )
+    assert loader.joint_pos.shape[1] == 29
