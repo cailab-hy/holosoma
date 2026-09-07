@@ -1,0 +1,29 @@
+Holosoma Batch Evaluation — Checkpoint Report
+======================================================
+checkpoint: /home/cai/holosoma/logs/WholeBodyTracking/20260804_052213-g1_29dof_wbt_iql_manager---fix-locomotion/model_0100000.pt
+step: 100000
+num_envs: 4096
+repeats: 5
+total_episodes: 20480
+
+Repeat Results
+------------------------------------------------------
+repeat=1 seed=1 episodes=4096 success=74.7070% failure=25.2930% bad_tracking=25.2930% timeout=0.0000% return=45.223271±15.429265 length=460.4004±155.8676
+repeat=2 seed=2 episodes=4096 success=72.8027% failure=27.1973% bad_tracking=27.1973% timeout=0.0000% return=44.726573±15.523541 length=455.9001±157.0246
+repeat=3 seed=3 episodes=4096 success=74.6094% failure=25.3906% bad_tracking=25.3906% timeout=0.0000% return=45.156836±15.484719 length=459.5840±156.5024
+repeat=4 seed=4 episodes=4096 success=73.8037% failure=26.1963% bad_tracking=26.1963% timeout=0.0000% return=45.050978±15.370900 length=459.1670±155.4449
+repeat=5 seed=5 episodes=4096 success=74.3164% failure=25.6836% bad_tracking=25.6836% timeout=0.0000% return=45.186245±15.451185 length=460.1384±156.1963
+
+Checkpoint Aggregate
+------------------------------------------------------
+success: 74.0479% ± 0.6974% across repeats
+failure: 25.9521%
+bad_tracking: 25.9521% ± 0.6974% across repeats
+timeout: 0.0000% ± 0.0000% across repeats
+episode_return: 45.068780 ± 15.453062
+episode_length: 459.0380 ± 156.2166
+stop_reason_counts: {'motion_ends': 15165, 'bad_tracking': 5315}
+bad_tracking_detail_counts: {'ref_ori': 2244, 'body_pos': 1977, 'body_pos_ankle': 1779, 'ref_pos': 1111, 'body_pos_wrist': 199}
+bad_tracking_phase_counts: {'bin00[0.00,0.05)': 476, 'bin01[0.05,0.10)': 401, 'bin02[0.10,0.15)': 151, 'bin03[0.15,0.20)': 56, 'bin04[0.20,0.25)': 79, 'bin05[0.25,0.30)': 1140, 'bin06[0.30,0.35)': 1203, 'bin07[0.35,0.40)': 41, 'bin08[0.40,0.45)': 11, 'bin09[0.45,0.50)': 111, 'bin10[0.50,0.55)': 54, 'bin11[0.55,0.60)': 93, 'bin12[0.60,0.65)': 147, 'bin13[0.65,0.70)': 209, 'bin14[0.70,0.75)': 169, 'bin15[0.75,0.80)': 429, 'bin16[0.80,0.85)': 284, 'bin17[0.85,0.90)': 154, 'bin18[0.90,0.95)': 48, 'bin19[0.95,1.00]': 59}
+bad_tracking_phase_percentages: {'bin00[0.00,0.05)': 8.955785512699906, 'bin01[0.05,0.10)': 7.544684854186265, 'bin02[0.10,0.15)': 2.8410159924741296, 'bin03[0.15,0.20)': 1.0536218250235183, 'bin04[0.20,0.25)': 1.4863593603010348, 'bin05[0.25,0.30)': 21.44873000940734, 'bin06[0.30,0.35)': 22.634054562558795, 'bin07[0.35,0.40)': 0.7714016933207902, 'bin08[0.40,0.45)': 0.20696142991533395, 'bin09[0.45,0.50)': 2.088428974600188, 'bin10[0.50,0.55)': 1.0159924741298212, 'bin11[0.55,0.60)': 1.7497648165569144, 'bin12[0.60,0.65)': 2.765757290686736, 'bin13[0.65,0.70)': 3.9322671683913453, 'bin14[0.70,0.75)': 3.1796801505174037, 'bin15[0.75,0.80)': 8.071495766698025, 'bin16[0.80,0.85)': 5.343367826904986, 'bin17[0.85,0.90)': 2.8974600188146753, 'bin18[0.90,0.95)': 0.90310442144873, 'bin19[0.95,1.00]': 1.110065851364064}
+bad_tracking_phase_unresolved: 0

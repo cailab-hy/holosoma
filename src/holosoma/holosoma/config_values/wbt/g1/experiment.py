@@ -3,6 +3,10 @@ from dataclasses import asdict, replace
 from holosoma.config_types.algo import (
     AWCQLAlgoConfig,
     AWCQLConfig,
+    ACLQLAlgoConfig,
+    ACLQLConfig,
+    AsymCQLAlgoConfig,
+    AsymCQLConfig,
     DWCQLAlgoConfig,
     DWCQLConfig,
     WBCAlgoConfig,
@@ -574,7 +578,7 @@ g1_29dof_wbt_lr_cql = replace(
 # Run scripts/aw_precompute_weights.py on the dataset first (Stage 0 gate).
 g1_29dof_wbt_aw_cql = replace(
     g1_29dof_wbt_cql,
-    training=replace(g1_29dof_wbt_cql.training, name="g1_29dof_wbt_aw_cql_manager_pu1_4096_seed2"),
+    training=replace(g1_29dof_wbt_cql.training, name="g1_29dof_wbt_aw_cql_manager_H25_seed3"),
     algo=AWCQLAlgoConfig(
         _target_="holosoma.agents.aw_cql.aw_cql_agent.AWCQLAgent",
         _recursive_=False,
@@ -605,6 +609,47 @@ g1_29dof_wbt_lse_aw_cql = replace(
         _target_="holosoma.agents.lse_aw_cql.lse_aw_cql_agent.LSEAWCQLAgent",
         _recursive_=False,
         config=AWCQLConfig(**asdict(g1_29dof_wbt_aw_cql.algo.config)),
+    ),
+)
+
+
+# Asym-CQL: independent global mean-one weights on the two CQL terms:
+# w- * LSE(Q; s) - w+ * Q(s, a_data).  All remaining settings are paired
+# exactly with AW-CQL.
+g1_29dof_wbt_asym_cql = replace(
+    g1_29dof_wbt_aw_cql,
+    training=replace(g1_29dof_wbt_aw_cql.training, name="g1_29dof_wbt_asym_cql_manager_seed2"),
+    algo=AsymCQLAlgoConfig(
+        _target_="holosoma.agents.asym_cql.asym_cql_agent.AsymCQLAgent",
+        _recursive_=False,
+        config=AsymCQLConfig(**asdict(g1_29dof_wbt_aw_cql.algo.config)),
+    ),
+)
+
+
+g1_29dof_wbt_acl_ql = replace(
+    g1_29dof_wbt_cql,
+    training=replace(g1_29dof_wbt_cql.training, name="g1_29dof_wbt_acl_ql_manager_seed1"),
+    algo=ACLQLAlgoConfig(
+        _target_="holosoma.agents.acl_ql.acl_ql_agent.ACLQLAgent",
+        _recursive_=False,
+        config=replace(
+            ACLQLConfig(**asdict(g1_29dof_wbt_cql.algo.config)),
+            acl_weight_learning_rate=3e-4,
+            acl_behavior_learning_rate=3e-4,
+            acl_behavior_pretrain_steps=100000,
+            acl_quality_lambda=0.5,
+        ),
+    ),
+)
+
+
+g1_29dof_wbt_acl_ql_rms = replace(
+    g1_29dof_wbt_acl_ql,
+    training=replace(g1_29dof_wbt_acl_ql.training, name="g1_29dof_wbt_acl_ql_rms_manager_seed1"),
+    algo=replace(
+        g1_29dof_wbt_acl_ql.algo,
+        config=replace(g1_29dof_wbt_acl_ql.algo.config, acl_distance_mode="rms"),
     ),
 )
 
@@ -1226,6 +1271,9 @@ __all__ = [
     "g1_29dof_wbt_aw_cql",
     "g1_29dof_wbt_os_aw_cql",
     "g1_29dof_wbt_lse_aw_cql",
+    "g1_29dof_wbt_asym_cql",
+    "g1_29dof_wbt_acl_ql",
+    "g1_29dof_wbt_acl_ql_rms",
     "g1_29dof_wbt_dw_cql",
     "g1_29dof_wbt_bf_cql",
     "g1_29dof_wbt_bc",

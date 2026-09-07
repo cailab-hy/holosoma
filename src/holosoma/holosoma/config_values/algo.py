@@ -23,6 +23,8 @@ from holosoma.config_types.algo import (
     CQLAlgoConfig,
     VCCQLAlgoConfig,
     AWCQLAlgoConfig,
+    AsymCQLAlgoConfig,
+    ACLQLAlgoConfig,
     DWCQLAlgoConfig,
     MCQAlgoConfig,
     MCQConfig,
@@ -32,6 +34,8 @@ from holosoma.config_types.algo import (
     CQLConfig,
     VCCQLConfig,
     AWCQLConfig,
+    AsymCQLConfig,
+    ACLQLConfig,
     DWCQLConfig,
     CALQLConfig,
     OS_CQLConfig,
@@ -360,6 +364,18 @@ lse_aw_cql = AWCQLAlgoConfig(
     _target_="holosoma.agents.lse_aw_cql.lse_aw_cql_agent.LSEAWCQLAgent",
     _recursive_=False,
     config=AWCQLConfig(**dataclasses.asdict(aw_cql.config)),
+)
+
+asym_cql = AsymCQLAlgoConfig(
+    _target_="holosoma.agents.asym_cql.asym_cql_agent.AsymCQLAgent",
+    _recursive_=False,
+    config=AsymCQLConfig(**dataclasses.asdict(aw_cql.config)),
+)
+
+acl_ql = ACLQLAlgoConfig(
+    _target_="holosoma.agents.acl_ql.acl_ql_agent.ACLQLAgent",
+    _recursive_=False,
+    config=ACLQLConfig(**dataclasses.asdict(cql.config)),
 )
 
 # DW-CQL placement ablation: same fixed AW sidecar and all AW-CQL
@@ -861,6 +877,8 @@ DEFAULTS = {
     "aw_cql": aw_cql,
     "os_aw_cql": os_aw_cql,
     "lse_aw_cql": lse_aw_cql,
+    "asym_cql": asym_cql,
+    "acl_ql": acl_ql,
     "dw_cql": dw_cql,
     "mcq": mcq,
     "cal_ql": cal_ql,

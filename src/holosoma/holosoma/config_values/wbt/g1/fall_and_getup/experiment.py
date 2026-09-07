@@ -203,7 +203,7 @@ g1_29dof_wbt_fall_and_getup_fast_sac_episode_data = ExperimentConfig(
 g1_29dof_wbt_fall_and_getup_cql = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
-        name="g1_29dof_wbt_fall_and_getup_cql_manager",
+        name="g1_29dof_wbt_fall_and_getup_cql_manager_seed2",
         num_envs=4096,
         eval_num_episodes=1,
     ),
@@ -289,7 +289,7 @@ g1_29dof_wbt_fall_and_getup_td3_bc = ExperimentConfig(
 g1_29dof_wbt_fall_and_getup_iql = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
-        name="g1_29dof_wbt_fall_and_getup_iql_manager",
+        name="g1_29dof_wbt_fall_and_getup_iql_manager_seed3",
         num_envs=4096,
         eval_num_episodes=1,
     ),
@@ -327,7 +327,7 @@ g1_29dof_wbt_fall_and_getup_iql = ExperimentConfig(
 g1_29dof_wbt_fall_and_getup_aw_cql = ExperimentConfig(
     training=TrainingConfig(
         project="WholeBodyTracking",
-        name="g1_29dof_wbt_fall_and_getup_aw_cql_manager",
+        name="g1_29dof_wbt_fall_and_getup_aw_cql_manager_seed2",
         num_envs=4096,
         eval_num_episodes=1,
     ),

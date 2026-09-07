@@ -1,0 +1,37 @@
+{
+  "checkpoint_argument": "/home/cai/holosoma/logs/WholeBodyTracking/20260804_052213-g1_29dof_wbt_iql_manager---fix-locomotion",
+  "checkpoint_pattern": "model_{step:07d}.pt",
+  "num_envs": 4096,
+  "num_repeats": 5,
+  "requested_steps": [
+    80000,
+    85000,
+    90000,
+    95000,
+    100000
+  ],
+  "resolved_checkpoints": [
+    {
+      "path": "/home/cai/holosoma/logs/WholeBodyTracking/20260804_052213-g1_29dof_wbt_iql_manager---fix-locomotion/model_0080000.pt",
+      "step": 80000
+    },
+    {
+      "path": "/home/cai/holosoma/logs/WholeBodyTracking/20260804_052213-g1_29dof_wbt_iql_manager---fix-locomotion/model_0085000.pt",
+      "step": 85000
+    },
+    {
+      "path": "/home/cai/holosoma/logs/WholeBodyTracking/20260804_052213-g1_29dof_wbt_iql_manager---fix-locomotion/model_0090000.pt",
+      "step": 90000
+    },
+    {
+      "path": "/home/cai/holosoma/logs/WholeBodyTracking/20260804_052213-g1_29dof_wbt_iql_manager---fix-locomotion/model_0095000.pt",
+      "step": 95000
+    },
+    {
+      "path": "/home/cai/holosoma/logs/WholeBodyTracking/20260804_052213-g1_29dof_wbt_iql_manager---fix-locomotion/model_0100000.pt",
+      "step": 100000
+    }
+  ],
+  "seed": 1,
+  "seed_stride": 1
+}

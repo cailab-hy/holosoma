@@ -489,6 +489,42 @@ class CQLAgent(BaseAlgo):
         """Build each critic's per-sample conservative bracket."""
         return q1_lse - q1_data, q2_lse - q2_data
 
+    def _build_sampled_conservative_losses(
+        self,
+        data: TensorDict,
+        dataset_actions: torch.Tensor,
+        q1_data: torch.Tensor,
+        q2_data: torch.Tensor,
+        q1_lse: torch.Tensor,
+        q2_lse: torch.Tensor,
+        q1_rand: torch.Tensor,
+        q2_rand: torch.Tensor,
+        q1_curr: torch.Tensor,
+        q2_curr: torch.Tensor,
+        q1_next: torch.Tensor,
+        q2_next: torch.Tensor,
+        curr_actions: torch.Tensor,
+        curr_logp: torch.Tensor,
+        random_density: torch.Tensor | float,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Build conservative losses after CQL action sampling.
+
+        The base path is exactly the historical CQL bracket. Subclasses with
+        action-dependent weights can override this without touching Bellman,
+        actor, target, alpha, or sampling code.
+        """
+        cql1_per_sample, cql2_per_sample = self._build_cql_per_sample_losses(
+            q1_lse,
+            q2_lse,
+            q1_data,
+            q2_data,
+        )
+        return self._transform_cql_per_sample_losses(cql1_per_sample, cql2_per_sample)
+
+    def _after_q_update(self, data: TensorDict) -> None:
+        """Optional subclass hook after the critic optimizer step."""
+        return None
+
     def _sync_actor_action_space_buffers(self) -> None:
         with torch.no_grad():
             self.actor.action_scale.copy_(
@@ -784,15 +820,22 @@ class CQLAgent(BaseAlgo):
 
                 q1_lse = torch.logsumexp(cat_q1 / self._temperature, dim=1) * self._temperature
                 q2_lse = torch.logsumexp(cat_q2 / self._temperature, dim=1) * self._temperature
-                cql1_per_sample, cql2_per_sample = self._build_cql_per_sample_losses(
-                    q1_lse,
-                    q2_lse,
+                cql1_per_sample, cql2_per_sample = self._build_sampled_conservative_losses(
+                    data,
+                    dataset_actions,
                     q1,
                     q2,
-                )
-                cql1_per_sample, cql2_per_sample = self._transform_cql_per_sample_losses(
-                    cql1_per_sample,
-                    cql2_per_sample,
+                    q1_lse,
+                    q2_lse,
+                    q1_rand,
+                    q2_rand,
+                    q1_curr,
+                    q2_curr,
+                    q1_next,
+                    q2_next,
+                    curr_actions,
+                    curr_logp,
+                    random_density,
                 )
                 cql1_loss = cql1_per_sample.mean()
                 cql2_loss = cql2_per_sample.mean()
@@ -1201,6 +1244,8 @@ class CQLAgent(BaseAlgo):
                         next_logp,
                         random_density,
                     ) = update_q(data)
+
+                    self._after_q_update(data)
 
                     cql_alpha_value, cql_lagrange_loss = self._update_cql_lagrange(cql_gap)
 

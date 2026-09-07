@@ -777,6 +777,48 @@ class AWCQLConfig(CQLConfig):
 
 
 @dataclass(frozen=True)
+class AsymCQLConfig(AWCQLConfig):
+    """Asymmetric dual-weight CQL configuration.
+
+    The sidecar contains independently globally normalized positive- and
+    negative-advantage weights.  Only the two conservative-bracket terms use
+    them; TD, actor, alpha, and action sampling remain ordinary CQL.
+    """
+
+    asym_weights_path: str = ""
+    """Path to the sidecar; empty = offline_dataset_path + '.asym_weights.npz'."""
+
+
+@dataclass(frozen=True)
+class ACLQLConfig(CQLConfig):
+    """ACL-QL baseline configuration."""
+
+    acl_quality_path: str = ""
+    """Path to .acl_quality.npz sidecar; empty = offline_dataset_path + '.acl_quality.npz'."""
+
+    acl_quality_lambda: float = 0.5
+    """Lambda in Eq. (13); stored in the sidecar by scripts/acl_precompute_quality.py."""
+
+    acl_distance_mode: Literal["original_l2", "rms"] = "original_l2"
+    """Action-distance definition: original_l2 for ACL-QL, rms for the 29-DoF fairness variant."""
+
+    acl_weight_learning_rate: float = 3e-4
+    """Learning rate for the adaptive conservative-level network."""
+
+    acl_weight_hidden_dim: int = 256
+    """Hidden width for the adaptive weight function network."""
+
+    acl_weight_num_layers: int = 3
+    """Number of hidden layers for the adaptive weight function network."""
+
+    acl_behavior_pretrain_steps: int = 100000
+    """Behavior policy BC warmup steps before ACL-QL training."""
+
+    acl_behavior_learning_rate: float = 3e-4
+    """Learning rate for the separately trained behavior policy."""
+
+
+@dataclass(frozen=True)
 class DWCQLConfig(AWCQLConfig):
     """Distributed-placement AW-CQL ablation configuration.
 
@@ -2142,6 +2184,24 @@ class AWCQLAlgoConfig:
 
 
 @dataclass(frozen=True)
+class AsymCQLAlgoConfig:
+    """Configuration wrapper for asymmetric dual-weight CQL."""
+
+    _target_: str
+    _recursive_: bool
+    config: AsymCQLConfig
+
+
+@dataclass(frozen=True)
+class ACLQLAlgoConfig:
+    """Configuration wrapper for ACL-QL."""
+
+    _target_: str
+    _recursive_: bool
+    config: ACLQLConfig
+
+
+@dataclass(frozen=True)
 class DWCQLAlgoConfig:
     """Configuration for distributed-placement AW-CQL."""
 
@@ -2291,6 +2351,8 @@ AlgoInitConfig = Union[
     CQLConfig,
     VCCQLConfig,
     AWCQLConfig,
+    AsymCQLConfig,
+    ACLQLConfig,
     DWCQLConfig,
     MCQConfig,
     BFCQLConfig,
@@ -2311,6 +2373,8 @@ AlgoConfig = Union[
     CQLAlgoConfig,
     VCCQLAlgoConfig,
     AWCQLAlgoConfig,
+    AsymCQLAlgoConfig,
+    ACLQLAlgoConfig,
     DWCQLAlgoConfig,
     MCQAlgoConfig,
     BFCQLAlgoConfig,
