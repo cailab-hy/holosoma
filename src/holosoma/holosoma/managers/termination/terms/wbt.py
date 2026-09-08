@@ -70,6 +70,8 @@ class BadTracking(TerminationTermBase):
 
         self.bad_object_pos_threshold = cfg.params["bad_object_pos_threshold"]
         self.bad_object_ori_threshold = cfg.params["bad_object_ori_threshold"]
+        self.reset_grace_steps = int(cfg.params.get("reset_grace_steps", 0))
+        self.reset_grace_motion_phase = float(cfg.params.get("reset_grace_motion_phase", 0.0))
         self.last_reason_flags: dict[str, torch.Tensor] = {}
 
     def __call__(self, env: Any, **kwargs) -> torch.Tensor:
@@ -91,23 +93,29 @@ class BadTracking(TerminationTermBase):
         bad_motion_body_pos_wrist = self.bad_motion_body_pos_from_error(
             body_pos_error, self.bad_motion_body_pos_wrist_indexes
         )
-        bad_tracking = bad_ref_pos | bad_ref_ori | bad_motion_body_pos
-        bad_object_pos = torch.zeros_like(bad_tracking)
-        bad_object_ori = torch.zeros_like(bad_tracking)
+        bad_tracking_raw = bad_ref_pos | bad_ref_ori | bad_motion_body_pos
+        bad_object_pos = torch.zeros_like(bad_tracking_raw)
+        bad_object_ori = torch.zeros_like(bad_tracking_raw)
 
         if motion_command.motion.has_object:
             bad_object_pos = self.bad_object_pos(motion_command)
             bad_object_ori = self.bad_object_ori(motion_command)
-            bad_tracking |= bad_object_pos | bad_object_ori
+            bad_tracking_raw |= bad_object_pos | bad_object_ori
+
+        grace_mask = self._reset_grace_mask(motion_command)
+        bad_tracking = bad_tracking_raw & ~grace_mask
+        effective_mask = ~grace_mask
 
         self.last_reason_flags = {
-            "bad_tracking_ref_pos": bad_ref_pos,
-            "bad_tracking_ref_ori": bad_ref_ori,
-            "bad_tracking_body_pos": bad_motion_body_pos,
-            "bad_tracking_body_pos_ankle": bad_motion_body_pos_ankle,
-            "bad_tracking_body_pos_wrist": bad_motion_body_pos_wrist,
-            "bad_tracking_object_pos": bad_object_pos,
-            "bad_tracking_object_ori": bad_object_ori,
+            "bad_tracking_ref_pos": bad_ref_pos & effective_mask,
+            "bad_tracking_ref_ori": bad_ref_ori & effective_mask,
+            "bad_tracking_body_pos": bad_motion_body_pos & effective_mask,
+            "bad_tracking_body_pos_ankle": bad_motion_body_pos_ankle & effective_mask,
+            "bad_tracking_body_pos_wrist": bad_motion_body_pos_wrist & effective_mask,
+            "bad_tracking_object_pos": bad_object_pos & effective_mask,
+            "bad_tracking_object_ori": bad_object_ori & effective_mask,
+            "bad_tracking_grace_mask": grace_mask,
+            "bad_tracking_raw": bad_tracking_raw,
         }
 
         if motion_command.motion_cfg.use_adaptive_timesteps_sampler and torch.any(bad_tracking):
@@ -115,6 +123,16 @@ class BadTracking(TerminationTermBase):
             motion_command.adaptive_timesteps_sampler.update_current_bin_failed_count(failed_at_time_step)
 
         return bad_tracking
+
+    def _reset_grace_mask(self, motion_command: MotionCommand) -> torch.Tensor:
+        """Mask reset-settling bad-tracking failures without relaxing later phases."""
+        if self.reset_grace_steps <= 0 or self.reset_grace_motion_phase <= 0.0:
+            return torch.zeros(self.env.num_envs, dtype=torch.bool, device=self.env.device)
+        motion_denominator = max(int(motion_command.motion.time_step_total) - 1, 1)
+        motion_phase = motion_command.time_steps.to(torch.float32) / float(motion_denominator)
+        return (self.env.episode_length_buf < self.reset_grace_steps) & (
+            motion_phase < self.reset_grace_motion_phase
+        )
 
     def bad_ref_pos(self, motion_command: MotionCommand) -> torch.Tensor:
         """Terminate if the reference position is too far from the robot's position."""

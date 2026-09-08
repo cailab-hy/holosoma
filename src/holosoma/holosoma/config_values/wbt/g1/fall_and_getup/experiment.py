@@ -35,7 +35,7 @@ from holosoma.config_values.wbt.g1.fall_and_getup.termination import (
 # or edit only the algorithm whose dataset/sidecar must change.
 _FAST_SAC_DATASET = "offline_data/g1_29dof_wbt_fall_and_getup_fastsac_dataset.h5"
 _EPISODE_COLLECT_DATASET = (
-    "offline_data/g1_29dof_wbt_fall_and_getup_fastsac_4m_episode_env64_dataset.h5"
+    "offline_data/g1_29dof_wbt_fall_and_getup_fastsac_1m_episode_env256_dataset.h5"
 )
 _CQL_DATASET = "offline_data/g1_29dof_wbt_fall_and_getup_fastsac_4m_episode_env64_dataset.h5"
 _IQL_DATASET = "offline_data/g1_29dof_wbt_fall_and_getup_fastsac_4m_episode_env64_dataset.h5"
@@ -171,7 +171,7 @@ g1_29dof_wbt_fall_and_getup_fast_sac_episode_data = ExperimentConfig(
         algo.fast_sac_episode_data,
         config=replace(
             algo.fast_sac_episode_data.config,
-            num_learning_iterations=40000,
+            num_learning_iterations=10000,
             v_max=20.0,
             v_min=-20.0,
             gamma=0.99,
@@ -183,7 +183,7 @@ g1_29dof_wbt_fall_and_getup_fast_sac_episode_data = ExperimentConfig(
             tau=0.05,
             use_symmetry=False,
             offline_dataset_path=_EPISODE_COLLECT_DATASET,
-            episode_data_active_envs=64,
+            episode_data_active_envs=256,
         ),
     ),
     simulator=_simulator(),

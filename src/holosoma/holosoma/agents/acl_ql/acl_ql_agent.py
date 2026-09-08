@@ -46,6 +46,20 @@ class ACLQLAgent(CQLAgent):
     def setup(self) -> None:
         super().setup()
         args = self.config
+        # ACL-QL uses cql_weight as the CQL-reference alpha in the learned-weight
+        # surrogate (Eq. 21), not as an outer critic-loss multiplier.  Keep the
+        # config value intact for the surrogate, but force the inherited CQL
+        # critic prefactor to one so the critic term is exactly
+        # E[w_mu Q_ood - w_beta Q_data] as in the paper's Eq. (4)/(25).
+        acl_reference_alpha = float(args.cql_weight)
+        self._cql_weight = 1.0
+        if args.use_lagrange and self.log_cql_alpha is not None:
+            logger.warning(
+                "ACL-QL ignores use_lagrange for the critic conservative term: "
+                "Eq. (4)/(25) has no outer lagrange/CQL-alpha prefactor."
+            )
+            self.log_cql_alpha = None
+            self.cql_alpha_optimizer = None
         quality_path = args.acl_quality_path or f"{self._offline_dataset_path}.acl_quality.npz"
         with np.load(quality_path, allow_pickle=False) as sidecar:
             self._verify_quality_sidecar(sidecar, quality_path)
@@ -81,7 +95,13 @@ class ACLQLAgent(CQLAgent):
         for param in self.behavior_actor.parameters():
             param.requires_grad_(False)
         self.behavior_actor.eval()
-        logger.info(f"ACL-QL setup complete: quality='{quality_path}', r_max={self._acl_r_max:.6f}")
+        logger.info(
+            "ACL-QL setup complete: quality='{}', r_max={:.6f}, "
+            "surrogate_reference_alpha={:.6f}, critic_outer_prefactor=1.0",
+            quality_path,
+            self._acl_r_max,
+            acl_reference_alpha,
+        )
 
     def _verify_quality_sidecar(self, sidecar, quality_path: str) -> None:
         required = ("quality", "n", "rhash", "h5")

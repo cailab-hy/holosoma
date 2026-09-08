@@ -629,7 +629,7 @@ g1_29dof_wbt_asym_cql = replace(
 
 g1_29dof_wbt_acl_ql = replace(
     g1_29dof_wbt_cql,
-    training=replace(g1_29dof_wbt_cql.training, name="g1_29dof_wbt_acl_ql_manager_seed1"),
+    training=replace(g1_29dof_wbt_cql.training, name="g1_29dof_wbt_acl_ql_manager_seed2"),
     algo=ACLQLAlgoConfig(
         _target_="holosoma.agents.acl_ql.acl_ql_agent.ACLQLAgent",
         _recursive_=False,
