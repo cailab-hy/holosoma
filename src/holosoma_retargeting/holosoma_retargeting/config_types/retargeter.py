@@ -12,15 +12,37 @@ class FootLockConfig:
     enable: bool = False
     """Whether to enforce explicit frame-range based foot locking constraints."""
 
-    windows: dict[str, list[tuple[int, int]]] | None = None
+    windows: dict[str, list[tuple[int, int] | tuple[int, int, float]]] | None = None
     """Per-foot inclusive frame windows for locking.
-    Example: {"L_Toe": [(30, 60)], "R_Toe": [(10, 20), (80, 95)]}"""
+    Each window is (start, end) or (start, end, z_floor).
+    If z_floor is given per-window, it overrides the global z_floor for that window.
+    Example: {"L_Toe": [(30, 60, 0.15)], "R_Toe": [(10, 20), (80, 95, 0.30)]}"""
 
     z_floor: float = 0.0
-    """Floor height used by Z pinning constraints."""
+    """Default floor height used by Z pinning constraints (overridden by per-window z)."""
 
     tolerance: float = 5e-3
     """Tolerance for Z floor pinning constraints."""
+
+
+@dataclass(frozen=True)
+class SelfCollisionConfig:
+    """Configuration for self-collision avoidance constraints."""
+
+    enable: bool = False
+    """Whether to enforce self-collision constraints."""
+
+    pairs: list[tuple[str, str]] = field(default_factory=list)
+    """Body name pairs to check for self-collision.
+    Example: [("left_elbow_link", "left_knee_link"), ("left_wrist_yaw_link", "left_knee_link")]"""
+
+    windows: list[tuple[int, int]] | None = None
+    """Inclusive frame windows during which self-collision is enforced.
+    If None, enforced on all frames.
+    Example: [(50, 120)] means only enforce on frames 50..120."""
+
+    tolerance: float = 0.02
+    """Minimum distance (meters) to maintain between body pairs."""
 
 
 @dataclass(frozen=True)
@@ -61,6 +83,9 @@ class RetargeterConfig:
 
     debug: bool = False
     """Whether to enable debug mode."""
+
+    self_collision: SelfCollisionConfig = field(default_factory=SelfCollisionConfig)
+    """Configuration for self-collision avoidance."""
 
     w_nominal_tracking_init: float = 5.0
     """Initial weight for nominal tracking cost."""

@@ -16,7 +16,7 @@ from scipy.spatial.transform import Rotation  # type: ignore[import-untyped]
 from tqdm import tqdm
 from viser.extras import ViserUrdf  # type: ignore[import-not-found]
 
-from holosoma_retargeting.config_types.retargeter import FootLockConfig
+from holosoma_retargeting.config_types.retargeter import FootLockConfig, SelfCollisionConfig
 
 # Add src to path for direct execution
 src_path = Path(__file__).parent.parent / "src"
@@ -56,6 +56,7 @@ class InteractionMeshRetargeter:
         penetration_tolerance: float = 1e-3,
         foot_sticking_tolerance: float = 1e-3,
         foot_lock: FootLockConfig | None = None,
+        self_collision: SelfCollisionConfig | None = None,
         visualize: bool = False,
         debug: bool = False,
         w_nominal_tracking_init: float = 5.0,
@@ -107,6 +108,7 @@ class InteractionMeshRetargeter:
         # Tolerance for foot sticking constraints in x, y.
         self.foot_sticking_tolerance = foot_sticking_tolerance
         self._init_foot_lock(foot_lock)
+        self._self_collision_config = self_collision
 
         # Setup visualization if requested
         if self.visualize:
@@ -124,12 +126,12 @@ class InteractionMeshRetargeter:
         print("Loading robot model from: ", robot_xml_path)
 
         self.robot_data = mujoco.MjData(self.robot_model)
+        self._init_self_collision(self._self_collision_config)
 
         if self.robot_data.qpos.shape[0] > 7 + self.task_constants.ROBOT_DOF:
             self.has_dynamic_object = True
         else:
             self.has_dynamic_object = False
-
         self.nq = self.robot_model.nq
 
         self.q_a_init_idx = q_a_init_idx
@@ -174,6 +176,7 @@ class InteractionMeshRetargeter:
         """Initialize foot lock configuration and normalize window mappings."""
         self.foot_lock = foot_lock or FootLockConfig()
         self._foot_lock_windows: dict[str, tuple[tuple[int, int], ...]] = {"left": (), "right": ()}
+        self._foot_lock_z_floors: dict[str, tuple[float, ...]] = {"left": (), "right": ()}
         if self.foot_lock.windows is None:
             return
         for key, windows in self.foot_lock.windows.items():
@@ -187,14 +190,62 @@ class InteractionMeshRetargeter:
                 continue
 
             normalized_windows: list[tuple[int, int]] = []
+            z_floors: list[float] = []
             for window in windows:
-                if len(window) != 2:
+                if len(window) == 3:
+                    start, end, z = int(window[0]), int(window[1]), float(window[2])
+                elif len(window) == 2:
+                    start, end = int(window[0]), int(window[1])
+                    z = self.foot_lock.z_floor
+                else:
                     raise ValueError(f"Invalid foot lock window for {key}: {window}")
-                start, end = int(window[0]), int(window[1])
                 if end < start:
                     raise ValueError(f"Invalid foot lock window with end < start for {key}: {window}")
                 normalized_windows.append((start, end))
+                z_floors.append(z)
             self._foot_lock_windows[side] = tuple(normalized_windows)
+            self._foot_lock_z_floors[side] = tuple(z_floors)
+
+    def _init_self_collision(self, self_collision: SelfCollisionConfig | None) -> None:
+        """Initialize self-collision configuration and precompute geom pairs."""
+        sc = self_collision or SelfCollisionConfig()
+        self._self_collision_enabled = sc.enable and len(sc.pairs) > 0
+        self._self_collision_tolerance = sc.tolerance
+        self._self_collision_windows: list[tuple[int, int]] | None = sc.windows
+        self._self_collision_geom_pairs: list[tuple[int, int]] = []
+
+        self._sc_last_vis_frame = -1
+
+        if not self._self_collision_enabled:
+            return
+
+        m = self.robot_model
+
+        # Build body_name → [geom_ids] mapping (only geoms with collision enabled)
+        body_to_geoms: dict[str, list[int]] = {}
+        for g in range(m.ngeom):
+            if m.geom_contype[g] == 0 and m.geom_conaffinity[g] == 0:
+                continue
+            body_id = m.geom_bodyid[g]
+            body_name = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, body_id) or ""
+            body_to_geoms.setdefault(body_name, []).append(g)
+
+        # Build geom pairs from body name pairs
+        for body_a, body_b in sc.pairs:
+            geoms_a = body_to_geoms.get(body_a, [])
+            geoms_b = body_to_geoms.get(body_b, [])
+            if not geoms_a:
+                print(f"[SelfCollision] Warning: no collision geoms found for body '{body_a}'")
+            if not geoms_b:
+                print(f"[SelfCollision] Warning: no collision geoms found for body '{body_b}'")
+            for ga in geoms_a:
+                for gb in geoms_b:
+                    self._self_collision_geom_pairs.append((ga, gb))
+
+        print(
+            f"[SelfCollision] Initialized with {len(self._self_collision_geom_pairs)} geom pairs "
+            f"from {len(sc.pairs)} body pairs, tolerance={sc.tolerance}m"
+        )
 
     def _setup_visualization(self):
         """Setup Viser visualization components."""
@@ -340,8 +391,10 @@ class InteractionMeshRetargeter:
             human_joint_motions (np.ndarray): (num_frames, num_joints, 3) array.
             object_poses (np.ndarray): (num_frames, 7) array of demo object poses (quat, trans).
             object_poses_augmented (np.ndarray): (num_frames, 7) array of augmented object poses (quat, trans).
-            object_points_local_demo (np.ndarray): Demo object points in local frame (rest pose).
-            object_points_local (np.ndarray): Current object points in local frame (rest pose).
+            object_points_local_demo (np.ndarray | list[np.ndarray]): Demo object points in local frame.
+                Single array for static points, or list of num_frames arrays for per-frame points.
+            object_points_local (np.ndarray | list[np.ndarray]): Current object points in local frame.
+                Single array for static points, or list of num_frames arrays for per-frame points.
             foot_sticking_sequences (list): List of foot sticking sequences for each frame.
             q_a_init (np.ndarray, optional): Initial robot configuration.
             q_a_nominal (np.ndarray, optional): Nominal robot configuration.
@@ -350,6 +403,14 @@ class InteractionMeshRetargeter:
             tuple: (retargeted_motions, obj_pts_demo_list, obj_pts_list, tetrahedra)
         """
         num_frames = human_joint_motions.shape[0]
+        if isinstance(object_points_local_demo, list):
+            assert len(object_points_local_demo) == num_frames, (
+                f"object_points_local_demo length {len(object_points_local_demo)} != num_frames {num_frames}"
+            )
+        if isinstance(object_points_local, list):
+            assert len(object_points_local) == num_frames, (
+                f"object_points_local length {len(object_points_local)} != num_frames {num_frames}"
+            )
         if q_nominal_list is not None:
             q_locked_list = q_nominal_list
         else:
@@ -382,8 +443,16 @@ class InteractionMeshRetargeter:
                         object_quat_demo, object_trans_demo, human_mapped_joints
                     )
 
+                # Per-frame or static object points
+                obj_pts_demo_i = (
+                    object_points_local_demo[i]
+                    if isinstance(object_points_local_demo, list)
+                    else object_points_local_demo
+                )
+                obj_pts_i = object_points_local[i] if isinstance(object_points_local, list) else object_points_local
+
                 source_vertices, source_tetrahedra = create_interaction_mesh(
-                    np.vstack([human_mapped_joints_in_object, object_points_local_demo])
+                    np.vstack([human_mapped_joints_in_object, obj_pts_demo_i])
                 )
                 tetrahedra.append(source_tetrahedra)
 
@@ -391,10 +460,8 @@ class InteractionMeshRetargeter:
                     # Only for visualization
                     object_quat = object_poses_augmented[i, 3:]
                     object_trans = object_poses_augmented[i, :3]
-                    obj_pts_demo = transform_points_local_to_world(
-                        object_quat_demo, object_trans_demo, object_points_local_demo
-                    )
-                    obj_pts = transform_points_local_to_world(object_quat, object_trans, object_points_local)
+                    obj_pts_demo = transform_points_local_to_world(object_quat_demo, object_trans_demo, obj_pts_demo_i)
+                    obj_pts = transform_points_local_to_world(object_quat, object_trans, obj_pts_i)
 
                     obj_pts_demo_list.append(obj_pts_demo)
                     obj_pts_list.append(obj_pts)
@@ -422,7 +489,7 @@ class InteractionMeshRetargeter:
                     q_t_last=retargeted_motions[-1],
                     target_laplacian=target_laplacian,
                     adj_list=adj_list,
-                    obj_pts_local=object_points_local,
+                    obj_pts_local=obj_pts_i,
                     foot_sticking=foot_sticking_sequences[i],
                     w_nominal_tracking=w_nominal_tracking,
                     q_a_nominal=(q_nominal_list[i, self.q_a_indices] if q_nominal_list is not None else None),
@@ -463,20 +530,12 @@ class InteractionMeshRetargeter:
             robot_kpts_handle_list.clear()
 
         # Save results
-        robot_joint_names = [
-            self.robot_model.joint(joint_id).name
-            for joint_id in range(self.robot_model.njnt)
-            if self.robot_model.jnt_type[joint_id] != mujoco.mjtJoint.mjJNT_FREE
-        ][: self.task_constants.ROBOT_DOF]
-        robot_body_names = [self.robot_model.body(body_id).name for body_id in range(self.robot_model.nbody)]
         np.savez(
             dest_res_path,
             qpos=np.array(retargeted_motions)[1:],
             human_joints=human_joint_motions,
             fps=30,
             cost=cost,
-            joint_names=np.asarray(robot_joint_names),
-            body_names=np.asarray(robot_body_names),
         )
         print("Saving results to path:", dest_res_path)
 
@@ -625,10 +684,10 @@ class InteractionMeshRetargeter:
             # Foot lock windows: pin Z to floor within configured frame ranges
             if apply_foot_lock:
                 for key, J_WF in J_WF_dict.items():
-                    if not self._is_foot_locked_in_window(key, frame_idx):
+                    z_anchor = self._is_foot_locked_in_window(key, frame_idx)
+                    if z_anchor is None:
                         continue
 
-                    z_anchor = self.foot_lock.z_floor
                     z_delta = z_anchor - p_WF_dict[key][2]
                     Jz = J_WF[2, self.q_a_indices]
                     constraints += [
@@ -642,6 +701,15 @@ class InteractionMeshRetargeter:
             Ja_n_full = Js[key]
             Ja_n = Ja_n_full[self.q_a_indices]
             rhs = -phi - self.penetration_tolerance
+            constraints += [Ja_n @ dqa >= rhs]
+
+        # Self-collision constraints
+        Js_sc, phis_sc = self._compute_self_collision_constraints(frame_idx)
+        for key, phi in phis_sc.items():
+            Ja_n_full = Js_sc[key]
+            Ja_n = Ja_n_full[self.q_a_indices]
+            # Enforce: new_distance >= tolerance  =>  phi + J @ dqa >= tol
+            rhs = self._self_collision_tolerance - phi
             constraints += [Ja_n @ dqa >= rhs]
 
         # Joint limits constraints (actuated)
@@ -704,8 +772,8 @@ class InteractionMeshRetargeter:
 
         return q_star, cost
 
-    def _is_foot_locked_in_window(self, foot_link_key: str, frame_idx: int) -> bool:
-        """Check whether a foot link is locked by configured frame windows."""
+    def _is_foot_locked_in_window(self, foot_link_key: str, frame_idx: int) -> float | None:
+        """Return z_floor if foot is locked at this frame, else None."""
         key_lower = foot_link_key.lower()
         side = None
         if "left" in key_lower:
@@ -713,9 +781,66 @@ class InteractionMeshRetargeter:
         elif "right" in key_lower:
             side = "right"
         if side is None:
-            return False
+            return None
 
-        return any(start <= frame_idx <= end for start, end in self._foot_lock_windows.get(side, ()))
+        for i, (start, end) in enumerate(self._foot_lock_windows.get(side, ())):
+            if start <= frame_idx <= end:
+                return self._foot_lock_z_floors[side][i]
+        return None
+
+    def _compute_self_collision_constraints(self, frame_idx: int):
+        """Compute Jacobians and distances for self-collision body pairs.
+
+        Assumes ``mj_forward`` has already been called with the current q
+        (done by ``_update_jacobians_and_phis_from_q`` which runs first).
+
+        Returns:
+            Js: dict mapping (geom_a, geom_b) -> relative Jacobian (1 x nq)
+            phis: dict mapping (geom_a, geom_b) -> signed distance
+        """
+        if not self._self_collision_enabled:
+            return {}, {}
+
+        # Check frame windows
+        if self._self_collision_windows is not None:
+            if not any(start <= frame_idx <= end for start, end in self._self_collision_windows):
+                return {}, {}
+
+        m, d = self.robot_model, self.robot_data
+        threshold = float(self.collision_detection_threshold)
+
+        Js, phis = {}, {}
+        fromto = np.zeros(6, dtype=float)
+
+        if not hasattr(self, "_geom_names"):
+            raise RuntimeError(
+                "[SelfCollision] _geom_names not initialized. Please run _prefilter_pairs_with_mj_collision first."
+            )
+
+        _first_iter = self._sc_last_vis_frame != frame_idx
+        if _first_iter:
+            self._sc_last_vis_frame = frame_idx
+
+        for geom_a, geom_b in self._self_collision_geom_pairs:
+            fromto[:] = 0.0
+            dist = mujoco.mj_geomDistance(m, d, geom_a, geom_b, threshold, fromto)
+            if dist <= threshold:
+                J_rel = self._compute_jacobian_for_contact_relative(
+                    m.geom(geom_a),
+                    m.geom(geom_b),
+                    self._geom_names[geom_a],
+                    self._geom_names[geom_b],
+                    fromto,
+                    dist,
+                )
+                key = ("self", geom_a, geom_b)
+                Js[key] = J_rel
+                phis[key] = float(dist)
+
+        if _first_iter and self.visualize:
+            self._draw_self_collision_geoms()
+
+        return Js, phis
 
     def iterate(
         self,
@@ -753,6 +878,40 @@ class InteractionMeshRetargeter:
                 break
             last_cost = cost
         return q_n, cost
+
+    def _draw_self_collision_geoms(self):
+        """Draw collision cylinders for self-collision geom pairs in viser."""
+        if not hasattr(self, "server") or not self._self_collision_enabled:
+            return
+        m, d = self.robot_model, self.robot_data
+        seen_geoms: set[int] = set()
+        colors = [(255, 80, 80), (80, 80, 255)]  # red for first body, blue for second
+        for geom_a, geom_b in self._self_collision_geom_pairs:
+            for idx, gid in enumerate([geom_a, geom_b]):
+                if gid in seen_geoms:
+                    continue
+                seen_geoms.add(gid)
+                gtype = int(m.geom_type[gid])
+                if gtype not in (3, 5):  # 3 = capsule, 5 = cylinder
+                    continue
+                radius = float(m.geom_size[gid][0])
+                half_len = float(m.geom_size[gid][1])
+                cyl = trimesh.creation.capsule(radius=radius, height=2 * half_len, count=[16, 16])
+                # World transform from MuJoCo data
+                pos = d.geom_xpos[gid]
+                rot_mat = d.geom_xmat[gid].reshape(3, 3)
+                transform = np.eye(4)
+                transform[:3, :3] = rot_mat
+                transform[:3, 3] = pos
+                cyl.apply_transform(transform)
+                body_name = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, m.geom_bodyid[gid]) or ""
+                self.server.scene.add_mesh_simple(
+                    f"/world/sc_geom/{body_name}_g{gid}",
+                    vertices=cyl.vertices.astype(np.float32),
+                    faces=cyl.faces.astype(np.int32),
+                    color=colors[idx % 2],
+                    opacity=0.35,
+                )
 
     def draw_q(self, q: np.ndarray):
         """Draw a single robot configuration."""
@@ -1086,8 +1245,13 @@ class InteractionMeshRetargeter:
 
         # ---- remaining hinge/slide joints: v = qdot ----
         for j in range(1, self.robot_model.njnt):
-            jt = self.robot_model.jnt_type[j]
-            if jt in (mujoco.mjtJoint.mjJNT_HINGE, mujoco.mjtJoint.mjJNT_SLIDE):
+            jt = int(self.robot_model.jnt_type[j])
+            # ``jnt_type`` is a numpy scalar.  With recent MuJoCo bindings,
+            # membership against a tuple of IntEnum values can return False
+            # even though either direct equality comparison returns True.
+            # That left every actuated column of T at zero and forced the IK
+            # solver to reproduce motion using only the floating base.
+            if jt in (int(mujoco.mjtJoint.mjJNT_HINGE), int(mujoco.mjtJoint.mjJNT_SLIDE)):
                 qa = self.robot_model.jnt_qposadr[j]
                 da = self.robot_model.jnt_dofadr[j]
                 T[da, qa] = 1.0

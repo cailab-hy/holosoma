@@ -179,10 +179,10 @@ def test_wbt_td3_bc_is_registered_and_matches_cql_budget():
     )
 
 
-def test_fall_and_getup_td3_bc_is_registered_and_matches_cql_budget():
+def test_lafan_dance1_td3_bc_is_registered_and_matches_cql_budget():
     _assert_td3_bc_matches_cql_budget(
-        DEFAULTS["g1_29dof_wbt_fall_and_getup_td3_bc"],
-        DEFAULTS["g1_29dof_wbt_fall_and_getup_cql"],
+        DEFAULTS["g1_29dof_wbt_lafan_dance1_td3_bc"],
+        DEFAULTS["g1_29dof_wbt_lafan_dance1_cql"],
     )
 
 

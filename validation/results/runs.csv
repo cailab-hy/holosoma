@@ -1,0 +1,426 @@
+run,method,group,label,seed,metric,final10,best,best_step,last,last_over_best
+20260911_125717-g1_29dof_wbt_bc_seed1-locomotion,g1_29dof_wbt_bc,main,BC,1,success,0.15625,14.453125,7000,0.0,0.0
+20260911_125717-g1_29dof_wbt_bc_seed1-locomotion,g1_29dof_wbt_bc,main,BC,1,return,6.689613151550293,18.114675521850586,1000,6.163958549499512,0.3402743009149857
+20260911_125717-g1_29dof_wbt_bc_seed1-locomotion,g1_29dof_wbt_bc,main,BC,1,length,62.26328125,176.119140625,1000,56.90625,0.3231122398057068
+20260911_125717-g1_29dof_wbt_bc_seed1-locomotion,g1_29dof_wbt_bc,main,BC,1,bad_tracking,99.84375,85.3515625,7000,100.0,1.17162471395881
+20260911_125717-g1_29dof_wbt_bc_seed1-locomotion,g1_29dof_wbt_bc,main,BC,1,timeout,0.0,0.0,2000,0.0,nan
+20260911_130126-g1_29dof_wbt_w_bc_seed1-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,1,success,0.5859375,29.296875,23000,0.1953125,0.006666666666666667
+20260911_130126-g1_29dof_wbt_w_bc_seed1-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,1,return,13.138024234771729,31.87447738647461,4000,10.97000789642334,0.34416275327162776
+20260911_130126-g1_29dof_wbt_w_bc_seed1-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,1,length,122.9333984375,319.22265625,4000,102.50390625,0.3211047344011943
+20260911_130126-g1_29dof_wbt_w_bc_seed1-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,1,bad_tracking,99.4140625,70.5078125,23000,99.8046875,1.4155124653739612
+20260911_130126-g1_29dof_wbt_w_bc_seed1-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,1,timeout,0.0,0.0,2000,0.0,nan
+20260911_150538-g1_29dof_wbt_bc_seed2-locomotion,g1_29dof_wbt_bc,main,BC,2,success,0.09765625,6.25,8000,0.0,0.0
+20260911_150538-g1_29dof_wbt_bc_seed2-locomotion,g1_29dof_wbt_bc,main,BC,2,return,7.111465167999268,17.02595329284668,1000,7.819126605987549,0.4592475071144882
+20260911_150538-g1_29dof_wbt_bc_seed2-locomotion,g1_29dof_wbt_bc,main,BC,2,length,65.9912109375,162.36328125,1000,72.677734375,0.4476242030554553
+20260911_150538-g1_29dof_wbt_bc_seed2-locomotion,g1_29dof_wbt_bc,main,BC,2,bad_tracking,99.90234375,93.75,8000,100.0,1.0666666666666667
+20260911_150538-g1_29dof_wbt_bc_seed2-locomotion,g1_29dof_wbt_bc,main,BC,2,timeout,0.0,0.0,1000,0.0,nan
+20260911_152451-g1_29dof_wbt_w_bc_seed2-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,2,success,0.1953125,20.8984375,2000,0.0,0.0
+20260911_152451-g1_29dof_wbt_w_bc_seed2-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,2,return,11.568272972106934,26.614089965820312,2000,12.645344734191895,0.4751372205636915
+20260911_152451-g1_29dof_wbt_w_bc_seed2-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,2,length,108.18046875,264.703125,2000,118.169921875,0.4464243551148102
+20260911_152451-g1_29dof_wbt_w_bc_seed2-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,2,bad_tracking,99.78515625,78.7109375,2000,100.0,1.2704714640198511
+20260911_152451-g1_29dof_wbt_w_bc_seed2-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,2,timeout,0.01953125,0.0,4000,0.0,nan
+20260911_171335-g1_29dof_wbt_bc_seed3-locomotion,g1_29dof_wbt_bc,main,BC,3,success,0.234375,19.921875,1000,0.0,0.0
+20260911_171335-g1_29dof_wbt_bc_seed3-locomotion,g1_29dof_wbt_bc,main,BC,3,return,7.707564449310302,24.56682014465332,1000,6.903903961181641,0.28102554260300533
+20260911_171335-g1_29dof_wbt_bc_seed3-locomotion,g1_29dof_wbt_bc,main,BC,3,length,71.7265625,243.947265625,1000,63.876953125,0.26184738312743694
+20260911_171335-g1_29dof_wbt_bc_seed3-locomotion,g1_29dof_wbt_bc,main,BC,3,bad_tracking,99.765625,79.8828125,1000,100.0,1.2518337408312958
+20260911_171335-g1_29dof_wbt_bc_seed3-locomotion,g1_29dof_wbt_bc,main,BC,3,timeout,0.0,0.0,3000,0.0,nan
+20260911_174510-g1_29dof_wbt_w_bc_seed3-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,3,success,0.4296875,51.5625,2000,0.0,0.0
+20260911_174510-g1_29dof_wbt_w_bc_seed3-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,3,return,13.22692699432373,36.535728454589844,2000,12.792096138000488,0.3501256627166952
+20260911_174510-g1_29dof_wbt_w_bc_seed3-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,3,length,124.0673828125,368.7890625,2000,119.5625,0.32420294460332594
+20260911_174510-g1_29dof_wbt_w_bc_seed3-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,3,bad_tracking,99.5703125,47.65625,2000,100.0,2.098360655737705
+20260911_174510-g1_29dof_wbt_w_bc_seed3-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,3,timeout,0.0,0.0,3000,0.0,nan
+20260911_193023-g1_29dof_wbt_bc_seed4-locomotion,g1_29dof_wbt_bc,main,BC,4,success,0.09765625,9.375,5000,0.0,0.0
+20260911_193023-g1_29dof_wbt_bc_seed4-locomotion,g1_29dof_wbt_bc,main,BC,4,return,6.96158881187439,17.697608947753906,1000,7.553836822509766,0.4268281011751286
+20260911_193023-g1_29dof_wbt_bc_seed4-locomotion,g1_29dof_wbt_bc,main,BC,4,length,64.948828125,173.02734375,1000,70.82421875,0.4093238514505023
+20260911_193023-g1_29dof_wbt_bc_seed4-locomotion,g1_29dof_wbt_bc,main,BC,4,bad_tracking,99.90234375,90.625,5000,100.0,1.103448275862069
+20260911_193023-g1_29dof_wbt_bc_seed4-locomotion,g1_29dof_wbt_bc,main,BC,4,timeout,0.0,0.0,1000,0.0,nan
+20260911_200920-g1_29dof_wbt_b_arm_seed1-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),1,success,62.6171875,81.5673828125,97000,70.166015625,0.8602214905716852
+20260911_200920-g1_29dof_wbt_b_arm_seed1-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),1,return,44.905144119262694,48.84173583984375,97000,46.42097473144531,0.9504366282898642
+20260911_200920-g1_29dof_wbt_b_arm_seed1-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),1,length,454.4149658203125,505.742919921875,97000,470.882568359375,0.9310710042804256
+20260911_200920-g1_29dof_wbt_b_arm_seed1-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),1,bad_tracking,36.20361328125,17.041015625,97000,28.3447265625,1.663323782234957
+20260911_200920-g1_29dof_wbt_b_arm_seed1-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),1,timeout,1.17919921875,0.0,1000,1.4892578125,nan
+20260911_213713-g1_29dof_wbt_bc_seed5-locomotion,g1_29dof_wbt_bc,main,BC,5,success,0.05859375,14.2578125,3000,0.0,0.0
+20260911_213713-g1_29dof_wbt_bc_seed5-locomotion,g1_29dof_wbt_bc,main,BC,5,return,7.111014080047608,23.108203887939453,1000,7.153979778289795,0.3095861458113399
+20260911_213713-g1_29dof_wbt_bc_seed5-locomotion,g1_29dof_wbt_bc,main,BC,5,length,66.429296875,227.53515625,1000,66.427734375,0.2919449260931518
+20260911_213713-g1_29dof_wbt_bc_seed5-locomotion,g1_29dof_wbt_bc,main,BC,5,bad_tracking,99.94140625,85.3515625,1000,100.0,1.17162471395881
+20260911_213713-g1_29dof_wbt_bc_seed5-locomotion,g1_29dof_wbt_bc,main,BC,5,timeout,0.0,0.0,2000,0.0,nan
+20260911_235437-g1_29dof_wbt_iql_seed1-locomotion,g1_29dof_wbt_iql,main,IQL,1,success,58.0712890625,81.6650390625,86000,76.1474609375,0.9324364723467863
+20260911_235437-g1_29dof_wbt_iql_seed1-locomotion,g1_29dof_wbt_iql,main,IQL,1,return,40.425048446655275,48.46818161010742,53000,45.84676742553711,0.9459147404031422
+20260911_235437-g1_29dof_wbt_iql_seed1-locomotion,g1_29dof_wbt_iql,main,IQL,1,length,414.03388671875,500.1669921875,53000,469.617431640625,0.9389212782449612
+20260911_235437-g1_29dof_wbt_iql_seed1-locomotion,g1_29dof_wbt_iql,main,IQL,1,bad_tracking,40.9619140625,17.28515625,86000,22.265625,1.2881355932203389
+20260911_235437-g1_29dof_wbt_iql_seed1-locomotion,g1_29dof_wbt_iql,main,IQL,1,timeout,0.966796875,0.0,1000,1.5869140625,nan
+20260912_010004-g1_29dof_wbt_b_arm_seed2-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),2,success,63.2666015625,84.3994140625,98000,68.115234375,0.8070581428984669
+20260912_010004-g1_29dof_wbt_b_arm_seed2-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),2,return,44.128623962402344,49.54475402832031,80000,46.802066802978516,0.9446422274339268
+20260912_010004-g1_29dof_wbt_b_arm_seed2-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),2,length,447.4010009765625,506.302490234375,98000,478.467041015625,0.9450220969565752
+20260912_010004-g1_29dof_wbt_b_arm_seed2-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),2,bad_tracking,35.69580078125,14.5751953125,98000,30.615234375,2.100502512562814
+20260912_010004-g1_29dof_wbt_b_arm_seed2-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),2,timeout,1.03759765625,0.0,1000,1.26953125,nan
+20260912_050042-g1_29dof_wbt_iql_seed2-locomotion,g1_29dof_wbt_iql,main,IQL,2,success,70.9130859375,86.7919921875,80000,76.0009765625,0.8756680731364276
+20260912_050042-g1_29dof_wbt_iql_seed2-locomotion,g1_29dof_wbt_iql,main,IQL,2,return,45.72124710083008,49.28584671020508,80000,45.151100158691406,0.9161068171188071
+20260912_050042-g1_29dof_wbt_iql_seed2-locomotion,g1_29dof_wbt_iql,main,IQL,2,length,469.3927978515625,509.3505859375,80000,470.47314453125,0.9236725303168288
+20260912_050042-g1_29dof_wbt_iql_seed2-locomotion,g1_29dof_wbt_iql,main,IQL,2,bad_tracking,27.97607421875,11.8896484375,80000,22.6806640625,1.9075975359342916
+20260912_050042-g1_29dof_wbt_iql_seed2-locomotion,g1_29dof_wbt_iql,main,IQL,2,timeout,1.11083984375,0.0,1000,1.318359375,nan
+20260912_053755-g1_29dof_wbt_b_arm_seed3-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),3,success,59.765625,73.486328125,78000,53.5888671875,0.729235880398671
+20260912_053755-g1_29dof_wbt_b_arm_seed3-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),3,return,42.450068664550784,47.436012268066406,96000,39.77165985107422,0.8384275563957602
+20260912_053755-g1_29dof_wbt_b_arm_seed3-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),3,length,427.3490478515625,485.070068359375,78000,398.4951171875,0.8215207310880003
+20260912_053755-g1_29dof_wbt_b_arm_seed3-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),3,bad_tracking,39.1943359375,25.244140625,78000,45.41015625,1.7988394584139265
+20260912_053755-g1_29dof_wbt_b_arm_seed3-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),3,timeout,1.0400390625,0.0,1000,1.0009765625,nan
+20260912_100044-g1_29dof_wbt_iql_seed3-locomotion,g1_29dof_wbt_iql,main,IQL,3,success,71.9189453125,85.8154296875,94000,80.46875,0.9376955903271693
+20260912_100044-g1_29dof_wbt_iql_seed3-locomotion,g1_29dof_wbt_iql,main,IQL,3,return,45.24620056152344,49.729007720947266,94000,48.353328704833984,0.9723364877129087
+20260912_100044-g1_29dof_wbt_iql_seed3-locomotion,g1_29dof_wbt_iql,main,IQL,3,length,463.573828125,509.295654296875,94000,491.258056640625,0.9645832484450463
+20260912_100044-g1_29dof_wbt_iql_seed3-locomotion,g1_29dof_wbt_iql,main,IQL,3,bad_tracking,26.826171875,12.548828125,94000,17.9443359375,1.4299610894941635
+20260912_100044-g1_29dof_wbt_iql_seed3-locomotion,g1_29dof_wbt_iql,main,IQL,3,timeout,1.2548828125,0.0,1000,1.5869140625,nan
+20260912_101859-g1_29dof_wbt_c_arm_seed1-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),1,success,0.0,0.1953125,26000,0.0,0.0
+20260912_101859-g1_29dof_wbt_c_arm_seed1-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),1,return,15.25494089126587,19.776887893676758,12000,15.201713562011719,0.7686605518390053
+20260912_101859-g1_29dof_wbt_c_arm_seed1-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),1,length,141.07666015625,204.90771484375,12000,141.42333984375,0.6901806501116404
+20260912_101859-g1_29dof_wbt_c_arm_seed1-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),1,bad_tracking,100.0,99.8046875,26000,100.0,1.0019569471624266
+20260912_101859-g1_29dof_wbt_c_arm_seed1-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),1,timeout,0.0,0.0,1000,0.0,nan
+20260912_135133-g1_29dof_wbt_c_arm_seed2-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),2,success,0.0,0.2685546875,16000,0.0,0.0
+20260912_135133-g1_29dof_wbt_c_arm_seed2-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),2,return,15.365284442901611,18.9134521484375,19000,15.397689819335938,0.8141131348466171
+20260912_135133-g1_29dof_wbt_c_arm_seed2-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),2,length,142.124365234375,194.476806640625,19000,141.98095703125,0.7300662710572864
+20260912_135133-g1_29dof_wbt_c_arm_seed2-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),2,bad_tracking,100.0,99.7314453125,16000,100.0,1.0026927784577724
+20260912_135133-g1_29dof_wbt_c_arm_seed2-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),2,timeout,0.0,0.0,1000,0.0,nan
+20260912_150035-g1_29dof_wbt_iql_seed4-locomotion,g1_29dof_wbt_iql,main,IQL,4,success,67.77099609375,81.103515625,100000,81.103515625,1.0
+20260912_150035-g1_29dof_wbt_iql_seed4-locomotion,g1_29dof_wbt_iql,main,IQL,4,return,44.133446502685544,48.60235595703125,87000,47.840126037597656,0.9843170170576202
+20260912_150035-g1_29dof_wbt_iql_seed4-locomotion,g1_29dof_wbt_iql,main,IQL,4,length,455.6248779296875,498.29931640625,87000,490.431640625,0.9842109440607065
+20260912_150035-g1_29dof_wbt_iql_seed4-locomotion,g1_29dof_wbt_iql,main,IQL,4,bad_tracking,31.083984375,17.724609375,100000,17.724609375,1.0
+20260912_150035-g1_29dof_wbt_iql_seed4-locomotion,g1_29dof_wbt_iql,main,IQL,4,timeout,1.14501953125,0.0,1000,1.171875,nan
+20260912_172205-g1_29dof_wbt_c_arm_seed3-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),3,success,0.0,0.29296875,15000,0.0,0.0
+20260912_172205-g1_29dof_wbt_c_arm_seed3-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),3,return,14.927375507354736,17.830524444580078,15000,14.753742218017578,0.8274429764460605
+20260912_172205-g1_29dof_wbt_c_arm_seed3-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),3,length,138.5077392578125,182.652099609375,15000,136.666259765625,0.748232623976967
+20260912_172205-g1_29dof_wbt_c_arm_seed3-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),3,bad_tracking,100.0,99.6826171875,15000,100.0,1.003183933382317
+20260912_172205-g1_29dof_wbt_c_arm_seed3-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),3,timeout,0.0,0.0,1000,0.0,nan
+20260912_200714-g1_29dof_wbt_iql_seed5-locomotion,g1_29dof_wbt_iql,main,IQL,5,success,62.783203125,82.32421875,64000,55.1513671875,0.6699288256227758
+20260912_200714-g1_29dof_wbt_iql_seed5-locomotion,g1_29dof_wbt_iql,main,IQL,5,return,42.31067028045654,48.82805252075195,64000,42.87100601196289,0.8779995064055173
+20260912_200714-g1_29dof_wbt_iql_seed5-locomotion,g1_29dof_wbt_iql,main,IQL,5,length,432.8975830078125,499.60888671875,64000,442.5732421875,0.885839411492779
+20260912_200714-g1_29dof_wbt_iql_seed5-locomotion,g1_29dof_wbt_iql,main,IQL,5,bad_tracking,36.1376953125,16.4306640625,64000,43.9453125,2.674591381872214
+20260912_200714-g1_29dof_wbt_iql_seed5-locomotion,g1_29dof_wbt_iql,main,IQL,5,timeout,1.0791015625,0.0,1000,0.9033203125,nan
+20260912_205330-g1_29dof_wbt_asym_cql_seed1-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,1,success,5.09033203125,33.2275390625,36000,3.1494140625,0.09478324761204997
+20260912_205330-g1_29dof_wbt_asym_cql_seed1-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,1,return,19.08626365661621,32.571224212646484,36000,18.149465560913086,0.5572239300070939
+20260912_205330-g1_29dof_wbt_asym_cql_seed1-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,1,length,187.42216796875,356.40234375,36000,173.0263671875,0.4854804414778768
+20260912_205330-g1_29dof_wbt_asym_cql_seed1-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,1,bad_tracking,94.8193359375,66.357421875,36000,96.826171875,1.4591611479028697
+20260912_205330-g1_29dof_wbt_asym_cql_seed1-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,1,timeout,0.09033203125,0.0,1000,0.0244140625,nan
+20260913_010505-g1_29dof_wbt_cql_seed1-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),1,success,0.27099609375,50.9765625,53000,0.0,0.0
+20260913_010505-g1_29dof_wbt_cql_seed1-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),1,return,17.802145767211915,41.87451171875,51000,16.820226669311523,0.40168173857845824
+20260913_010505-g1_29dof_wbt_cql_seed1-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),1,length,166.7538330078125,424.581787109375,34000,157.6884765625,0.37139717564446173
+20260913_010505-g1_29dof_wbt_cql_seed1-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),1,bad_tracking,99.7265625,47.8515625,51000,100.0,2.089795918367347
+20260913_010505-g1_29dof_wbt_cql_seed1-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),1,timeout,0.00244140625,0.0,1000,0.0,nan
+20260913_024131-g1_29dof_wbt_asym_cql_seed2-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,2,success,3.74755859375,20.849609375,78000,3.369140625,0.16159250585480095
+20260913_024131-g1_29dof_wbt_asym_cql_seed2-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,2,return,18.218972301483156,28.297712326049805,78000,17.153587341308594,0.6061828300345554
+20260913_024131-g1_29dof_wbt_asym_cql_seed2-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,2,length,177.41123046875,293.81884765625,37000,162.343017578125,0.5525275824648811
+20260913_024131-g1_29dof_wbt_asym_cql_seed2-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,2,bad_tracking,96.20361328125,79.00390625,78000,96.5087890625,1.2215698393077874
+20260913_024131-g1_29dof_wbt_asym_cql_seed2-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,2,timeout,0.048828125,0.0,1000,0.1220703125,nan
+20260913_054701-g1_29dof_wbt_cql_seed2-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),2,success,0.03173828125,56.201171875,48000,0.0,0.0
+20260913_054701-g1_29dof_wbt_cql_seed2-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),2,return,17.492347526550294,41.72346115112305,35000,17.5158748626709,0.41980876896161895
+20260913_054701-g1_29dof_wbt_cql_seed2-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),2,length,163.211279296875,428.208740234375,47000,163.0361328125,0.38073985300548535
+20260913_054701-g1_29dof_wbt_cql_seed2-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),2,bad_tracking,99.9658203125,42.96875,48000,100.0,2.327272727272727
+20260913_054701-g1_29dof_wbt_cql_seed2-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),2,timeout,0.00244140625,0.0,1000,0.0,nan
+20260913_083431-g1_29dof_wbt_asym_cql_seed3-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,3,success,0.97900390625,15.087890625,33000,2.7099609375,0.1796116504854369
+20260913_083431-g1_29dof_wbt_asym_cql_seed3-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,3,return,15.798068141937256,27.684377670288086,29000,17.967248916625977,0.6490031717747119
+20260913_083431-g1_29dof_wbt_asym_cql_seed3-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,3,length,148.8958251953125,306.82568359375,29000,175.99462890625,0.5735980992362889
+20260913_083431-g1_29dof_wbt_asym_cql_seed3-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,3,bad_tracking,99.0087890625,84.6435546875,33000,97.216796875,1.1485434092875686
+20260913_083431-g1_29dof_wbt_asym_cql_seed3-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,3,timeout,0.01220703125,0.0,1000,0.0732421875,nan
+20260913_102730-g1_29dof_wbt_cql_seed3-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),3,success,0.21484375,64.55078125,36000,0.0,0.0
+20260913_102730-g1_29dof_wbt_cql_seed3-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),3,return,16.85225009918213,43.83637619018555,45000,16.871402740478516,0.3848722044742336
+20260913_102730-g1_29dof_wbt_cql_seed3-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),3,length,156.980322265625,454.9248046875,45000,156.81640625,0.3447084103442576
+20260913_102730-g1_29dof_wbt_cql_seed3-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),3,bad_tracking,99.78515625,34.5703125,36000,100.0,2.8926553672316384
+20260913_102730-g1_29dof_wbt_cql_seed3-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),3,timeout,0.0,0.0,1000,0.0,nan
+20260913_151619-g1_29dof_wbt_cql_seed4-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),4,success,0.0,57.2265625,60000,0.0,0.0
+20260913_151619-g1_29dof_wbt_cql_seed4-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),4,return,16.562675094604494,42.12576675415039,60000,16.312332153320312,0.38722932329090864
+20260913_151619-g1_29dof_wbt_cql_seed4-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),4,length,152.961083984375,431.28564453125,60000,150.179931640625,0.34821453842696426
+20260913_151619-g1_29dof_wbt_cql_seed4-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),4,bad_tracking,100.0,41.40625,60000,100.0,2.4150943396226414
+20260913_151619-g1_29dof_wbt_cql_seed4-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),4,timeout,0.0,0.0,1000,0.0,nan
+20260913_200010-g1_29dof_wbt_cql_seed5-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),5,success,1.0107421875,63.134765625,50000,0.0,0.0
+20260913_200010-g1_29dof_wbt_cql_seed5-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),5,return,17.598845863342284,44.17224884033203,35000,16.44178009033203,0.3722196746143397
+20260913_200010-g1_29dof_wbt_cql_seed5-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),5,length,164.454150390625,461.2216796875,35000,151.491455078125,0.32845692592067177
+20260913_200010-g1_29dof_wbt_cql_seed5-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),5,bad_tracking,98.9794921875,35.791015625,50000,100.0,2.7939972714870396
+20260913_200010-g1_29dof_wbt_cql_seed5-locomotion,g1_29dof_wbt_cql,main,CQL (alpha=5),5,timeout,0.009765625,0.0,1000,0.0,nan
+20260914_004135-g1_29dof_wbt_acl_ql_seed1-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,1,success,0.048828125,0.4150390625,53000,0.09765625,0.23529411764705882
+20260914_004135-g1_29dof_wbt_acl_ql_seed1-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,1,return,15.411922645568847,19.280305862426758,24000,17.98965072631836,0.9330583681961389
+20260914_004135-g1_29dof_wbt_acl_ql_seed1-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,1,length,165.8366943359375,231.0439453125,62000,191.5830078125,0.8292059225069636
+20260914_004135-g1_29dof_wbt_acl_ql_seed1-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,1,bad_tracking,99.9462890625,99.5849609375,53000,99.90234375,1.0031870556508948
+20260914_004135-g1_29dof_wbt_acl_ql_seed1-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,1,timeout,0.0048828125,0.0,1000,0.0,nan
+20260914_060843-g1_29dof_wbt_acl_ql_seed2-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,2,success,0.0,2.587890625,24000,0.0,0.0
+20260914_060843-g1_29dof_wbt_acl_ql_seed2-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,2,return,13.76261863708496,20.520227432250977,24000,12.552996635437012,0.6117376952512658
+20260914_060843-g1_29dof_wbt_acl_ql_seed2-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,2,length,135.9600341796875,227.097900390625,24000,119.27197265625,0.5252006841590938
+20260914_060843-g1_29dof_wbt_acl_ql_seed2-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,2,bad_tracking,100.0,97.3876953125,24000,100.0,1.0268237653547254
+20260914_060843-g1_29dof_wbt_acl_ql_seed2-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,2,timeout,0.0,0.0,1000,0.0,nan
+20260914_112419-g1_29dof_wbt_acl_ql_seed3-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,3,success,0.0,0.5126953125,45000,0.0,0.0
+20260914_112419-g1_29dof_wbt_acl_ql_seed3-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,3,return,13.731360149383544,18.437604904174805,33000,13.286626815795898,0.7206265067968467
+20260914_112419-g1_29dof_wbt_acl_ql_seed3-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,3,length,132.6939697265625,199.509521484375,35000,127.259765625,0.637863118903659
+20260914_112419-g1_29dof_wbt_acl_ql_seed3-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,3,bad_tracking,100.0,99.4873046875,45000,100.0,1.005153374233129
+20260914_112419-g1_29dof_wbt_acl_ql_seed3-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,3,timeout,0.0,0.0,1000,0.0,nan
+20260914_163320-g1_29dof_wbt_acl_ql_seed4-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,4,success,0.01708984375,0.3173828125,77000,0.1220703125,0.38461538461538464
+20260914_163320-g1_29dof_wbt_acl_ql_seed4-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,4,return,15.76786470413208,21.386566162109375,70000,16.92940902709961,0.7915908004480625
+20260914_163320-g1_29dof_wbt_acl_ql_seed4-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,4,length,158.945556640625,224.02001953125,70000,171.5126953125,0.7656132504201241
+20260914_163320-g1_29dof_wbt_acl_ql_seed4-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,4,bad_tracking,99.98291015625,99.6826171875,77000,99.8779296875,1.0019593436198873
+20260914_163320-g1_29dof_wbt_acl_ql_seed4-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,4,timeout,0.0,0.0,1000,0.0,nan
+20260914_215859-g1_29dof_wbt_acl_ql_seed5-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,5,success,0.00244140625,0.537109375,38000,0.0,0.0
+20260914_215859-g1_29dof_wbt_acl_ql_seed5-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,5,return,13.645291900634765,19.30351448059082,48000,11.753036499023438,0.60885475081964
+20260914_215859-g1_29dof_wbt_acl_ql_seed5-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,5,length,138.0467529296875,212.6220703125,29000,131.669921875,0.6192674245033873
+20260914_215859-g1_29dof_wbt_acl_ql_seed5-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,5,bad_tracking,99.99755859375,99.462890625,38000,100.0,1.0054000981836033
+20260914_215859-g1_29dof_wbt_acl_ql_seed5-locomotion,g1_29dof_wbt_acl_ql,main,ACL-QL,5,timeout,0.0,0.0,1000,0.0,nan
+20260915_032547-g1_29dof_wbt_aw_cql_H50_seed1-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),1,success,72.42919921875,83.88671875,65000,66.5771484375,0.7936554132712457
+20260915_032547-g1_29dof_wbt_aw_cql_H50_seed1-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),1,return,47.52848930358887,50.2859992980957,95000,46.30647277832031,0.9208621370695105
+20260915_032547-g1_29dof_wbt_aw_cql_H50_seed1-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),1,length,480.051416015625,505.117919921875,79000,468.43017578125,0.92736796163102
+20260915_032547-g1_29dof_wbt_aw_cql_H50_seed1-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),1,bad_tracking,26.3720703125,14.4287109375,65000,32.2509765625,2.2351945854483923
+20260915_032547-g1_29dof_wbt_aw_cql_H50_seed1-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),1,timeout,1.19873046875,0.0,1000,1.171875,nan
+20260915_081541-g1_29dof_wbt_aw_cql_H50_seed2-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),2,success,68.193359375,83.30078125,93000,57.6904296875,0.6925556858147714
+20260915_081541-g1_29dof_wbt_aw_cql_H50_seed2-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),2,return,46.619503021240234,50.20759963989258,93000,44.72815704345703,0.8908642787997011
+20260915_081541-g1_29dof_wbt_aw_cql_H50_seed2-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),2,length,471.0532470703125,504.7890625,93000,451.263916015625,0.8939653204463498
+20260915_081541-g1_29dof_wbt_aw_cql_H50_seed2-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),2,bad_tracking,30.673828125,15.52734375,93000,41.2841796875,2.658805031446541
+20260915_081541-g1_29dof_wbt_aw_cql_H50_seed2-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),2,timeout,1.1328125,0.0,1000,1.025390625,nan
+20260915_090544-g1_29dof_wbt_lafan_dance1_cql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,1,success,91.884765625,96.5576171875,66000,93.701171875,0.9704171934260429
+20260915_090544-g1_29dof_wbt_lafan_dance1_cql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,1,return,57.506155014038086,58.917274475097656,85000,57.69038772583008,0.9791761115869991
+20260915_090544-g1_29dof_wbt_lafan_dance1_cql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,1,length,497.95703125,508.605224609375,39000,496.548583984375,0.9762946976522707
+20260915_090544-g1_29dof_wbt_lafan_dance1_cql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,1,bad_tracking,7.646484375,2.9541015625,66000,5.7861328125,1.9586776859504131
+20260915_090544-g1_29dof_wbt_lafan_dance1_cql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,1,timeout,0.46875,0.0,1000,0.5126953125,nan
+20260915_130709-g1_29dof_wbt_aw_cql_H50_seed3-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),3,success,68.49853515625,86.474609375,60000,68.701171875,0.7944664031620553
+20260915_130709-g1_29dof_wbt_aw_cql_H50_seed3-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),3,return,46.606926345825194,50.58768081665039,60000,46.894344329833984,0.9269913855074221
+20260915_130709-g1_29dof_wbt_aw_cql_H50_seed3-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),3,length,470.00859375,510.928955078125,60000,468.982177734375,0.9179009587794138
+20260915_130709-g1_29dof_wbt_aw_cql_H50_seed3-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),3,bad_tracking,30.1806640625,12.2314453125,60000,30.029296875,2.4550898203592815
+20260915_130709-g1_29dof_wbt_aw_cql_H50_seed3-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),3,timeout,1.32080078125,0.0,1000,1.26953125,nan
+20260915_132849-g1_29dof_wbt_lafan_dance1_cql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,2,success,93.60595703125,96.728515625,82000,93.65234375,0.9681978798586572
+20260915_132849-g1_29dof_wbt_lafan_dance1_cql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,2,return,58.016714859008786,59.0505256652832,82000,57.34589385986328,0.9711326565476773
+20260915_132849-g1_29dof_wbt_lafan_dance1_cql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,2,length,499.9541748046875,510.701904296875,32000,495.79052734375,0.9708021904213286
+20260915_132849-g1_29dof_wbt_lafan_dance1_cql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,2,bad_tracking,5.96923828125,2.83203125,82000,5.9326171875,2.0948275862068964
+20260915_132849-g1_29dof_wbt_lafan_dance1_cql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,2,timeout,0.4248046875,0.0,1000,0.4150390625,nan
+20260915_175853-g1_29dof_wbt_lafan_dance1_cql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,3,success,93.64501953125,98.1689453125,98000,93.9208984375,0.9567271822929619
+20260915_175853-g1_29dof_wbt_lafan_dance1_cql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,3,return,58.62724227905274,59.96487808227539,98000,58.30034255981445,0.9722414924253311
+20260915_175853-g1_29dof_wbt_lafan_dance1_cql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,3,length,505.4220703125,512.086669921875,98000,504.656005859375,0.9854894405596739
+20260915_175853-g1_29dof_wbt_lafan_dance1_cql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,3,bad_tracking,5.93017578125,1.4404296875,98000,5.6396484375,3.9152542372881354
+20260915_175853-g1_29dof_wbt_lafan_dance1_cql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,3,timeout,0.4248046875,0.0,1000,0.439453125,nan
+20260915_180139-g1_29dof_wbt_aw_cql_H50_seed4-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),4,success,68.9111328125,83.8623046875,89000,70.3857421875,0.8393013100436681
+20260915_180139-g1_29dof_wbt_aw_cql_H50_seed4-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),4,return,46.40412521362305,49.41324234008789,89000,47.69889450073242,0.9653059026655967
+20260915_180139-g1_29dof_wbt_aw_cql_H50_seed4-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),4,length,468.82265625,503.946044921875,89000,482.328857421875,0.9571041628010967
+20260915_180139-g1_29dof_wbt_aw_cql_H50_seed4-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),4,bad_tracking,29.853515625,14.8681640625,89000,28.3447265625,1.9064039408866995
+20260915_180139-g1_29dof_wbt_aw_cql_H50_seed4-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),4,timeout,1.2353515625,0.0,1000,1.26953125,nan
+20260915_222238-g1_29dof_wbt_lafan_dance1_iql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,1,success,79.78759765625,94.6533203125,54000,58.2275390625,0.6151663657467114
+20260915_222238-g1_29dof_wbt_lafan_dance1_iql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,1,return,50.780278015136716,58.35628890991211,44000,39.33048629760742,0.6739716838115616
+20260915_222238-g1_29dof_wbt_lafan_dance1_iql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,1,length,438.80205078125,501.8662109375,54000,342.482666015625,0.6824182591927396
+20260915_222238-g1_29dof_wbt_lafan_dance1_iql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,1,bad_tracking,19.853515625,4.8583984375,54000,41.455078125,8.532663316582914
+20260915_222238-g1_29dof_wbt_lafan_dance1_iql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,1,timeout,0.35888671875,0.0244140625,2000,0.3173828125,13.0
+20260915_225601-g1_29dof_wbt_aw_cql_H50_seed5-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),5,success,73.02001953125,81.9580078125,58000,74.5849609375,0.9100387250521299
+20260915_225601-g1_29dof_wbt_aw_cql_H50_seed5-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),5,return,47.98129463195801,49.88838577270508,58000,48.5658073425293,0.9734892518631182
+20260915_225601-g1_29dof_wbt_aw_cql_H50_seed5-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),5,length,481.808984375,504.761962890625,59000,487.425048828125,0.9656532874164754
+20260915_225601-g1_29dof_wbt_aw_cql_H50_seed5-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),5,bad_tracking,25.6982421875,16.2841796875,58000,24.169921875,1.4842578710644678
+20260915_225601-g1_29dof_wbt_aw_cql_H50_seed5-locomotion,g1_29dof_wbt_aw_cql_H50,main,AW-CQL (H50),5,timeout,1.28173828125,0.0,1000,1.2451171875,nan
+20260916_030710-g1_29dof_wbt_lafan_dance1_iql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,2,success,76.90673828125,95.0927734375,39000,75.048828125,0.789216944801027
+20260916_030710-g1_29dof_wbt_lafan_dance1_iql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,2,return,50.469567108154294,58.730003356933594,39000,48.919830322265625,0.8329614766911163
+20260916_030710-g1_29dof_wbt_lafan_dance1_iql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,2,length,437.1295654296875,505.2724609375,23000,423.602783203125,0.8383650722169931
+20260916_030710-g1_29dof_wbt_lafan_dance1_iql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,2,bad_tracking,22.7197265625,4.4677734375,39000,24.560546875,5.497267759562842
+20260916_030710-g1_29dof_wbt_lafan_dance1_iql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,2,timeout,0.37353515625,0.0,1000,0.390625,nan
+20260916_034225-g1_29dof_wbt_aw_cql_H25_seed1-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),1,success,27.177734375,73.4375,75000,26.611328125,0.36236702127659576
+20260916_034225-g1_29dof_wbt_aw_cql_H25_seed1-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),1,return,32.67846508026123,48.04887390136719,71000,29.442798614501953,0.6127677138686113
+20260916_034225-g1_29dof_wbt_aw_cql_H25_seed1-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),1,length,324.5901123046875,482.43701171875,71000,289.80419921875,0.6007088846402593
+20260916_034225-g1_29dof_wbt_aw_cql_H25_seed1-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),1,bad_tracking,72.353515625,25.1953125,75000,72.8515625,2.891472868217054
+20260916_034225-g1_29dof_wbt_aw_cql_H25_seed1-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),1,timeout,0.46875,0.0,1000,0.537109375,nan
+20260916_074844-g1_29dof_wbt_lafan_dance1_iql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,3,success,80.380859375,93.1640625,17000,56.15234375,0.6027253668763103
+20260916_074844-g1_29dof_wbt_lafan_dance1_iql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,3,return,51.141707229614255,58.35419845581055,22000,37.679100036621094,0.6456964714399096
+20260916_074844-g1_29dof_wbt_lafan_dance1_iql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,3,length,441.9886474609375,504.508544921875,17000,329.837646484375,0.653780099077314
+20260916_074844-g1_29dof_wbt_lafan_dance1_iql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,3,bad_tracking,19.19921875,6.3720703125,17000,43.5791015625,6.839080459770115
+20260916_074844-g1_29dof_wbt_lafan_dance1_iql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,3,timeout,0.419921875,0.0732421875,1000,0.2685546875,3.6666666666666665
+20260916_083102-g1_29dof_wbt_aw_cql_H25_seed2-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),2,success,44.0380859375,76.2939453125,48000,60.25390625,0.78976
+20260916_083102-g1_29dof_wbt_aw_cql_H25_seed2-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),2,return,38.43296852111816,48.446651458740234,74000,43.58378601074219,0.8996243228050648
+20260916_083102-g1_29dof_wbt_aw_cql_H25_seed2-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),2,length,383.7871826171875,489.91845703125,74000,433.700439453125,0.8852502558919941
+20260916_083102-g1_29dof_wbt_aw_cql_H25_seed2-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),2,bad_tracking,55.13916015625,22.55859375,48000,38.6962890625,1.7153679653679654
+20260916_083102-g1_29dof_wbt_aw_cql_H25_seed2-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),2,timeout,0.82275390625,0.0,1000,1.0498046875,nan
+20260916_122303-g1_29dof_wbt_lafan_dance1_acl_ql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,1,success,47.1826171875,75.8056640625,70000,33.056640625,0.4360708534621578
+20260916_122303-g1_29dof_wbt_lafan_dance1_acl_ql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,1,return,41.2386775970459,51.9029541015625,60000,36.7171630859375,0.7074195240234343
+20260916_122303-g1_29dof_wbt_lafan_dance1_acl_ql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,1,length,381.7322998046875,460.797607421875,60000,339.82080078125,0.7374621640995916
+20260916_122303-g1_29dof_wbt_lafan_dance1_acl_ql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,1,bad_tracking,52.548828125,23.8037109375,70000,66.7724609375,2.805128205128205
+20260916_122303-g1_29dof_wbt_lafan_dance1_acl_ql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,1,timeout,0.2685546875,0.0,1000,0.1708984375,nan
+20260916_132050-g1_29dof_wbt_aw_cql_H25_seed3-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),3,success,35.60546875,70.9716796875,58000,12.40234375,0.17475060199518405
+20260916_132050-g1_29dof_wbt_aw_cql_H25_seed3-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),3,return,34.8996395111084,46.97273254394531,58000,30.0101318359375,0.6388840974465673
+20260916_132050-g1_29dof_wbt_aw_cql_H25_seed3-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),3,length,345.2900146484375,471.10986328125,75000,294.853515625,0.6258699692071064
+20260916_132050-g1_29dof_wbt_aw_cql_H25_seed3-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),3,bad_tracking,63.7353515625,27.83203125,58000,87.4267578125,3.1412280701754387
+20260916_132050-g1_29dof_wbt_aw_cql_H25_seed3-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),3,timeout,0.6591796875,0.0,1000,0.1708984375,nan
+20260916_181849-g1_29dof_wbt_aw_cql_H100_seed1-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),1,success,66.86279296875,85.9375,78000,68.06640625,0.7920454545454545
+20260916_181849-g1_29dof_wbt_aw_cql_H100_seed1-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),1,return,45.888099670410156,50.23243713378906,78000,45.435264587402344,0.9045005016656881
+20260916_181849-g1_29dof_wbt_aw_cql_H100_seed1-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),1,length,467.39990234375,508.808349609375,78000,465.847900390625,0.9155665404238515
+20260916_181849-g1_29dof_wbt_aw_cql_H100_seed1-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),1,bad_tracking,31.98974609375,12.6953125,78000,30.95703125,2.4384615384615387
+20260916_181849-g1_29dof_wbt_aw_cql_H100_seed1-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),1,timeout,1.1474609375,0.0,1000,0.9765625,nan
+20260916_190512-g1_29dof_wbt_lafan_dance1_acl_ql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,2,success,67.18505859375,84.8388671875,91000,57.8369140625,0.6817266187050359
+20260916_190512-g1_29dof_wbt_lafan_dance1_acl_ql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,2,return,48.438635635375974,52.92714309692383,71000,46.93879699707031,0.8868568044776715
+20260916_190512-g1_29dof_wbt_lafan_dance1_acl_ql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,2,length,436.8572265625,473.319580078125,71000,423.232177734375,0.8941784695754976
+20260916_190512-g1_29dof_wbt_lafan_dance1_acl_ql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,2,bad_tracking,32.4169921875,14.6728515625,91000,41.845703125,2.8519134775374377
+20260916_190512-g1_29dof_wbt_lafan_dance1_acl_ql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,2,timeout,0.39794921875,0.0,1000,0.3173828125,nan
+20260916_230755-g1_29dof_wbt_aw_cql_H100_seed2-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),2,success,72.52197265625,88.3544921875,63000,73.5107421875,0.8319977894445979
+20260916_230755-g1_29dof_wbt_aw_cql_H100_seed2-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),2,return,47.024864196777344,50.56040573120117,63000,47.27198028564453,0.9349604616893465
+20260916_230755-g1_29dof_wbt_aw_cql_H100_seed2-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),2,length,478.937060546875,516.497314453125,63000,479.017333984375,0.9274343168493832
+20260916_230755-g1_29dof_wbt_aw_cql_H100_seed2-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),2,bad_tracking,26.19873046875,10.3271484375,63000,25.1708984375,2.437352245862884
+20260916_230755-g1_29dof_wbt_aw_cql_H100_seed2-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),2,timeout,1.279296875,0.0,1000,1.318359375,nan
+20260917_013402-g1_29dof_wbt_lafan_dance1_acl_ql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,3,success,42.607421875,81.2744140625,71000,42.1142578125,0.5181736257134275
+20260917_013402-g1_29dof_wbt_lafan_dance1_acl_ql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,3,return,40.76543769836426,52.61091995239258,80000,42.114349365234375,0.8004868457602241
+20260917_013402-g1_29dof_wbt_lafan_dance1_acl_ql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,3,length,379.090087890625,477.71923828125,80000,388.951171875,0.8141836055721308
+20260917_013402-g1_29dof_wbt_lafan_dance1_acl_ql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,3,bad_tracking,57.2021484375,18.45703125,71000,57.7392578125,3.128306878306878
+20260917_013402-g1_29dof_wbt_lafan_dance1_acl_ql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,3,timeout,0.1904296875,0.0,1000,0.146484375,nan
+20260917_035501-g1_29dof_wbt_aw_cql_H100_seed3-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),3,success,76.19873046875,86.4013671875,97000,84.9609375,0.9833286239050579
+20260917_035501-g1_29dof_wbt_aw_cql_H100_seed3-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),3,return,47.86124114990234,50.49858474731445,97000,50.23798370361328,0.9948394386693178
+20260917_035501-g1_29dof_wbt_aw_cql_H100_seed3-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),3,length,486.1020751953125,508.077880859375,97000,507.70166015625,0.9992595215865555
+20260917_035501-g1_29dof_wbt_aw_cql_H100_seed3-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),3,bad_tracking,22.4267578125,11.8408203125,97000,13.3056640625,1.1237113402061856
+20260917_035501-g1_29dof_wbt_aw_cql_H100_seed3-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),3,timeout,1.37451171875,0.0,1000,1.7333984375,nan
+20260917_081155-g1_29dof_wbt_lafan_dance1_aw_cql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,1,success,97.74169921875,98.92578125,73000,98.046875,0.9911154985192497
+20260917_081155-g1_29dof_wbt_lafan_dance1_aw_cql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,1,return,60.30965728759766,60.993927001953125,99000,60.49785614013672,0.9918668810781683
+20260917_081155-g1_29dof_wbt_lafan_dance1_aw_cql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,1,length,512.3923583984375,514.274169921875,48000,512.611328125,0.9967666239252739
+20260917_081155-g1_29dof_wbt_lafan_dance1_aw_cql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,1,bad_tracking,1.79931640625,0.78125,73000,1.3427734375,1.71875
+20260917_081155-g1_29dof_wbt_lafan_dance1_aw_cql_seed1-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,1,timeout,0.458984375,0.0,1000,0.6103515625,nan
+20260917_114807-g1_29dof_wbt_lafan_dance1_aw_cql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,2,success,96.3232421875,98.33984375,85000,96.240234375,0.9786494538232373
+20260917_114807-g1_29dof_wbt_lafan_dance1_aw_cql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,2,return,59.78148422241211,60.578956604003906,85000,59.756683349609375,0.9864264209803147
+20260917_114807-g1_29dof_wbt_lafan_dance1_aw_cql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,2,length,509.692138671875,513.661865234375,85000,508.640625,0.9902246193961004
+20260917_114807-g1_29dof_wbt_lafan_dance1_aw_cql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,2,bad_tracking,3.22265625,1.123046875,85000,3.466796875,3.0869565217391304
+20260917_114807-g1_29dof_wbt_lafan_dance1_aw_cql_seed2-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,2,timeout,0.4541015625,0.0,1000,0.29296875,nan
+20260917_152159-g1_29dof_wbt_lafan_dance1_aw_cql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,3,success,97.1826171875,99.072265625,84000,97.0947265625,0.980039428289798
+20260917_152159-g1_29dof_wbt_lafan_dance1_aw_cql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,3,return,60.07381134033203,60.56351852416992,96000,59.48756408691406,0.9822342812393493
+20260917_152159-g1_29dof_wbt_lafan_dance1_aw_cql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,3,length,512.144091796875,514.315185546875,53000,509.84765625,0.9913136352524287
+20260917_152159-g1_29dof_wbt_lafan_dance1_aw_cql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,3,bad_tracking,2.3193359375,0.634765625,84000,2.392578125,3.769230769230769
+20260917_152159-g1_29dof_wbt_lafan_dance1_aw_cql_seed3-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,3,timeout,0.498046875,0.0,1000,0.5126953125,nan
+20260919_041106-g1_29dof_wbt_b_arm_seed5-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),5,success,63.1640625,78.3203125,80000,58.8623046875,0.7515586034912718
+20260919_041106-g1_29dof_wbt_b_arm_seed5-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),5,return,44.897583389282225,47.99618911743164,80000,42.190086364746094,0.8790299217615
+20260919_041106-g1_29dof_wbt_b_arm_seed5-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),5,length,454.1482177734375,488.68603515625,70000,422.251953125,0.8640556978265018
+20260919_041106-g1_29dof_wbt_b_arm_seed5-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),5,bad_tracking,35.70556640625,20.458984375,80000,40.1123046875,1.9606205250596658
+20260919_041106-g1_29dof_wbt_b_arm_seed5-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),5,timeout,1.13037109375,0.0,1000,1.025390625,nan
+20260919_041304-g1_29dof_wbt_b_arm_seed4-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),4,success,57.14599609375,72.55859375,93000,39.1845703125,0.5400403768506057
+20260919_041304-g1_29dof_wbt_b_arm_seed4-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),4,return,43.39208793640137,47.49250030517578,93000,39.8134765625,0.8383108134267062
+20260919_041304-g1_29dof_wbt_b_arm_seed4-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),4,length,444.0498046875,483.951904296875,99000,409.3740234375,0.8458981560001756
+20260919_041304-g1_29dof_wbt_b_arm_seed4-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),4,bad_tracking,41.84326171875,26.2451171875,93000,60.3759765625,2.30046511627907
+20260919_041304-g1_29dof_wbt_b_arm_seed4-locomotion,g1_29dof_wbt_b_arm,ablation,B-arm (LSE - wQ_D),4,timeout,1.0107421875,0.0,1000,0.439453125,nan
+20260921_050151-g1_29dof_wbt_aw_cql_H25_seed4-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),4,success,21.62353515625,76.3671875,75000,5.1025390625,0.0668158567774936
+20260921_050151-g1_29dof_wbt_aw_cql_H25_seed4-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),4,return,32.34297142028809,49.01616287231445,59000,27.7210636138916,0.5655494430705253
+20260921_050151-g1_29dof_wbt_aw_cql_H25_seed4-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),4,length,320.017333984375,494.928466796875,59000,271.67333984375,0.5489143544358871
+20260921_050151-g1_29dof_wbt_aw_cql_H25_seed4-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),4,bad_tracking,78.01513671875,22.119140625,75000,94.8974609375,4.290286975717439
+20260921_050151-g1_29dof_wbt_aw_cql_H25_seed4-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),4,timeout,0.361328125,0.0,1000,0.0,nan
+20260921_050206-g1_29dof_wbt_lafan_dance1_acl_ql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,4,success,46.27685546875,72.9736328125,78000,52.1728515625,0.7149548343927735
+20260921_050206-g1_29dof_wbt_lafan_dance1_acl_ql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,4,return,40.732260131835936,50.53193283081055,63000,42.86796951293945,0.8483342534406642
+20260921_050206-g1_29dof_wbt_lafan_dance1_acl_ql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,4,length,372.549072265625,453.640380859375,63000,389.775634765625,0.8592172372909906
+20260921_050206-g1_29dof_wbt_lafan_dance1_acl_ql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,4,bad_tracking,53.4716796875,26.611328125,78000,47.607421875,1.7889908256880733
+20260921_050206-g1_29dof_wbt_lafan_dance1_acl_ql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,4,timeout,0.25146484375,0.0,1000,0.2197265625,nan
+20260921_100335-g1_29dof_wbt_aw_cql_H25_seed5-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),5,success,23.54248046875,72.802734375,65000,14.794921875,0.20321931589537223
+20260921_100335-g1_29dof_wbt_aw_cql_H25_seed5-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),5,return,30.987402534484865,47.569095611572266,60000,24.14984130859375,0.5076792189994621
+20260921_100335-g1_29dof_wbt_aw_cql_H25_seed5-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),5,length,305.8648681640625,478.449951171875,60000,234.1826171875,0.48946105358337444
+20260921_100335-g1_29dof_wbt_aw_cql_H25_seed5-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),5,bad_tracking,76.01806640625,26.0498046875,65000,84.9365234375,3.260543580131209
+20260921_100335-g1_29dof_wbt_aw_cql_H25_seed5-locomotion,g1_29dof_wbt_aw_cql_H25,h_sweep,AW-CQL (H25),5,timeout,0.439453125,0.0,1000,0.2685546875,nan
+20260921_114619-g1_29dof_wbt_lafan_dance1_acl_ql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,5,success,45.35888671875,90.72265625,80000,47.998046875,0.5290635091496233
+20260921_114619-g1_29dof_wbt_lafan_dance1_acl_ql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,5,return,40.81015396118164,55.243507385253906,80000,42.07466125488281,0.7616218311676887
+20260921_114619-g1_29dof_wbt_lafan_dance1_acl_ql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,5,length,378.1356201171875,492.410400390625,80000,386.673828125,0.7852673863473536
+20260921_114619-g1_29dof_wbt_lafan_dance1_acl_ql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,5,bad_tracking,54.39208984375,8.9599609375,80000,51.8310546875,5.784741144414169
+20260921_114619-g1_29dof_wbt_lafan_dance1_acl_ql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_acl_ql,lafan,LAFAN ACL-QL,5,timeout,0.2490234375,0.0,1000,0.1708984375,nan
+20260921_145823-g1_29dof_wbt_aw_cql_H100_seed4-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),4,success,72.3095703125,85.7421875,42000,44.3359375,0.5170842824601367
+20260921_145823-g1_29dof_wbt_aw_cql_H100_seed4-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),4,return,47.29136848449707,50.872589111328125,90000,40.721920013427734,0.8004687932102894
+20260921_145823-g1_29dof_wbt_aw_cql_H100_seed4-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),4,length,478.9970947265625,513.4033203125,42000,416.234130859375,0.8107351752342004
+20260921_145823-g1_29dof_wbt_aw_cql_H100_seed4-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),4,bad_tracking,26.4306640625,12.8173828125,42000,54.8583984375,4.28
+20260921_145823-g1_29dof_wbt_aw_cql_H100_seed4-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),4,timeout,1.259765625,0.0,1000,0.8056640625,nan
+20260921_182350-g1_29dof_wbt_lafan_dance1_aw_cql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,4,success,97.59521484375,98.4130859375,86000,97.36328125,0.9893326717935996
+20260921_182350-g1_29dof_wbt_lafan_dance1_aw_cql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,4,return,59.97910766601562,60.45318603515625,77000,59.91733169555664,0.9911360446860817
+20260921_182350-g1_29dof_wbt_lafan_dance1_aw_cql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,4,length,511.245703125,513.56689453125,57000,511.98828125,0.9969261778785589
+20260921_182350-g1_29dof_wbt_lafan_dance1_aw_cql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,4,bad_tracking,1.96044921875,1.2451171875,59000,2.1728515625,1.7450980392156863
+20260921_182350-g1_29dof_wbt_lafan_dance1_aw_cql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,4,timeout,0.4443359375,0.0,1000,0.4638671875,nan
+20260921_194241-g1_29dof_wbt_aw_cql_H100_seed5-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),5,success,72.39501953125,85.107421875,87000,79.0771484375,0.9291451520367183
+20260921_194241-g1_29dof_wbt_aw_cql_H100_seed5-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),5,return,47.22928733825684,49.66888427734375,85000,49.26865768432617,0.9919421062332955
+20260921_194241-g1_29dof_wbt_aw_cql_H100_seed5-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),5,length,480.4275390625,506.186767578125,87000,497.44873046875,0.982737523639382
+20260921_194241-g1_29dof_wbt_aw_cql_H100_seed5-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),5,bad_tracking,26.34521484375,13.7451171875,87000,19.3115234375,1.4049733570159857
+20260921_194241-g1_29dof_wbt_aw_cql_H100_seed5-locomotion,g1_29dof_wbt_aw_cql_H100,h_sweep,AW-CQL (H100),5,timeout,1.259765625,0.0,1000,1.611328125,nan
+20260921_224052-g1_29dof_wbt_lafan_dance1_aw_cql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,5,success,96.49658203125,98.9990234375,57000,96.7529296875,0.9773119605425401
+20260921_224052-g1_29dof_wbt_lafan_dance1_aw_cql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,5,return,60.155989456176755,60.66518783569336,82000,60.4315299987793,0.996148403305914
+20260921_224052-g1_29dof_wbt_lafan_dance1_aw_cql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,5,length,512.0575927734375,514.535400390625,57000,512.4931640625,0.9960309119128158
+20260921_224052-g1_29dof_wbt_lafan_dance1_aw_cql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,5,bad_tracking,3.04931640625,0.6103515625,57000,2.7587890625,4.52
+20260921_224052-g1_29dof_wbt_lafan_dance1_aw_cql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql,lafan,LAFAN AW-CQL,5,timeout,0.4541015625,0.0,1000,0.48828125,nan
+20260922_004642-g1_29dof_wbt_lafan_dance1_cql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,4,success,93.23486328125,96.923828125,96000,94.8974609375,0.9790931989924433
+20260922_004642-g1_29dof_wbt_lafan_dance1_cql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,4,return,57.87075996398926,59.46987533569336,96000,58.63935470581055,0.9860345994472879
+20260922_004642-g1_29dof_wbt_lafan_dance1_cql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,4,length,498.2331298828125,509.1396484375,55000,505.986572265625,0.9938070504201519
+20260922_004642-g1_29dof_wbt_lafan_dance1_cql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,4,bad_tracking,6.35498046875,2.6123046875,96000,4.541015625,1.7383177570093458
+20260922_004642-g1_29dof_wbt_lafan_dance1_cql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,4,timeout,0.41015625,0.0,1000,0.5615234375,nan
+20260922_025552-g1_29dof_wbt_w_bc_seed4-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,4,success,0.29296875,31.640625,5000,0.0,0.0
+20260922_025552-g1_29dof_wbt_w_bc_seed4-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,4,return,11.087763690948487,30.436986923217773,5000,11.928329467773438,0.3919024408646158
+20260922_025552-g1_29dof_wbt_w_bc_seed4-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,4,length,103.7248046875,302.59765625,5000,111.828125,0.3695604466533273
+20260922_025552-g1_29dof_wbt_w_bc_seed4-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,4,bad_tracking,99.6875,67.1875,5000,100.0,1.4883720930232558
+20260922_025552-g1_29dof_wbt_w_bc_seed4-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,4,timeout,0.01953125,0.0,2000,0.0,nan
+20260922_051643-g1_29dof_wbt_lafan_dance1_cql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,5,success,93.54736328125,96.6064453125,93000,93.798828125,0.9709375789739702
+20260922_051643-g1_29dof_wbt_lafan_dance1_cql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,5,return,58.144263076782224,59.3268928527832,87000,57.971336364746094,0.9771510621430848
+20260922_051643-g1_29dof_wbt_lafan_dance1_cql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,5,length,500.1406005859375,509.33740234375,87000,502.234130859375,0.9860538977666105
+20260922_051643-g1_29dof_wbt_lafan_dance1_cql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,5,bad_tracking,6.0693359375,2.978515625,95000,5.810546875,1.9508196721311475
+20260922_051643-g1_29dof_wbt_lafan_dance1_cql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_cql,lafan,LAFAN CQL,5,timeout,0.38330078125,0.0,1000,0.390625,nan
+20260922_052008-g1_29dof_wbt_w_bc_seed5-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,5,success,1.2109375,52.9296875,3000,0.9765625,0.01845018450184502
+20260922_052008-g1_29dof_wbt_w_bc_seed5-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,5,return,13.330533981323242,37.15937042236328,3000,13.466721534729004,0.36240445900085677
+20260922_052008-g1_29dof_wbt_w_bc_seed5-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,5,length,125.7748046875,370.9140625,3000,126.49609375,0.34103881879646986
+20260922_052008-g1_29dof_wbt_w_bc_seed5-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,5,bad_tracking,98.7890625,46.2890625,3000,99.0234375,2.1392405063291138
+20260922_052008-g1_29dof_wbt_w_bc_seed5-locomotion,g1_29dof_wbt_w_bc,ablation,wBC,5,timeout,0.0,0.0,6000,0.0,nan
+20260922_075025-g1_29dof_wbt_c_arm_seed4-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),4,success,0.0,0.146484375,21000,0.0,0.0
+20260922_075025-g1_29dof_wbt_c_arm_seed4-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),4,return,15.21995277404785,18.58013343811035,20000,15.34891128540039,0.8260926293412786
+20260922_075025-g1_29dof_wbt_c_arm_seed4-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),4,length,140.7311279296875,187.601806640625,20000,142.494873046875,0.7595602387766017
+20260922_075025-g1_29dof_wbt_c_arm_seed4-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),4,bad_tracking,100.0,99.853515625,21000,100.0,1.0014669926650366
+20260922_075025-g1_29dof_wbt_c_arm_seed4-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),4,timeout,0.0,0.0,1000,0.0,nan
+20260922_093752-g1_29dof_wbt_lafan_dance1_iql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,4,success,82.42431640625,95.458984375,67000,89.16015625,0.9340153452685422
+20260922_093752-g1_29dof_wbt_lafan_dance1_iql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,4,return,53.077057647705075,59.16019821166992,67000,56.148223876953125,0.9490878255015269
+20260922_093752-g1_29dof_wbt_lafan_dance1_iql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,4,length,457.3685302734375,508.482666015625,24000,483.646728515625,0.9511567666709079
+20260922_093752-g1_29dof_wbt_lafan_dance1_iql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,4,bad_tracking,17.24853515625,4.052734375,67000,10.44921875,2.5783132530120483
+20260922_093752-g1_29dof_wbt_lafan_dance1_iql_seed4-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,4,timeout,0.3271484375,0.0,1000,0.390625,nan
+20260922_112752-g1_29dof_wbt_c_arm_seed5-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),5,success,0.0,1.85546875,14000,0.0,0.0
+20260922_112752-g1_29dof_wbt_c_arm_seed5-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),5,return,15.1903564453125,22.440425872802734,14000,15.313124656677246,0.6823901089700972
+20260922_112752-g1_29dof_wbt_c_arm_seed5-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),5,length,140.68193359375,235.913818359375,14000,142.627685546875,0.6045753764605926
+20260922_112752-g1_29dof_wbt_c_arm_seed5-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),5,bad_tracking,100.0,98.0712890625,14000,100.0,1.0196664177246701
+20260922_112752-g1_29dof_wbt_c_arm_seed5-locomotion,g1_29dof_wbt_c_arm,ablation,C-arm (wLSE - Q_D),5,timeout,0.0,0.0,1000,0.0,nan
+20260922_142216-g1_29dof_wbt_lafan_dance1_iql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,5,success,74.7802734375,95.2880859375,29000,87.060546875,0.913656161926723
+20260922_142216-g1_29dof_wbt_lafan_dance1_iql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,5,return,48.77724838256836,58.833614349365234,29000,54.69340133666992,0.9296284435610238
+20260922_142216-g1_29dof_wbt_lafan_dance1_iql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,5,length,423.308837890625,505.404296875,29000,470.03271484375,0.9300132938125805
+20260922_142216-g1_29dof_wbt_lafan_dance1_iql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,5,bad_tracking,24.90966796875,4.248046875,29000,12.451171875,2.9310344827586206
+20260922_142216-g1_29dof_wbt_lafan_dance1_iql_seed5-locomotion,g1_29dof_wbt_lafan_dance1_iql,lafan,LAFAN IQL,5,timeout,0.31005859375,0.0732421875,1000,0.48828125,6.666666666666667
+20260922_150854-g1_29dof_wbt_asym_cql_seed4-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,4,success,4.5849609375,18.115234375,41000,3.1982421875,0.1765498652291105
+20260922_150854-g1_29dof_wbt_asym_cql_seed4-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,4,return,18.997392845153808,26.516681671142578,41000,17.54503059387207,0.6616601131115842
+20260922_150854-g1_29dof_wbt_asym_cql_seed4-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,4,length,184.4076904296875,273.97314453125,41000,167.122802734375,0.6099970236875264
+20260922_150854-g1_29dof_wbt_asym_cql_seed4-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,4,bad_tracking,95.33447265625,81.54296875,41000,96.7529296875,1.1865269461077845
+20260922_150854-g1_29dof_wbt_asym_cql_seed4-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,4,timeout,0.08056640625,0.0,1000,0.048828125,nan
+20260922_203720-g1_29dof_wbt_asym_cql_seed5-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,5,success,3.09814453125,10.9375,40000,2.3193359375,0.21205357142857142
+20260922_203720-g1_29dof_wbt_asym_cql_seed5-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,5,return,20.529775047302245,28.15001106262207,69000,17.48514175415039,0.62114155888796
+20260922_203720-g1_29dof_wbt_asym_cql_seed5-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,5,length,210.0422119140625,298.551513671875,69000,168.677734375,0.564987034567128
+20260922_203720-g1_29dof_wbt_asym_cql_seed5-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,5,bad_tracking,96.8603515625,88.720703125,40000,97.607421875,1.1001651073197578
+20260922_203720-g1_29dof_wbt_asym_cql_seed5-locomotion,g1_29dof_wbt_asym_cql,ablation,Asym-CQL,5,timeout,0.04150390625,0.0,1000,0.0732421875,nan
+20260924_164532-g1_29dof_wbt_aw_cql_H50_global_seed1-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),1,success,63.5595703125,79.2236328125,66000,61.865234375,0.7808936825885978
+20260924_164532-g1_29dof_wbt_aw_cql_H50_global_seed1-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),1,return,44.44507331848145,48.03582763671875,66000,44.66811752319336,0.9298917021063023
+20260924_164532-g1_29dof_wbt_aw_cql_H50_global_seed1-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),1,length,452.7978271484375,491.93798828125,66000,452.96044921875,0.9207673731425355
+20260924_164532-g1_29dof_wbt_aw_cql_H50_global_seed1-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),1,bad_tracking,35.341796875,19.580078125,66000,37.1337890625,1.8965087281795512
+20260924_164532-g1_29dof_wbt_aw_cql_H50_global_seed1-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),1,timeout,1.0986328125,0.0,1000,1.0009765625,nan
+20260924_164553-g1_29dof_wbt_aw_cql_H50_global_seed4-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),4,success,57.04345703125,76.7578125,84000,53.3203125,0.6946564885496184
+20260924_164553-g1_29dof_wbt_aw_cql_H50_global_seed4-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),4,return,43.29946174621582,48.3421630859375,81000,42.919700622558594,0.88783161287716
+20260924_164553-g1_29dof_wbt_aw_cql_H50_global_seed4-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),4,length,443.412548828125,492.925537109375,81000,434.9501953125,0.8823851932345496
+20260924_164553-g1_29dof_wbt_aw_cql_H50_global_seed4-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),4,bad_tracking,41.9775390625,21.9970703125,84000,45.7275390625,2.078801331853496
+20260924_164553-g1_29dof_wbt_aw_cql_H50_global_seed4-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),4,timeout,0.97900390625,0.0,1000,0.9521484375,nan
+20260924_215306-g1_29dof_wbt_aw_cql_H50_global_seed2-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),2,success,60.71533203125,80.2734375,88000,59.5458984375,0.7417883211678832
+20260924_215306-g1_29dof_wbt_aw_cql_H50_global_seed2-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),2,return,42.708730697631836,49.02629089355469,88000,41.670433044433594,0.8499609553353312
+20260924_215306-g1_29dof_wbt_aw_cql_H50_global_seed2-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),2,length,435.6906005859375,495.528076171875,88000,419.36962890625,0.846308512215947
+20260924_215306-g1_29dof_wbt_aw_cql_H50_global_seed2-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),2,bad_tracking,38.13720703125,17.7490234375,88000,39.3310546875,2.21595598349381
+20260924_215306-g1_29dof_wbt_aw_cql_H50_global_seed2-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),2,timeout,1.1474609375,0.0,1000,1.123046875,nan
+20260924_215552-g1_29dof_wbt_aw_cql_H50_global_seed5-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),5,success,62.939453125,73.3154296875,83000,59.5458984375,0.8121878121878122
+20260924_215552-g1_29dof_wbt_aw_cql_H50_global_seed5-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),5,return,44.30017013549805,47.46520233154297,83000,40.66230010986328,0.8566760092127781
+20260924_215552-g1_29dof_wbt_aw_cql_H50_global_seed5-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),5,length,452.8111572265625,484.712890625,83000,408.91015625,0.8436131247154203
+20260924_215552-g1_29dof_wbt_aw_cql_H50_global_seed5-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),5,bad_tracking,36.0400390625,25.4638671875,74000,39.6728515625,1.558005752636625
+20260924_215552-g1_29dof_wbt_aw_cql_H50_global_seed5-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),5,timeout,1.0205078125,0.0,1000,0.78125,nan
+20260925_030843-g1_29dof_wbt_aw_cql_H50_global_seed3-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),3,success,66.81640625,77.34375,83000,66.845703125,0.8642676767676768
+20260925_030843-g1_29dof_wbt_aw_cql_H50_global_seed3-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),3,return,44.95062599182129,48.27262496948242,90000,46.32106399536133,0.9595720975324036
+20260925_030843-g1_29dof_wbt_aw_cql_H50_global_seed3-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),3,length,456.146142578125,486.92822265625,90000,467.318603515625,0.9597279060276025
+20260925_030843-g1_29dof_wbt_aw_cql_H50_global_seed3-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),3,bad_tracking,32.15087890625,21.09375,83000,31.982421875,1.5162037037037037
+20260925_030843-g1_29dof_wbt_aw_cql_H50_global_seed3-locomotion,g1_29dof_wbt_aw_cql_H50_global,ablation,AW-CQL global baseline (no phase in w),3,timeout,1.03271484375,0.0,1000,1.171875,nan
+20260926_125327-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed1-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),1,success,96.76025390625,98.1689453125,91000,98.046875,0.9987565282268093
+20260926_125327-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed1-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),1,return,60.12715721130371,60.643394470214844,66000,60.35258102416992,0.9952045321904308
+20260926_125327-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed1-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),1,length,511.6404052734375,513.548095703125,91000,512.10888671875,0.9971975186035799
+20260926_125327-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed1-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),1,bad_tracking,2.8759765625,1.5380859375,91000,1.66015625,1.0793650793650793
+20260926_125327-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed1-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),1,timeout,0.36376953125,0.0,1000,0.29296875,nan
+20260926_125345-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed3-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),3,success,93.2080078125,97.7783203125,48000,89.16015625,0.9118601747815231
+20260926_125345-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed3-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),3,return,59.45342903137207,60.193565368652344,78000,59.753631591796875,0.9926913487486392
+20260926_125345-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed3-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),3,length,508.996142578125,513.0634765625,62000,509.477294921875,0.9930102573961175
+20260926_125345-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed3-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),3,bad_tracking,6.34765625,1.9287109375,48000,10.5224609375,5.455696202531645
+20260926_125345-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed3-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),3,timeout,0.4443359375,0.0,1000,0.3173828125,nan
+20260927_071542-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed5-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),5,success,96.60400390625,98.486328125,92000,96.142578125,0.9762022806147744
+20260927_071542-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed5-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),5,return,59.86245918273926,60.37668991088867,85000,60.050506591796875,0.9945975289540845
+20260927_071542-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed5-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),5,length,511.7784912109375,514.4833984375,92000,512.668701171875,0.9964727777978137
+20260927_071542-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed5-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),5,bad_tracking,2.99560546875,1.07421875,92000,3.4912109375,3.25
+20260927_071542-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed5-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),5,timeout,0.400390625,0.0,1000,0.3662109375,nan
+20260927_071836-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed2-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),2,success,92.92724609375,97.8515625,82000,94.9951171875,0.9708083832335329
+20260927_071836-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed2-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),2,return,59.58380889892578,60.276580810546875,98000,59.28485870361328,0.9835471406374121
+20260927_071836-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed2-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),2,length,509.39501953125,512.8017578125,98000,510.0244140625,0.9945839816114369
+20260927_071836-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed2-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),2,bad_tracking,6.64306640625,1.7578125,82000,4.6630859375,2.6527777777777777
+20260927_071836-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed2-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),2,timeout,0.4296875,0.0,1000,0.341796875,nan
+20260927_114901-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed4-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),4,success,93.37646484375,97.705078125,89000,96.19140625,0.9845077461269365
+20260927_114901-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed4-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),4,return,59.3287857055664,60.25308609008789,84000,59.71506118774414,0.9910705834795032
+20260927_114901-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed4-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),4,length,507.8240478515625,512.529541015625,89000,510.411865234375,0.9958681878569309
+20260927_114901-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed4-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),4,bad_tracking,6.2109375,1.904296875,89000,3.2958984375,1.7307692307692308
+20260927_114901-g1_29dof_wbt_lafan_dance1_aw_cql_H50_global_seed4-locomotion,g1_29dof_wbt_lafan_dance1_aw_cql_H50_global,lafan,LAFAN AW-CQL global baseline (no phase in w),4,timeout,0.41259765625,0.0,1000,0.5126953125,nan

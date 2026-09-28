@@ -118,7 +118,6 @@ class MotionLoader:
         line_range: tuple[int, int] | None,
         has_dynamic_object: bool,
         use_omniretarget_data: bool,
-        robot_dof: int,
     ):
         self.motion_file = motion_file
         self.input_fps = input_fps
@@ -130,8 +129,6 @@ class MotionLoader:
         self.line_range = line_range
         self.has_dynamic_object = has_dynamic_object
         self.use_omniretarget_data = use_omniretarget_data
-        self.robot_dof = robot_dof
-        self.joint_names: list[str] | None = None
         self._load_motion()
         self._interpolate_motion()
         self._compute_velocities()
@@ -141,12 +138,12 @@ class MotionLoader:
         if self.motion_file.endswith(".npz"):
             data = np.load(self.motion_file)
             if "fps" in data:
+                # Files in the wild store this key either as a rate (30) or as a
+                # timestep (1/30); disambiguate instead of assuming one convention.
                 fps_or_dt = float(np.asarray(data["fps"]).reshape(-1)[0])
                 self.input_fps = round(fps_or_dt if fps_or_dt > 1.0 else 1.0 / fps_or_dt)
                 self.input_dt = 1.0 / self.input_fps
             motion = torch.from_numpy(data["qpos"]).to(torch.float32)
-            if "joint_names" in data:
-                self.joint_names = [str(name) for name in data["joint_names"].tolist()]
         else:
             raise ValueError("Unsupported motion file format. Use .csv or .npz.")
 
@@ -170,13 +167,11 @@ class MotionLoader:
             self.motion_base_poss_input = motion[:, :3]
             self.motion_base_rots_input = motion[:, 3:7]
 
-        robot_qpos_end = 7 + self.robot_dof
-        if motion.shape[1] < robot_qpos_end:
-            raise ValueError(
-                f"Motion has {motion.shape[1]} qpos values, but robot '{self.robot_dof}-DoF' "
-                f"requires at least {robot_qpos_end} (7 root + {self.robot_dof} joints)."
-            )
-        self.motion_dof_poss_input = motion[:, 7:robot_qpos_end]
+        # DoF width is robot-dependent, not fixed.
+        # Layout: [base(7)] [dof(N)] [object(7) iff has_dynamic_object]. Derive N from
+        # the array width so any-DoF robots convert correctly (was: motion[:, 7:36]).
+        _dof_end = motion.shape[1] - (7 if self.has_dynamic_object else 0)
+        self.motion_dof_poss_input = motion[:, 7:_dof_end]
 
         if self.has_dynamic_object:
             if self.use_omniretarget_data:
@@ -369,8 +364,22 @@ def world_body_velocities(model, data):
 
 def run_simulator(args_cli: DataConversionConfig):
     """Runs the simulation loop."""
+    joint_names = args_cli.JOINT_NAMES
+    # Load motion
+    device = torch.device("cpu")
     has_dynamic_object = args_cli.has_dynamic_object
     use_omniretarget_data = args_cli.use_omniretarget_data
+    line_range: tuple[int, int] | None = args_cli.line_range
+    motion = MotionLoader(
+        motion_file=args_cli.input_file,
+        input_fps=args_cli.input_fps,
+        output_fps=args_cli.output_fps,
+        device=device,
+        line_range=line_range,
+        has_dynamic_object=has_dynamic_object,
+        use_omniretarget_data=use_omniretarget_data,
+    )
+
     object_name = args_cli.object_name
     if object_name is None:
         object_name = "largebox" if has_dynamic_object else None
@@ -390,25 +399,6 @@ def run_simulator(args_cli: DataConversionConfig):
         )
     else:
         motion_config = args_cli.motion_data_config
-
-    device = torch.device("cpu")
-    line_range: tuple[int, int] | None = args_cli.line_range
-    motion = MotionLoader(
-        motion_file=args_cli.input_file,
-        input_fps=args_cli.input_fps,
-        output_fps=args_cli.output_fps,
-        device=device,
-        line_range=line_range,
-        has_dynamic_object=has_dynamic_object,
-        use_omniretarget_data=use_omniretarget_data,
-        robot_dof=robot_config.ROBOT_DOF,
-    )
-    joint_names = motion.joint_names or args_cli.JOINT_NAMES
-    if len(joint_names) != robot_config.ROBOT_DOF:
-        raise ValueError(
-            f"Source joint-name count ({len(joint_names)}) does not match "
-            f"robot DOF ({robot_config.ROBOT_DOF}) for '{args_cli.robot}'."
-        )
 
     constants = create_task_constants(
         robot_config,
@@ -444,16 +434,22 @@ def run_simulator(args_cli: DataConversionConfig):
     dof_index_list = [joint_names.index(dof_name) for dof_name in dof_name_list]
     print(dof_index_list)
 
-    # Prepare mujoco viewer
-    viewer = mjv.launch_passive(robot, robot_data, show_left_ui=False, show_right_ui=False)
-    viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_PERTFORCE] = 0
-    viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = 0
-    viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_TRANSPARENT] = 0
-    viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_COM] = 0
+    # Headless implies once (no viewer means no way to exit the replay loop)
+    run_once = args_cli.once or args_cli.headless
 
-    viewer.cam.distance = 2.0
-    viewer.cam.elevation = -20.0
-    viewer.cam.azimuth = 45.0
+    # Prepare mujoco viewer
+    if not args_cli.headless:
+        viewer = mjv.launch_passive(robot, robot_data, show_left_ui=False, show_right_ui=False)
+        viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_PERTFORCE] = 0
+        viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = 0
+        viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_TRANSPARENT] = 0
+        viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_COM] = 0
+
+        viewer.cam.distance = 2.0
+        viewer.cam.elevation = -20.0
+        viewer.cam.azimuth = 45.0
+    else:
+        viewer = None
 
     log: dict[str, Any]
     if has_dynamic_object:
@@ -550,10 +546,10 @@ def run_simulator(args_cli: DataConversionConfig):
             )
 
         mujoco.mj_forward(robot, robot_data)
-        viewer.sync()
-
-        end_time = time.perf_counter()
-        time.sleep(max(0, motion.output_dt - (end_time - start_time)))
+        if viewer is not None:
+            viewer.sync()
+            end_time = time.perf_counter()
+            time.sleep(max(0, motion.output_dt - (end_time - start_time)))
 
         if not file_saved:
             lin_vel_w, ang_vel_w = world_body_velocities(robot, robot_data)
@@ -614,9 +610,10 @@ def run_simulator(args_cli: DataConversionConfig):
             os.makedirs(output_res_folder, exist_ok=True)
             np.savez(args_cli.output_name, **log)
 
-        if args_cli.once and file_saved:
+        if run_once and file_saved:
             print("[INFO]: Motion replay completed, exiting...")
-            viewer.close()
+            if viewer is not None:
+                viewer.close()
             break
 
 

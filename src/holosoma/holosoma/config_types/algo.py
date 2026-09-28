@@ -653,6 +653,12 @@ class CQLConfig:
     logging_interval: int = 100
     """the interval to log the metrics"""
 
+    q_probe_size: int = 4096
+    """fixed dataset transitions used for the probe/* Q-level diagnostics (0 disables)"""
+
+    q_probe_seed: int = 12345
+    """seed selecting the probe transitions; shared by every run on the same dataset"""
+
     offline_dataset_path: str = "offline_data/fastsac_dataset.h5"
     """path to fixed offline dataset"""
 

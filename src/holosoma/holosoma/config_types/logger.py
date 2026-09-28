@@ -79,6 +79,15 @@ class WandbLoggerConfig:
        Kept for backwards compatibility, overrides video.enabled.
     """
 
+    upload_model_files: bool = False
+    """Upload model files (checkpoints ``model_*.pt`` and exported ``.onnx``) to the wandb run.
+
+    Off by default: model files are always kept locally under the run directory, and every
+    checkpoint upload used to add ~30 MB per save (several GB per run) to wandb storage.
+    Metrics, the run config and videos are unaffected. Enable to keep ``wandb://`` checkpoint
+    URIs usable for evaluation.
+    """
+
     # Directory settings
     base_dir: str = "logs"
     """Base directory for all logs and outputs."""

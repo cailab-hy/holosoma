@@ -4,7 +4,7 @@ import pytest
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from holosoma.agents.modules.logging_utils import LoggingHelper
+from holosoma.agents.modules.logging_utils import LoggingHelper, set_wandb_model_file_upload
 
 
 @pytest.fixture
@@ -167,21 +167,36 @@ def test_wandb_logging(prefixed_logging_helper, mock_wandb):
     assert logged_data["global_step"] == 0
 
 
-def test_save_checkpoint_artifact(prefixed_logging_helper, mock_wandb, tmp_path):
-    """Test that checkpoints are properly saved and logged to wandb."""
-    # Create a temporary directory for the test
+def test_save_checkpoint_artifact_keeps_local_file_without_upload(prefixed_logging_helper, mock_wandb, tmp_path):
+    """By default checkpoints are written locally and NOT uploaded to wandb."""
     log_dir = tmp_path / "test_logs"
     log_dir.mkdir()
     prefixed_logging_helper.log_dir = str(log_dir)
-
-    # Create test state dict
     state_dict = {"test_param": torch.tensor([1.0])}
     checkpoint_path = log_dir / "checkpoint.pt"
 
-    # Save checkpoint
+    set_wandb_model_file_upload(False)
     prefixed_logging_helper.save_checkpoint_artifact(state_dict, str(checkpoint_path))
 
-    # Verify wandb.save was called with correct path
+    assert checkpoint_path.is_file()
+    mock_wandb.save.assert_not_called()
+
+
+def test_save_checkpoint_artifact_uploads_when_enabled(prefixed_logging_helper, mock_wandb, tmp_path):
+    """With --logger.upload-model-files True the checkpoint is also sent to wandb."""
+    log_dir = tmp_path / "test_logs"
+    log_dir.mkdir()
+    prefixed_logging_helper.log_dir = str(log_dir)
+    state_dict = {"test_param": torch.tensor([1.0])}
+    checkpoint_path = log_dir / "checkpoint.pt"
+
+    set_wandb_model_file_upload(True)
+    try:
+        prefixed_logging_helper.save_checkpoint_artifact(state_dict, str(checkpoint_path))
+    finally:
+        set_wandb_model_file_upload(False)
+
+    assert checkpoint_path.is_file()
     mock_wandb.save.assert_called_once()
     assert mock_wandb.save.call_args[0][0] == str(checkpoint_path)
     assert mock_wandb.save.call_args[1]["base_path"] == str(log_dir)

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Baseline control for the phase-conditioned advantage: AW-CQL trained with weights whose H-step advantage
+# uses ONE dataset-wide baseline instead of the per-phase-bin baseline (w then encodes the phase itself).
+# Everything else (H=50, beta rule, clipping, normalisation, AW-CQL training) is identical to the main arm.
+#   SEEDS="1 2 3" bash validation/g1_wbt/ablation/g1_wbt_aw_cql_global_baseline.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../common.sh"
+SEEDS="${SEEDS:-1 2 3 4 5}"
+activate_env
+ensure_aw_sidecar_global "${G1_H5}" 50 "${G1_H5}.aw_weights.H50.global.npz"
+run_seeds g1_29dof_wbt_aw_cql_H50_global g1-29dof-wbt-aw-cql algo:aw-cql \
+  --algo.config.aw-weights-path "${G1_H5}.aw_weights.H50.global.npz"
+finish

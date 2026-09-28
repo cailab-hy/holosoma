@@ -29,3 +29,7 @@ src/holosoma/holosoma/data/robots/converted_rank*/
 __pycache__
 offline_data/
 .codex
+validation/logs/
+
+# peak/final alignment analysis outputs (manifest holds ~60 MB of frozen observations)
+analysis/

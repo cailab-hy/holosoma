@@ -208,6 +208,9 @@ def parse_args(argv=None):
     ap.add_argument("--w-max", type=float, default=10.0)
     ap.add_argument("--beta-scale", type=float, default=1.0,
                     help="beta = beta_scale * std(A_hat) on this h5")
+    ap.add_argument("--baseline", choices=["phase", "global"], default="phase",
+                    help="advantage baseline: 'phase' = mean G^H per (motion_id, phase_bin) [AW-CQL default]; "
+                         "'global' = one dataset-wide mean G^H (control that ignores phase; same beta rule)")
     ap.add_argument("--beta-abs", type=float, default=None,
                     help="absolute beta (reward units); overrides beta-scale. "
                          "Use for cross-dataset checks (expert 0-b).")
@@ -225,7 +228,8 @@ def parse_args(argv=None):
 
 def main(argv=None):
     a = parse_args(argv)
-    sidecar_path = a.npz or a.out or (a.h5 + ".aw_weights.npz")
+    default_name = ".aw_weights.npz" if a.baseline == "phase" else f".aw_weights.{a.baseline}.npz"
+    sidecar_path = a.npz or a.out or (a.h5 + default_name)
     if a.verify:
         return 0 if verify_sidecar(a.h5, sidecar_path) else 1
     if a.report_only and a.out is not None:
@@ -265,8 +269,14 @@ def main(argv=None):
     g = truncated_returns(r, starts, ends, a.gamma, a.H)
 
     bins = np.clip((phase * a.n_bins).astype(int), 0, a.n_bins - 1)
-    group = bins if mid is None else (mid.astype(np.int64) * 10_000 + bins)
+    if a.baseline == "global":
+        # control: one baseline for the whole dataset (per motion if motion_id exists), so w encodes
+        # the raw H-step return and therefore the phase itself; everything downstream is unchanged
+        group = np.zeros(N, dtype=np.int64) if mid is None else mid.astype(np.int64)
+    else:
+        group = bins if mid is None else (mid.astype(np.int64) * 10_000 + bins)
     A = g - per_group_baseline(g, group)
+    print(f"[baseline] {a.baseline}: {len(np.unique(group))} group(s)")
     sigma = float(A.std())
     print(f"[advantage] sigma(A_hat)={sigma:.5f}  (mean|A|={np.abs(A).mean():.5f})  "
           f"reward-scale-free downstream: beta scales with sigma")
@@ -372,7 +382,7 @@ def main(argv=None):
         print(f"\n[report-only] no sidecar written; would target {out}")
         print(f"[report-only] rhash={rh}  ({'LAUNCH OK' if ok else 'DO NOT LAUNCH'})")
     else:
-        np.savez_compressed(out, weight=w, advantage=A.astype(np.float32),
+        np.savez_compressed(out, baseline=a.baseline, weight=w, advantage=A.astype(np.float32),
                             gH=g.astype(np.float32), phase_bin=bins.astype(np.int16),
                             beta=beta, sigma=sigma, gamma=a.gamma, H=a.H,
                             w_max=a.w_max, n=N, ess_frac=e, clip_frac=clip_frac,

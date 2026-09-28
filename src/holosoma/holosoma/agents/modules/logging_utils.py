@@ -40,6 +40,19 @@ class TrainLogDict(TypedDict):
     # Additional metrics can be added here
 
 
+_WANDB_MODEL_FILE_UPLOAD = False
+
+
+def set_wandb_model_file_upload(enabled: bool) -> None:
+    """Process-wide switch for uploading checkpoints / ONNX files to wandb (default off)."""
+    global _WANDB_MODEL_FILE_UPLOAD  # noqa: PLW0603
+    _WANDB_MODEL_FILE_UPLOAD = bool(enabled)
+
+
+def is_wandb_model_file_upload_enabled() -> bool:
+    return _WANDB_MODEL_FILE_UPLOAD
+
+
 class LoggingHelper:
     def __init__(
         self,
@@ -523,7 +536,12 @@ class LoggingHelper:
         self.save_to_wandb(path)
 
     def save_to_wandb(self, file_path: str) -> None:
-        """Saves file to wandb if run is initialized."""
-        if wandb.run is None:
+        """Upload a model file (checkpoint / ONNX) to wandb.
+
+        No-op unless a wandb run is active and model-file uploads were enabled via
+        :func:`set_wandb_model_file_upload` (``--logger.upload-model-files True``).
+        The file always stays on local disk.
+        """
+        if wandb.run is None or not is_wandb_model_file_upload_enabled():
             return
         wandb.save(file_path, base_path=self.log_dir)

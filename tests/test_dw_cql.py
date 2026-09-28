@@ -80,8 +80,8 @@ def test_dw_cql_motion_tracking_is_paired_with_aw_cql() -> None:
 
 
 def test_dw_cql_getup_is_paired_with_aw_cql() -> None:
-    aw = DEFAULTS["g1_29dof_wbt_fall_and_getup_aw_cql"]
-    dw = DEFAULTS["g1_29dof_wbt_fall_and_getup_dw_cql"]
+    aw = DEFAULTS["g1_29dof_wbt_lafan_dance1_aw_cql"]
+    dw = DEFAULTS["g1_29dof_wbt_lafan_dance1_dw_cql"]
 
     assert dw.algo._target_ == "holosoma.agents.dw_cql.dw_cql_agent.DWCQLAgent"
     assert dw.algo.config.offline_dataset_path == aw.algo.config.offline_dataset_path

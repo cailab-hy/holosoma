@@ -13,6 +13,7 @@ from typing import Any, TypedDict, cast
 import tyro
 from loguru import logger
 
+from holosoma.agents.modules.logging_utils import set_wandb_model_file_upload
 from holosoma.config_types.env import get_tyro_env_config
 from holosoma.config_types.experiment import ExperimentConfig
 from holosoma.config_values.experiment import AnnotatedExperimentConfig
@@ -162,6 +163,8 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
         simulation_app = init_sim_imports(tyro_config)
         auto_close = True
 
+    exit_code = 0
+    env = None
     try:
         # have to import torch after isaacgym
         import torch  # noqa: F401
@@ -239,6 +242,7 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
                 wandb_kwargs["resume"] = wandb_cfg.resume
 
             wandb.init(**wandb_kwargs)
+            set_wandb_model_file_upload(wandb_cfg.upload_model_files)
             if wandb.run is not None:
                 wandb_run_path = f"{wandb.run.entity}/{wandb.run.project}/{wandb.run.id}"
             wandb.log(
@@ -428,10 +432,11 @@ def train(tyro_config: ExperimentConfig, training_context: TrainingContext | Non
     except Exception as e:
         tb_str = traceback.format_exc()
         logger.error(f"Exception occurred during training: {e}\n{tb_str}")
+        exit_code = 1
         sys.exit(1)  # manually set exit code, not possible via isaacsim app.close()
     finally:
         if auto_close:
-            close_simulation_app(simulation_app)
+            close_simulation_app(simulation_app, env=env, exit_code=exit_code)
 
     logger.info("Training shutdown complete.")
 

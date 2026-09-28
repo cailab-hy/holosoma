@@ -39,63 +39,36 @@ _ROBOT_JOINT_NAMES_DEFAULT = {
         "right_wrist_pitch_joint",
         "right_wrist_yaw_joint",
     ],
-    "t1": [
-        "AAHead_yaw",
-        "Head_pitch",
-        "Left_Shoulder_Pitch",
-        "Left_Shoulder_Roll",
-        "Left_Elbow_Pitch",
-        "Left_Elbow_Yaw",
-        "Right_Shoulder_Pitch",
-        "Right_Shoulder_Roll",
-        "Right_Elbow_Pitch",
-        "Right_Elbow_Yaw",
-        "Waist",
-        "Left_Hip_Pitch",
-        "Left_Hip_Roll",
-        "Left_Hip_Yaw",
-        "Left_Knee_Pitch",
-        "Left_Ankle_Pitch",
-        "Left_Ankle_Roll",
-        "Right_Hip_Pitch",
-        "Right_Hip_Roll",
-        "Right_Hip_Yaw",
-        "Right_Knee_Pitch",
-        "Right_Ankle_Pitch",
-        "Right_Ankle_Roll",
-    ],
-    "t1_29dof": [
-        "AAHead_yaw",
-        "Head_pitch",
-        "Left_Shoulder_Pitch",
-        "Left_Shoulder_Roll",
-        "Left_Elbow_Pitch",
-        "Left_Elbow_Yaw",
-        "Left_Wrist_Pitch",
-        "Left_Wrist_Yaw",
-        "Left_Hand_Roll",
-        "Right_Shoulder_Pitch",
-        "Right_Shoulder_Roll",
-        "Right_Elbow_Pitch",
-        "Right_Elbow_Yaw",
-        "Right_Wrist_Pitch",
-        "Right_Wrist_Yaw",
-        "Right_Hand_Roll",
-        "Waist",
-        "Left_Hip_Pitch",
-        "Left_Hip_Roll",
-        "Left_Hip_Yaw",
-        "Left_Knee_Pitch",
-        "Left_Ankle_Pitch",
-        "Left_Ankle_Roll",
-        "Right_Hip_Pitch",
-        "Right_Hip_Roll",
-        "Right_Hip_Yaw",
-        "Right_Knee_Pitch",
-        "Right_Ankle_Pitch",
-        "Right_Ankle_Roll",
-    ],
 }
+
+# AI Sapiens K1 Rev.1, 23 DoF. Order matches models/k1/k1_23dof.{urdf,xml},
+# holosoma.config_values.robot.k1_23dof.dof_names and the omni-k1 / cyclo_lab exports.
+K1_JOINT_NAMES: tuple[str, ...] = (
+    "left_hip_pitch_joint",
+    "left_hip_roll_joint",
+    "left_hip_yaw_joint",
+    "left_knee_joint",
+    "left_ankle_pitch_joint",
+    "left_ankle_roll_joint",
+    "right_hip_pitch_joint",
+    "right_hip_roll_joint",
+    "right_hip_yaw_joint",
+    "right_knee_joint",
+    "right_ankle_pitch_joint",
+    "right_ankle_roll_joint",
+    "waist_yaw_joint",
+    "left_shoulder_pitch_joint",
+    "left_shoulder_roll_joint",
+    "left_shoulder_yaw_joint",
+    "left_elbow_joint",
+    "left_wrist_roll_joint",
+    "right_shoulder_pitch_joint",
+    "right_shoulder_roll_joint",
+    "right_shoulder_yaw_joint",
+    "right_elbow_joint",
+    "right_wrist_roll_joint",
+)
+_ROBOT_JOINT_NAMES_DEFAULT["k1"] = list(K1_JOINT_NAMES)
 
 
 @dataclass(frozen=True)
@@ -135,6 +108,9 @@ class DataConversionConfig:
 
     once: bool = False
     """Run the motion once and exit."""
+
+    headless: bool = False
+    """Run without viewer (headless mode for batch processing)."""
 
     use_omniretarget_data: bool = False
     """Use OmniRetarget data format."""

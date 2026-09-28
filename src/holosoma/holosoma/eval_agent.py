@@ -635,7 +635,7 @@ def run_eval_with_tyro(
 
     # Cleanup simulation app
     if simulation_app:
-        close_simulation_app(simulation_app)
+        close_simulation_app(simulation_app, env=env)
 
 
 def main() -> None:

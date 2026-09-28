@@ -1,3 +1,4 @@
+import math
 from dataclasses import replace
 
 from holosoma.config_types.robot import (
@@ -1104,8 +1105,404 @@ g1_29dof_w_object = replace(
     ),
 )
 
+# ---------------------------------------------------------------------------
+# AI Sapiens K1 Rev.1 (ROBOTIS), 23 DoF: 6 per leg, 1 waist yaw, 5 per arm.
+# Joint order follows the URDF/MJCF (src/holosoma/holosoma/data/robots/k1) and
+# omni-k1 / cyclo_lab retargeting output.
+#
+# Actuators: QC080-240-R020-RE (hips, knees, ankle pitch, waist) and
+# QC060-200-R020-RE (ankle roll, arms). PD gains follow cyclo_lab's inertia-tuned
+# K1 config: kp = armature * w_n^2, kd = 2 * zeta * armature * w_n with
+# w_n = 2*pi*10 rad/s and zeta = 2.
+# ---------------------------------------------------------------------------
+_K1_NATURAL_FREQ = 10.0 * 2.0 * math.pi
+_K1_DAMPING_RATIO = 2.0
+_K1_ARMATURE_QC060 = 0.00564892
+_K1_ARMATURE_QC080 = 0.01936542
+_K1_EFFORT_QC060 = 47.277
+_K1_EFFORT_QC080 = 96.864
+_K1_VEL_QC060 = 200.0 * 2.0 * math.pi / 60.0  # 20.94 rad/s
+_K1_VEL_QC080 = 110.0 * 2.0 * math.pi / 60.0  # 11.52 rad/s
+_K1_STIFFNESS_QC060 = _K1_ARMATURE_QC060 * _K1_NATURAL_FREQ**2  # ~22.3
+_K1_STIFFNESS_QC080 = _K1_ARMATURE_QC080 * _K1_NATURAL_FREQ**2  # ~76.5
+_K1_DAMPING_QC060 = 2.0 * _K1_DAMPING_RATIO * _K1_ARMATURE_QC060 * _K1_NATURAL_FREQ  # ~1.42
+_K1_DAMPING_QC080 = 2.0 * _K1_DAMPING_RATIO * _K1_ARMATURE_QC080 * _K1_NATURAL_FREQ  # ~4.87
+
+# Per-joint motor class in dof order: leg = [hip_pitch, hip_roll, hip_yaw, knee, ankle_pitch, ankle_roll]
+_K1_LEG_MOTORS = ["qc080"] * 5 + ["qc060"]
+_K1_ARM_MOTORS = ["qc060"] * 5
+_K1_MOTORS = _K1_LEG_MOTORS + _K1_LEG_MOTORS + ["qc080"] + _K1_ARM_MOTORS + _K1_ARM_MOTORS
+
+
+def _k1_per_motor(qc060: float, qc080: float):
+    return [qc060 if motor == "qc060" else qc080 for motor in _K1_MOTORS]
+
+
+k1_23dof = RobotConfig(
+    num_bodies=26,
+    dof_obs_size=23,
+    actions_dim=23,
+    policy_obs_dim=-1,
+    critic_obs_dim=-1,
+    algo_obs_dim_dict={},
+    key_bodies=["left_foot_contact_point", "right_foot_contact_point"],
+    num_feet=2,
+    foot_body_name="ankle_roll_link",
+    foot_height_name="foot_contact_point",
+    knee_name="knee_link",
+    torso_name="torso_link",
+    dof_names=[
+        "left_hip_pitch_joint",
+        "left_hip_roll_joint",
+        "left_hip_yaw_joint",
+        "left_knee_joint",
+        "left_ankle_pitch_joint",
+        "left_ankle_roll_joint",
+        "right_hip_pitch_joint",
+        "right_hip_roll_joint",
+        "right_hip_yaw_joint",
+        "right_knee_joint",
+        "right_ankle_pitch_joint",
+        "right_ankle_roll_joint",
+        "waist_yaw_joint",
+        "left_shoulder_pitch_joint",
+        "left_shoulder_roll_joint",
+        "left_shoulder_yaw_joint",
+        "left_elbow_joint",
+        "left_wrist_roll_joint",
+        "right_shoulder_pitch_joint",
+        "right_shoulder_roll_joint",
+        "right_shoulder_yaw_joint",
+        "right_elbow_joint",
+        "right_wrist_roll_joint",
+    ],
+    upper_dof_names=[
+        "waist_yaw_joint",
+        "left_shoulder_pitch_joint",
+        "left_shoulder_roll_joint",
+        "left_shoulder_yaw_joint",
+        "left_elbow_joint",
+        "left_wrist_roll_joint",
+        "right_shoulder_pitch_joint",
+        "right_shoulder_roll_joint",
+        "right_shoulder_yaw_joint",
+        "right_elbow_joint",
+        "right_wrist_roll_joint",
+    ],
+    upper_left_arm_dof_names=[
+        "left_shoulder_pitch_joint",
+        "left_shoulder_roll_joint",
+        "left_shoulder_yaw_joint",
+        "left_elbow_joint",
+        "left_wrist_roll_joint",
+    ],
+    upper_right_arm_dof_names=[
+        "right_shoulder_pitch_joint",
+        "right_shoulder_roll_joint",
+        "right_shoulder_yaw_joint",
+        "right_elbow_joint",
+        "right_wrist_roll_joint",
+    ],
+    lower_dof_names=[
+        "left_hip_pitch_joint",
+        "left_hip_roll_joint",
+        "left_hip_yaw_joint",
+        "left_knee_joint",
+        "left_ankle_pitch_joint",
+        "left_ankle_roll_joint",
+        "right_hip_pitch_joint",
+        "right_hip_roll_joint",
+        "right_hip_yaw_joint",
+        "right_knee_joint",
+        "right_ankle_pitch_joint",
+        "right_ankle_roll_joint",
+    ],
+    has_torso=True,
+    has_upper_body_dof=True,
+    left_ankle_dof_names=["left_ankle_pitch_joint", "left_ankle_roll_joint"],
+    right_ankle_dof_names=["right_ankle_pitch_joint", "right_ankle_roll_joint"],
+    knee_dof_names=["left_knee_joint", "right_knee_joint"],
+    hips_dof_names=[
+        "left_hip_pitch_joint",
+        "left_hip_roll_joint",
+        "left_hip_yaw_joint",
+        "right_hip_pitch_joint",
+        "right_hip_roll_joint",
+        "right_hip_yaw_joint",
+    ],
+    # Joint limits from k1.urdf (ai_sapiens_description).
+    dof_pos_lower_limit_list=[
+        -2.4435,  # left_hip_pitch
+        -0.6109,  # left_hip_roll
+        -3.1416,  # left_hip_yaw
+        0.0,  # left_knee
+        -0.7854,  # left_ankle_pitch
+        -0.5236,  # left_ankle_roll
+        -2.4435,  # right_hip_pitch
+        -2.5307,  # right_hip_roll
+        -3.1416,  # right_hip_yaw
+        0.0,  # right_knee
+        -0.7854,  # right_ankle_pitch
+        -0.5236,  # right_ankle_roll
+        -6.2832,  # waist_yaw
+        -3.1416,  # left_shoulder_pitch
+        0.0,  # left_shoulder_roll
+        -3.1416,  # left_shoulder_yaw
+        -0.7854,  # left_elbow
+        -3.1416,  # left_wrist_roll
+        -3.1416,  # right_shoulder_pitch
+        -3.1416,  # right_shoulder_roll
+        -3.1416,  # right_shoulder_yaw
+        -0.7854,  # right_elbow
+        -3.1416,  # right_wrist_roll
+    ],
+    dof_pos_upper_limit_list=[
+        2.4435,  # left_hip_pitch
+        2.5307,  # left_hip_roll
+        3.1416,  # left_hip_yaw
+        2.3562,  # left_knee
+        0.7854,  # left_ankle_pitch
+        0.5236,  # left_ankle_roll
+        2.4435,  # right_hip_pitch
+        0.6109,  # right_hip_roll
+        3.1416,  # right_hip_yaw
+        2.3562,  # right_knee
+        0.7854,  # right_ankle_pitch
+        0.5236,  # right_ankle_roll
+        6.2832,  # waist_yaw
+        3.1416,  # left_shoulder_pitch
+        3.1416,  # left_shoulder_roll
+        3.1416,  # left_shoulder_yaw
+        2.1817,  # left_elbow
+        3.1416,  # left_wrist_roll
+        3.1416,  # right_shoulder_pitch
+        0.0,  # right_shoulder_roll
+        3.1416,  # right_shoulder_yaw
+        2.1817,  # right_elbow
+        3.1416,  # right_wrist_roll
+    ],
+    dof_vel_limit_list=_k1_per_motor(_K1_VEL_QC060, _K1_VEL_QC080),
+    dof_effort_limit_list=_k1_per_motor(_K1_EFFORT_QC060, _K1_EFFORT_QC080),
+    dof_armature_list=_k1_per_motor(_K1_ARMATURE_QC060, _K1_ARMATURE_QC080),
+    dof_joint_friction_list=[0.0] * 23,
+    # Depth-first order of the URDF tree with fixed joints collapsed (head_link merges
+    # into torso_link); the foot contact points are kept via dont_collapse="true".
+    body_names=[
+        "pelvis",
+        "left_hip_pitch_link",
+        "left_hip_roll_link",
+        "left_hip_yaw_link",
+        "left_knee_link",
+        "left_ankle_pitch_link",
+        "left_ankle_roll_link",
+        "left_foot_contact_point",
+        "right_hip_pitch_link",
+        "right_hip_roll_link",
+        "right_hip_yaw_link",
+        "right_knee_link",
+        "right_ankle_pitch_link",
+        "right_ankle_roll_link",
+        "right_foot_contact_point",
+        "torso_link",
+        "left_shoulder_pitch_link",
+        "left_shoulder_roll_link",
+        "left_shoulder_yaw_link",
+        "left_elbow_link",
+        "left_wrist_roll_rubber_hand",
+        "right_shoulder_pitch_link",
+        "right_shoulder_roll_link",
+        "right_shoulder_yaw_link",
+        "right_elbow_link",
+        "right_wrist_roll_rubber_hand",
+    ],
+    terminate_after_contacts_on=["pelvis", "torso", "shoulder", "hip"],
+    penalize_contacts_on=["pelvis", "torso", "shoulder", "hip"],
+    init_state=RobotInitState(
+        pos=[0.0, 0.0, 0.764],  # x,y,z [m]
+        rot=[0.0, 0.0, 0.0, 1.0],  # x,y,z,w [quat]
+        lin_vel=[0.0, 0.0, 0.0],  # x,y,z [m/s]
+        ang_vel=[0.0, 0.0, 0.0],  # x,y,z [rad/s]
+        # Same standing pose as cyclo_lab's K1_REV1_INERTIA_TUNED_CFG.
+        default_joint_angles={
+            "left_hip_pitch_joint": -0.3,
+            "left_hip_roll_joint": 0.0,
+            "left_hip_yaw_joint": 0.0,
+            "left_knee_joint": 0.63,
+            "left_ankle_pitch_joint": -0.33,
+            "left_ankle_roll_joint": 0.0,
+            "right_hip_pitch_joint": -0.3,
+            "right_hip_roll_joint": 0.0,
+            "right_hip_yaw_joint": 0.0,
+            "right_knee_joint": 0.63,
+            "right_ankle_pitch_joint": -0.33,
+            "right_ankle_roll_joint": 0.0,
+            "waist_yaw_joint": 0.0,
+            "left_shoulder_pitch_joint": 0.2,
+            "left_shoulder_roll_joint": 0.2,
+            "left_shoulder_yaw_joint": 0.0,
+            "left_elbow_joint": 0.6,
+            "left_wrist_roll_joint": 0.0,
+            "right_shoulder_pitch_joint": 0.2,
+            "right_shoulder_roll_joint": -0.2,
+            "right_shoulder_yaw_joint": 0.0,
+            "right_elbow_joint": 0.6,
+            "right_wrist_roll_joint": 0.0,
+        },
+    ),
+    randomize_link_body_names=[
+        "pelvis",
+        "torso_link",
+        "left_hip_pitch_link",
+        "left_hip_roll_link",
+        "left_hip_yaw_link",
+        "left_knee_link",
+        "right_hip_pitch_link",
+        "right_hip_roll_link",
+        "right_hip_yaw_link",
+        "right_knee_link",
+    ],
+    waist_dof_names=["waist_yaw_joint"],
+    waist_yaw_dof_name="waist_yaw_joint",
+    waist_roll_dof_name=None,
+    waist_pitch_dof_name=None,
+    arm_dof_names=[
+        "left_shoulder_pitch_joint",
+        "left_shoulder_roll_joint",
+        "left_shoulder_yaw_joint",
+        "left_elbow_joint",
+        "left_wrist_roll_joint",
+        "right_shoulder_pitch_joint",
+        "right_shoulder_roll_joint",
+        "right_shoulder_yaw_joint",
+        "right_elbow_joint",
+        "right_wrist_roll_joint",
+    ],
+    left_arm_dof_names=[
+        "left_shoulder_pitch_joint",
+        "left_shoulder_roll_joint",
+        "left_shoulder_yaw_joint",
+        "left_elbow_joint",
+        "left_wrist_roll_joint",
+    ],
+    right_arm_dof_names=[
+        "right_shoulder_pitch_joint",
+        "right_shoulder_roll_joint",
+        "right_shoulder_yaw_joint",
+        "right_elbow_joint",
+        "right_wrist_roll_joint",
+    ],
+    symmetry_joint_names={
+        "left_hip_pitch_joint": "right_hip_pitch_joint",
+        "left_hip_roll_joint": "right_hip_roll_joint",
+        "left_hip_yaw_joint": "right_hip_yaw_joint",
+        "left_knee_joint": "right_knee_joint",
+        "left_ankle_pitch_joint": "right_ankle_pitch_joint",
+        "left_ankle_roll_joint": "right_ankle_roll_joint",
+        "right_hip_pitch_joint": "left_hip_pitch_joint",
+        "right_hip_roll_joint": "left_hip_roll_joint",
+        "right_hip_yaw_joint": "left_hip_yaw_joint",
+        "right_knee_joint": "left_knee_joint",
+        "right_ankle_pitch_joint": "left_ankle_pitch_joint",
+        "right_ankle_roll_joint": "left_ankle_roll_joint",
+        "waist_yaw_joint": "waist_yaw_joint",
+        "left_shoulder_pitch_joint": "right_shoulder_pitch_joint",
+        "left_shoulder_roll_joint": "right_shoulder_roll_joint",
+        "left_shoulder_yaw_joint": "right_shoulder_yaw_joint",
+        "left_elbow_joint": "right_elbow_joint",
+        "left_wrist_roll_joint": "right_wrist_roll_joint",
+        "right_shoulder_pitch_joint": "left_shoulder_pitch_joint",
+        "right_shoulder_roll_joint": "left_shoulder_roll_joint",
+        "right_shoulder_yaw_joint": "left_shoulder_yaw_joint",
+        "right_elbow_joint": "left_elbow_joint",
+        "right_wrist_roll_joint": "left_wrist_roll_joint",
+    },
+    flip_sign_joint_names=[
+        "left_hip_roll_joint",
+        "left_hip_yaw_joint",
+        "right_hip_roll_joint",
+        "right_hip_yaw_joint",
+        "left_ankle_roll_joint",
+        "right_ankle_roll_joint",
+        "waist_yaw_joint",
+        "left_shoulder_roll_joint",
+        "left_shoulder_yaw_joint",
+        "right_shoulder_roll_joint",
+        "right_shoulder_yaw_joint",
+        "left_wrist_roll_joint",
+        "right_wrist_roll_joint",
+    ],
+    apply_dof_armature_in_isaacgym=True,
+    contact_pairs_multiplier=16,
+    control=RobotControlConfig(
+        control_type="P",
+        # Keys are matched as substrings of the dof name (without "_joint").
+        stiffness={
+            "hip_pitch": _K1_STIFFNESS_QC080,
+            "hip_roll": _K1_STIFFNESS_QC080,
+            "hip_yaw": _K1_STIFFNESS_QC080,
+            "knee": _K1_STIFFNESS_QC080,
+            "ankle_pitch": _K1_STIFFNESS_QC080,
+            "ankle_roll": _K1_STIFFNESS_QC060,
+            "waist_yaw": _K1_STIFFNESS_QC080,
+            "shoulder_pitch": _K1_STIFFNESS_QC060,
+            "shoulder_roll": _K1_STIFFNESS_QC060,
+            "shoulder_yaw": _K1_STIFFNESS_QC060,
+            "elbow": _K1_STIFFNESS_QC060,
+            "wrist_roll": _K1_STIFFNESS_QC060,
+        },
+        damping={
+            "hip_pitch": _K1_DAMPING_QC080,
+            "hip_roll": _K1_DAMPING_QC080,
+            "hip_yaw": _K1_DAMPING_QC080,
+            "knee": _K1_DAMPING_QC080,
+            "ankle_pitch": _K1_DAMPING_QC080,
+            "ankle_roll": _K1_DAMPING_QC060,
+            "waist_yaw": _K1_DAMPING_QC080,
+            "shoulder_pitch": _K1_DAMPING_QC060,
+            "shoulder_roll": _K1_DAMPING_QC060,
+            "shoulder_yaw": _K1_DAMPING_QC060,
+            "elbow": _K1_DAMPING_QC060,
+            "wrist_roll": _K1_DAMPING_QC060,
+        },
+        # Per-joint scale = 0.25 * effort_limit / kp, identical to cyclo_lab's
+        # K1_REV1_INERTIA_TUNED_ACTION_SCALE so policies transfer between the two stacks.
+        action_scale=0.25,
+        action_scales_by_effort_limit_over_p_gain=True,
+        action_clip_value=100.0,
+        clip_actions=True,
+        clip_torques=True,
+    ),
+    asset=RobotAssetConfig(
+        asset_root="@holosoma/data/robots",
+        collapse_fixed_joints=True,
+        replace_cylinder_with_capsule=True,
+        flip_visual_attachments=False,
+        armature=0.001,
+        thickness=0.01,
+        max_angular_velocity=1000.0,
+        max_linear_velocity=1000.0,
+        angular_damping=0.0,
+        linear_damping=0.0,
+        urdf_file="k1/k1_23dof.urdf",
+        usd_file=None,
+        xml_file="k1/k1_23dof.xml",
+        robot_type="k1_23dof",
+        enable_self_collisions=True,
+        default_dof_drive_mode=3,
+        fix_base_link=False,
+    ),
+    bridge=RobotBridgeConfig(
+        # No holosoma bridge/SDK adapter exists for K1 yet; real-robot deployment goes
+        # through cyclo_lab (or a future holosoma_inference "k1" SDK interface).
+        sdk_type="k1",
+        motor_type="serial",
+    ),
+    knee_joint_min_threshold=0.2,
+)
+
 DEFAULTS = {
     "g1_29dof": g1_29dof,
     "t1_29dof_waist_wrist": t1_29dof_waist_wrist,
     "g1_29dof_w_object": g1_29dof_w_object,
+    "k1_23dof": k1_23dof,
 }

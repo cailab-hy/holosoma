@@ -16,6 +16,7 @@ from holosoma.agents.cql.cql import Actor, CNNActor, DoubleQCritic
 from holosoma.agents.cql.cql_utils import EmpiricalNormalization, save_params
 from holosoma.agents.modules.augmentation_utils import SymmetryUtils
 from holosoma.agents.modules.logging_utils import LoggingHelper
+from holosoma.agents.modules.q_probe import compute_q_probe_stats, load_probe_set, select_probe_indices
 from holosoma.config_types.algo import CQLConfig
 from holosoma.data.hdf5_offline_dataset import (
     GPUTransitionCache,
@@ -172,6 +173,7 @@ class CQLAgent(BaseAlgo):
         self._offline_gpu_cache: GPUTransitionCache | None = None
         self._offline_num_samples = 0
         self._critic_update_step = 0
+        self._q_probe: dict[str, torch.Tensor] | None = None
 
         if config.cql_num_action_samples <= 0:
             raise ValueError(f"cql_num_action_samples must be > 0, got {config.cql_num_action_samples}")
@@ -419,11 +421,46 @@ class CQLAgent(BaseAlgo):
         self.policy = _env_policy
         logger.info(f"CQL dims: actor_obs_dim={actor_obs_dim}, critic_obs_dim={critic_obs_dim}, n_act={n_act}")
 
+        self._setup_q_probe()
+
         if args.use_symmetry:
             self.symmetry_utils = SymmetryUtils(env._env)
 
         if self.is_multi_gpu:
             self._synchronize_model_parameters()
+
+    def _setup_q_probe(self) -> None:
+        """Load the fixed probe transitions behind the ``probe/*`` Q-level diagnostics."""
+        probe_size = int(getattr(self.config, "q_probe_size", 0))
+        if probe_size <= 0 or self._offline_num_samples <= 0:
+            self._q_probe = None
+            return
+        probe_seed = int(getattr(self.config, "q_probe_seed", 12345))
+        indices = select_probe_indices(self._offline_num_samples, probe_size, probe_seed)
+        self._q_probe = load_probe_set(self._offline_dataset_path, indices, self.device)
+        logger.info(f"Q probe set: {indices.size} transitions of '{self._offline_dataset_path}' (seed={probe_seed})")
+
+    def _extra_log_dicts(self) -> dict[str, dict[str, float]]:
+        """Extra TensorBoard sections ({section: {name: value}}) emitted at each logging step."""
+        return {}
+
+    @torch.no_grad()
+    def _compute_q_probe_stats(self) -> dict[str, float]:
+        """Q levels on the fixed probe set; ``probe/q_level`` is Q_level(t) = mean min(Q1, Q2)(s_probe, a_probe)."""
+        if self._q_probe is None:
+            return {}
+        stats = compute_q_probe_stats(
+            self.qnet,
+            self.actor,
+            self.obs_normalizer,
+            self.critic_obs_normalizer,
+            self._q_probe,
+            num_action_samples=self._num_repeat_actions,
+            temperature=self._temperature,
+            use_tanh=bool(self.config.use_tanh),
+            seed=int(getattr(self.config, "q_probe_seed", 12345)),
+        )
+        return {key: float(value) for key, value in stats.items()}
 
     @contextmanager
     def _maybe_amp(self):
@@ -523,7 +560,7 @@ class CQLAgent(BaseAlgo):
 
     def _after_q_update(self, data: TensorDict) -> None:
         """Optional subclass hook after the critic optimizer step."""
-        return None
+        return
 
     def _sync_actor_action_space_buffers(self) -> None:
         with torch.no_grad():
@@ -736,6 +773,7 @@ class CQLAgent(BaseAlgo):
                 dr3_raw_loss = (dr3_per_sample * dr3_mask).sum() / dr3_active_count
                 dr3_loss = args.dr3_weight * dr3_raw_loss
             rand_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
+            q_lse_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             curr_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             next_q_mean = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
             curr_logp = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
@@ -744,6 +782,7 @@ class CQLAgent(BaseAlgo):
             with torch.no_grad():
                 pi_actions_det = self.actor(observations)[0]
                 q1_pi_det, q2_pi_det = self.qnet(critic_observations, pi_actions_det)
+                q_policy_mean = torch.minimum(q1_pi_det, q2_pi_det).mean()
                 q_pi_minus_q_data = (
                     torch.minimum(q1_pi_det, q2_pi_det) - torch.minimum(q1.detach(), q2.detach())
                 ).mean()
@@ -798,7 +837,7 @@ class CQLAgent(BaseAlgo):
                     )
                 else:
                     random_density = math.log(0.5) * dataset_actions.shape[-1]
-                
+
                 q1_terms = [
                     q1_rand - random_density,
                     q1_curr - curr_logp,
@@ -820,6 +859,7 @@ class CQLAgent(BaseAlgo):
 
                 q1_lse = torch.logsumexp(cat_q1 / self._temperature, dim=1) * self._temperature
                 q2_lse = torch.logsumexp(cat_q2 / self._temperature, dim=1) * self._temperature
+                q_lse_mean = 0.5 * (q1_lse.mean() + q2_lse.mean())
                 cql1_per_sample, cql2_per_sample = self._build_sampled_conservative_losses(
                     data,
                     dataset_actions,
@@ -855,7 +895,7 @@ class CQLAgent(BaseAlgo):
             else:
                 conservative_loss = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
                 cql_gap = torch.zeros((), device=self.device, dtype=bellman_loss.dtype)
-            
+
             q_loss = bellman_loss + conservative_loss + dr3_loss
 
         self.q_optimizer.zero_grad(set_to_none=True)
@@ -914,6 +954,8 @@ class CQLAgent(BaseAlgo):
             curr_logp.mean().detach(),
             next_logp.mean().detach(),
             random_density,
+            q_lse_mean.detach(),
+            q_policy_mean.detach(),
         )
 
     def _update_cql_lagrange(self, cql_gap: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -1243,7 +1285,12 @@ class CQLAgent(BaseAlgo):
                         curr_logp,
                         next_logp,
                         random_density,
+                        *update_q_extras,
                     ) = update_q(data)
+                    # Subclasses overriding _update_q may omit the trailing (lse_mean, q_policy_mean).
+                    _zero = torch.zeros((), device=self.device)
+                    q_lse_mean = update_q_extras[0] if len(update_q_extras) > 0 else _zero
+                    q_policy_mean = update_q_extras[1] if len(update_q_extras) > 1 else _zero
 
                     self._after_q_update(data)
 
@@ -1297,6 +1344,8 @@ class CQLAgent(BaseAlgo):
                             "cql_bellman_loss": bellman_loss,
                             "cql_gap": cql_gap,
                             "q_data_mean": q_data_mean,
+                            "lse_mean": q_lse_mean,
+                            "q_policy_mean": q_policy_mean,
                             "q_pi_minus_q_data": q_pi_minus_q_data,
                             "cql_alpha_value": cql_alpha_value,
                             "cql_lagrange_loss": cql_lagrange_loss,
@@ -1322,7 +1371,10 @@ class CQLAgent(BaseAlgo):
                         key: (value.item() if isinstance(value, torch.Tensor) else float(value))
                         for key, value in accumulated_metrics.items()
                     }
-                self.logging_helper.post_epoch_logging(it=self.global_step, loss_dict=loss_dict, extra_log_dicts={})
+                loss_dict.update(self._compute_q_probe_stats())
+                self.logging_helper.post_epoch_logging(
+                    it=self.global_step, loss_dict=loss_dict, extra_log_dicts=self._extra_log_dicts()
+                )
 
             if args.save_interval > 0 and self.global_step % args.save_interval == 0:
                 if self.is_main_process:

@@ -279,7 +279,21 @@ def setup_simulation_environment(
     return env, device, simulation_app
 
 
-def close_simulation_app(simulation_app):
+def _flush_and_exit(exit_code: int) -> None:
+    """Terminate the process immediately (used when Kit refuses to shut down)."""
+    try:
+        logger.complete()
+    except Exception as e:
+        print(f"logger flush failed during forced exit: {e}", file=sys.stderr)
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except Exception:  # noqa: PERF203
+            continue
+    os._exit(exit_code)
+
+
+def close_simulation_app(simulation_app, env=None, exit_code: int = 0, timeout_s: float | None = None):
     """Close simulation app with workarounds for known issues.
 
     Parameters
@@ -287,9 +301,27 @@ def close_simulation_app(simulation_app):
     simulation_app : Any
         The simulation app instance returned by init_sim_imports().
         Can be None for simulators that don't have an app (e.g., IsaacGym).
+    env : Any, optional
+        Environment whose simulator may own a video recorder. The replicator camera
+        and annotator created for video recording keep Kit's shutdown from completing,
+        so they are released before the app is closed.
+    exit_code : int
+        Process exit code used if the app has to be force-terminated.
+    timeout_s : float, optional
+        Seconds to wait for ``SimulationApp.close()`` before force-exiting the process
+        (default: ``HOLOSOMA_SIM_CLOSE_TIMEOUT_S`` env var, else 30).
     """
     if simulation_app is not None and get_simulator_type() == SimulatorType.ISAACSIM:
         logger.info("Shutting down simulation app...")
+
+        recorder = getattr(getattr(env, "simulator", None), "video_recorder", None)
+        if recorder is not None:
+            try:
+                recorder.cleanup()
+                logger.info("Video recorder released before app shutdown.")
+            except Exception as e:
+                logger.warning(f"Could not clean up video recorder: {e}")
+
         try:
             # Work-around for IsaacLab hanging headless.
             # Patch the close_stage method to avoid hanging
@@ -309,8 +341,24 @@ def close_simulation_app(simulation_app):
         except Exception as e:
             logger.warning(f"Could not patch close_stage method: {e}")
 
+        # Kit's shutdown can still block forever (render products, RTX threads). Arm a
+        # watchdog so a finished run always returns the terminal to the caller.
+        if timeout_s is None:
+            timeout_s = float(os.environ.get("HOLOSOMA_SIM_CLOSE_TIMEOUT_S", "30"))
+
+        def _force_exit():
+            logger.warning(
+                f"SimulationApp.close() did not return within {timeout_s:.0f}s; "
+                f"forcing process exit with code {exit_code}."
+            )
+            _flush_and_exit(exit_code)
+
+        watchdog = threading.Timer(timeout_s, _force_exit)
+        watchdog.daemon = True
+        watchdog.start()
         # Now close the app
         simulation_app.close(wait_for_replicator=False)
+        watchdog.cancel()
         logger.info("Simulation app closed.")
     else:
         logger.info("Simulation app closed.")

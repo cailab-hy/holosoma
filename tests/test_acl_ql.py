@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 import h5py
 import numpy as np
 import torch
 
+from holosoma.agents.acl_ql import acl_ql_agent
 from holosoma.agents.acl_ql.acl_weight_network import (
     ACLWeightNetwork,
     acl_action_distance,
@@ -15,6 +17,7 @@ from holosoma.agents.acl_ql.acl_weight_network import (
     compute_acl_monotonicity_loss,
     compute_acl_positivity_loss,
     compute_acl_surrogate_loss,
+    pearson_correlation,
 )
 from holosoma.config_values.algo import DEFAULTS as ALGO_DEFAULTS
 from holosoma.config_values.experiment import DEFAULTS as EXP_DEFAULTS
@@ -114,3 +117,34 @@ def test_acl_configs_are_registered() -> None:
     acl_cfg = EXP_DEFAULTS["g1_29dof_wbt_acl_ql"].algo.config
     rms_cfg = EXP_DEFAULTS["g1_29dof_wbt_acl_ql_rms"].algo.config
     assert {**acl_cfg.__dict__, "acl_distance_mode": "rms"} == rms_cfg.__dict__
+
+
+def test_acl_weight_network_outputs_are_unconstrained() -> None:
+    # Paper-faithful: no output activation, so the Eq. (23) hinge is a live loss.
+    torch.manual_seed(0)
+    net = ACLWeightNetwork(obs_dim=3, action_dim=2, hidden_dim=8, num_layers=2)
+    with torch.no_grad():
+        net.net[-1].bias.fill_(-1.0)
+    w_mu, w_beta = net(torch.randn(64, 3), torch.randn(64, 2))
+    assert (w_mu < 0).any() and (w_beta < 0).any()
+    pos = compute_acl_positivity_loss(w_mu, w_beta)
+    assert pos.item() > 0.0
+    pos.backward()
+    assert net.net[-1].bias.grad is not None and net.net[-1].bias.grad.abs().sum() > 0
+    assert compute_acl_positivity_loss(torch.ones(4), torch.ones(4)).item() == 0.0
+
+
+def test_acl_pearson_correlation() -> None:
+    x = torch.linspace(-1.0, 1.0, 16)
+    assert torch.isclose(pearson_correlation(x, 3.0 * x + 2.0), torch.tensor(1.0), atol=1e-5)
+    assert torch.isclose(pearson_correlation(x, -x), torch.tensor(-1.0), atol=1e-5)
+    assert pearson_correlation(x, torch.full_like(x, 0.5)).item() == 0.0
+    gen_x, gen_y = torch.Generator().manual_seed(0), torch.Generator().manual_seed(1)
+    corr = pearson_correlation(torch.randn(256, generator=gen_x), torch.randn(256, generator=gen_y))
+    assert -0.3 < corr.item() < 0.3
+
+
+def test_acl_agent_uses_plain_adam_for_acl_modules() -> None:
+    source = inspect.getsource(acl_ql_agent.ACLQLAgent.setup)
+    assert "optim.Adam(" in source and "optim.AdamW(" not in source
+    assert "weight_decay" not in source

@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from holosoma.utils.safe_torch_import import F, nn, torch
+from holosoma.utils.safe_torch_import import nn, torch
 
 
 class ACLWeightNetwork(nn.Module):
-    """One state-action MLP with two positive outputs: w_mu and w_beta.
+    """One state-action MLP with two unconstrained outputs: w_mu and w_beta.
 
-    We did not find a checked-in official ACL-QL reference in this repo. The
-    softplus output is kept as the stability choice made at introduction time;
-    therefore the positivity penalty is diagnostic-only unless this activation
-    is changed to an unconstrained output.
+    The outputs are raw linear activations, as in the paper: positivity is not
+    enforced architecturally but learned through the Eq. (23) penalty
+    (:func:`compute_acl_positivity_loss`), so that penalty is a live training
+    signal rather than a diagnostic.
     """
 
     def __init__(self, obs_dim: int, action_dim: int, hidden_dim: int = 256, num_layers: int = 3):
@@ -27,7 +27,7 @@ class ACLWeightNetwork(nn.Module):
     def forward(self, obs: torch.Tensor, actions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         if obs.ndim != 2 or actions.ndim != 2:
             raise ValueError(f"ACL weights expect [B,D] obs/actions, got {obs.shape=} {actions.shape=}")
-        out = F.softplus(self.net(torch.cat([obs, actions], dim=-1))) + 1e-6
+        out = self.net(torch.cat([obs, actions], dim=-1))
         return out[:, 0], out[:, 1]
 
 
@@ -105,5 +105,23 @@ def compute_acl_surrogate_loss(
 
 
 def compute_acl_positivity_loss(w_mu: torch.Tensor, w_beta: torch.Tensor) -> torch.Tensor:
-    """Eq. (23), diagnostic-only while ACLWeightNetwork uses softplus outputs."""
+    """Eq. (23): hinge penalty on negative weights.
+
+    Active because :class:`ACLWeightNetwork` outputs are unconstrained; it is the
+    only mechanism keeping w_mu and w_beta non-negative.
+    """
     return torch.relu(-w_mu).mean() + torch.relu(-w_beta).mean()
+
+
+def pearson_correlation(x: torch.Tensor, y: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """Batch Pearson correlation between two [B] tensors (0 when either is constant)."""
+    if x.ndim != 1 or y.ndim != 1 or x.shape != y.shape:
+        raise ValueError(f"pearson_correlation expects matching [B] tensors, got {x.shape=} {y.shape=}")
+    x = x.detach().float()
+    y = y.detach().float()
+    xc = x - x.mean()
+    yc = y - y.mean()
+    denom = xc.norm() * yc.norm()
+    if denom <= eps:
+        return torch.zeros((), device=x.device, dtype=x.dtype)
+    return (xc * yc).sum() / denom

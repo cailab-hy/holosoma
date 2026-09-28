@@ -18,7 +18,8 @@ class RobotDefaults(TypedDict):
 _ROBOT_DEFAULTS: dict[str, RobotDefaults] = {
     "g1": {"robot_dof": 29, "robot_height": 1.32, "object_name": "ground"},
     "t1": {"robot_dof": 23, "robot_height": 1.2, "object_name": "ground"},
-    "t1_29dof": {"robot_dof": 29, "robot_height": 1.2, "object_name": "ground"},
+    # AI Sapiens K1 Rev.1 (ROBOTIS), models/k1/k1_23dof.{urdf,xml}
+    "k1": {"robot_dof": 23, "robot_height": 1.35, "object_name": "ground"},
 }
 
 
@@ -111,8 +112,6 @@ class RobotConfig:
         """Get robot name - use override if provided, else compute from robot_type and DOF."""
         if self.robot_name is not None:
             return self.robot_name
-        if self.robot_type == "t1_29dof":
-            return self.robot_type
         return f"{self.robot_type}_{self.ROBOT_DOF}dof"
 
     ROBOT_NAME = property(
@@ -124,8 +123,6 @@ class RobotConfig:
         """Get robot URDF file path."""
         if self.robot_urdf_file is not None:
             return self.robot_urdf_file
-        if self.robot_type == "t1_29dof":
-            return "models/t1/t1_29dof.urdf"
         return f"models/{self.robot_type}/{self.robot_type}_{self.ROBOT_DOF}dof.urdf"
 
     ROBOT_URDF_FILE = property(_robot_urdf_file, doc="Get robot URDF file path.")
@@ -159,19 +156,9 @@ class RobotConfig:
                 "left_foot_sphere_5_link",
                 "right_foot_sphere_5_link",
             ]
-        if self.robot_type == "t1_29dof":
-            return [
-                "left_foot_sphere_1_link",
-                "right_foot_sphere_1_link",
-                "left_foot_sphere_2_link",
-                "right_foot_sphere_2_link",
-                "left_foot_sphere_3_link",
-                "right_foot_sphere_3_link",
-                "left_foot_sphere_4_link",
-                "right_foot_sphere_4_link",
-                "left_foot_sphere_5_link",
-                "right_foot_sphere_5_link",
-            ]
+        if self.robot_type == "k1":
+            # Marker bodies under {left,right}_ankle_roll_link in models/k1/k1_23dof.xml
+            return [f"{side}_foot_contact_{index}" for index in range(1, 6) for side in ("left", "right")]
         raise ValueError(f"Invalid robot type: {self.robot_type}")
 
     FOOT_STICKING_LINKS = property(
@@ -237,13 +224,8 @@ class RobotConfig:
 
         if self.robot_type == "g1":
             return {"19": 0.2, "20": 0.2}  # waist yaw, waist roll
-        if self.robot_type == "t1_29dof":
-            # LAFAN/SMPL skeletons provide a heel-to-toe direction but no
-            # lateral foot-width target, leaving ankle roll underconstrained.
-            # Keep both feet near neutral roll unless tracked contacts require
-            # otherwise. Indices are full qpos coordinates (7 floating-base +
-            # T1's 29 actuated joints).
-            return {"29": 5.0, "35": 5.0}
+        if self.robot_type == "k1":
+            return {"19": 0.2}  # waist yaw (qpos index 7 + 12)
         return {}
 
     MANUAL_COST = property(_manual_cost, doc="Get manual cost weights.")
@@ -257,8 +239,10 @@ class RobotConfig:
             return np.arange(19)
         if self.robot_type == "t1":
             return np.concatenate([np.arange(7), np.arange(11, 23)])
-        if self.robot_type == "t1_29dof":
-            return np.array([0, 1], dtype=int)
+        if self.robot_type == "k1":
+            # Both legs (q_a = [root(7), 23 joints]); the root is excluded so a nominal
+            # motion from a differently sized robot (e.g. G1) only shapes the leg posture.
+            return np.arange(7, 19)
         # Default: return empty array if robot type not defined (nominal tracking not used)
         return np.array([], dtype=int)
 

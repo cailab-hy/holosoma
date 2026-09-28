@@ -1,12 +1,12 @@
 from dataclasses import asdict, replace
 
 from holosoma.config_types.algo import (
-    AWCQLAlgoConfig,
-    AWCQLConfig,
     ACLQLAlgoConfig,
     ACLQLConfig,
     AsymCQLAlgoConfig,
     AsymCQLConfig,
+    AWCQLAlgoConfig,
+    AWCQLConfig,
     DWCQLAlgoConfig,
     DWCQLConfig,
     WBCAlgoConfig,
@@ -283,7 +283,7 @@ g1_29dof_wbt_fast_sac_d3_seg_b_data = replace(
                 max_episode_length_s=5.0,
             ),
         ),
-    ),    
+    ),
     termination=termination.g1_29dof_wbt_termination_d3_segment,
     command=command.g1_29dof_wbt_command_d3_seg_b,
 )
@@ -332,7 +332,7 @@ g1_29dof_wbt_fast_sac_episode_data = ExperimentConfig(
         algo.fast_sac_episode_data,
         config=replace(
             algo.fast_sac_episode_data.config,
-            num_learning_iterations=20000,
+            num_learning_iterations=10000,
             v_max=20.0,
             v_min=-20.0,
             gamma=0.99,  # For motion tracking, high gamma + high num_steps is better
@@ -587,26 +587,26 @@ g1_29dof_wbt_aw_cql = replace(
 )
 
 
-# OS-AW-CQL: paired AW-CQL ablation using the same sidecar weights and all
+# B-arm (formerly OS-AW-CQL): paired AW-CQL ablation using the same sidecar weights and all
 # hyperparameters, with w applied only to the -Q(s, a_data) anchor term.
-g1_29dof_wbt_os_aw_cql = replace(
+g1_29dof_wbt_b_arm = replace(
     g1_29dof_wbt_aw_cql,
-    training=replace(g1_29dof_wbt_aw_cql.training, name="g1_29dof_wbt_os_aw_cql_manager_pu1_4096_seed2"),
+    training=replace(g1_29dof_wbt_aw_cql.training, name="g1_29dof_wbt_b_arm_manager_pu1_4096_seed2"),
     algo=AWCQLAlgoConfig(
-        _target_="holosoma.agents.os_aw_cql.os_aw_cql_agent.OSAWCQLAgent",
+        _target_="holosoma.agents.b_arm.b_arm_agent.BArmAgent",
         _recursive_=False,
         config=AWCQLConfig(**asdict(g1_29dof_wbt_aw_cql.algo.config)),
     ),
 )
 
 
-# LSE-AW-CQL: paired AW-CQL ablation using the same sidecar weights and all
+# C-arm (formerly LSE-AW-CQL): paired AW-CQL ablation using the same sidecar weights and all
 # hyperparameters, with w applied only to the logsumexp OOD term.
-g1_29dof_wbt_lse_aw_cql = replace(
+g1_29dof_wbt_c_arm = replace(
     g1_29dof_wbt_aw_cql,
-    training=replace(g1_29dof_wbt_aw_cql.training, name="g1_29dof_wbt_lse_aw_cql_manager_pu1_4096_seed2"),
+    training=replace(g1_29dof_wbt_aw_cql.training, name="g1_29dof_wbt_c_arm_manager_pu1_4096_seed2"),
     algo=AWCQLAlgoConfig(
-        _target_="holosoma.agents.lse_aw_cql.lse_aw_cql_agent.LSEAWCQLAgent",
+        _target_="holosoma.agents.c_arm.c_arm_agent.CArmAgent",
         _recursive_=False,
         config=AWCQLConfig(**asdict(g1_29dof_wbt_aw_cql.algo.config)),
     ),
@@ -629,7 +629,7 @@ g1_29dof_wbt_asym_cql = replace(
 
 g1_29dof_wbt_acl_ql = replace(
     g1_29dof_wbt_cql,
-    training=replace(g1_29dof_wbt_cql.training, name="g1_29dof_wbt_acl_ql_manager_seed2"),
+    training=replace(g1_29dof_wbt_cql.training, name="g1_29dof_wbt_acl_ql_manager_seed1"),
     algo=ACLQLAlgoConfig(
         _target_="holosoma.agents.acl_ql.acl_ql_agent.ACLQLAgent",
         _recursive_=False,
@@ -1116,14 +1116,14 @@ g1_29dof_wbt_aw_cql_w_object = replace(
     ),
 )
 
-g1_29dof_wbt_lse_aw_cql_w_object = replace(
+g1_29dof_wbt_c_arm_w_object = replace(
     g1_29dof_wbt_aw_cql_w_object,
     training=replace(
         g1_29dof_wbt_aw_cql_w_object.training,
-        name="g1_29dof_wbt_lse_aw_cql_w_object_manager",
+        name="g1_29dof_wbt_c_arm_w_object_manager",
     ),
     algo=AWCQLAlgoConfig(
-        _target_="holosoma.agents.lse_aw_cql.lse_aw_cql_agent.LSEAWCQLAgent",
+        _target_="holosoma.agents.c_arm.c_arm_agent.CArmAgent",
         _recursive_=False,
         config=AWCQLConfig(**asdict(g1_29dof_wbt_aw_cql_w_object.algo.config)),
     ),
@@ -1257,39 +1257,39 @@ g1_29dof_wbt_td3_bc_w_object = replace(
 
 __all__ = [
     "g1_29dof_wbt",
+    "g1_29dof_wbt_acl_ql",
+    "g1_29dof_wbt_acl_ql_rms",
+    "g1_29dof_wbt_asym_cql",
+    "g1_29dof_wbt_aw_cql",
+    "g1_29dof_wbt_aw_cql_w_object",
+    "g1_29dof_wbt_b_arm",
+    "g1_29dof_wbt_bc",
+    "g1_29dof_wbt_bc_w_object",
+    "g1_29dof_wbt_bf_cql",
+    "g1_29dof_wbt_c_arm",
+    "g1_29dof_wbt_c_arm_w_object",
+    "g1_29dof_wbt_cql",
+    "g1_29dof_wbt_cql_w_object",
+    "g1_29dof_wbt_dw_cql",
     "g1_29dof_wbt_fast_sac",
-    "g1_29dof_wbt_fast_sac_data",
-    "g1_29dof_wbt_fixed_fast_sac_data",
     "g1_29dof_wbt_fast_sac_d3_seg_a_data",
     "g1_29dof_wbt_fast_sac_d3_seg_b_data",
     "g1_29dof_wbt_fast_sac_d3_seg_c_data",
+    "g1_29dof_wbt_fast_sac_data",
     "g1_29dof_wbt_fast_sac_episode_data",
-    "g1_29dof_wbt_iql",
-    "g1_29dof_wbt_cql",
-    "g1_29dof_wbt_lr_cql",
-    "g1_29dof_wbt_vc_cql",
-    "g1_29dof_wbt_aw_cql",
-    "g1_29dof_wbt_os_aw_cql",
-    "g1_29dof_wbt_lse_aw_cql",
-    "g1_29dof_wbt_asym_cql",
-    "g1_29dof_wbt_acl_ql",
-    "g1_29dof_wbt_acl_ql_rms",
-    "g1_29dof_wbt_dw_cql",
-    "g1_29dof_wbt_bf_cql",
-    "g1_29dof_wbt_bc",
-    "g1_29dof_wbt_w_bc",
-    "g1_29dof_wbt_td3_bc",
     "g1_29dof_wbt_fast_sac_w_object",
-    "g1_29dof_wbt_fast_sac_w_object_episode_data",
-    "g1_29dof_wbt_w_object",
-    "g1_29dof_wbt_cql_w_object",
-    "g1_29dof_wbt_aw_cql_w_object",
-    "g1_29dof_wbt_lse_aw_cql_w_object",
-    "g1_29dof_wbt_iql_w_object",
-    "g1_29dof_wbt_bc_w_object",
-    "g1_29dof_wbt_w_bc_w_object",
-    "g1_29dof_wbt_td3_bc_w_object",
     "g1_29dof_wbt_fast_sac_w_object_data",
+    "g1_29dof_wbt_fast_sac_w_object_episode_data",
+    "g1_29dof_wbt_fixed_fast_sac_data",
+    "g1_29dof_wbt_iql",
+    "g1_29dof_wbt_iql_w_object",
+    "g1_29dof_wbt_lr_cql",
+    "g1_29dof_wbt_td3_bc",
+    "g1_29dof_wbt_td3_bc_w_object",
+    "g1_29dof_wbt_vc_cql",
+    "g1_29dof_wbt_w_bc",
+    "g1_29dof_wbt_w_bc_w_object",
+    "g1_29dof_wbt_w_object",
 ]
 
 """

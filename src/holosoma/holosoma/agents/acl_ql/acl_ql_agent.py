@@ -17,6 +17,7 @@ from holosoma.agents.acl_ql.acl_weight_network import (
     compute_acl_monotonicity_loss,
     compute_acl_positivity_loss,
     compute_acl_surrogate_loss,
+    pearson_correlation,
 )
 from holosoma.agents.cql.cql import Actor
 from holosoma.agents.cql.cql_agent import CQLAgent
@@ -69,13 +70,14 @@ class ACLQLAgent(CQLAgent):
             self._acl_quality_table = torch.as_tensor(quality, device=self.device)
             self._acl_r_max = float(sidecar["r_max"])
 
+        # Paper Table I: plain Adam (default betas, no weight decay) for the
+        # ACL-specific modules. The inherited SAC/critic optimizers are untouched.
+        # Weight decay on the weight network would pull the learned weight
+        # function toward a constant solution and fight the Eq. (15)-(23) losses.
         self.behavior_actor = copy.deepcopy(self.actor).to(self.device)
-        self.behavior_optimizer = optim.AdamW(
+        self.behavior_optimizer = optim.Adam(
             self.behavior_actor.parameters(),
             lr=args.acl_behavior_learning_rate,
-            weight_decay=args.weight_decay,
-            fused=True,
-            betas=(0.9, 0.95),
         )
         self.acl_weight_net = ACLWeightNetwork(
             self.critic_obs_dim,
@@ -83,12 +85,9 @@ class ACLQLAgent(CQLAgent):
             hidden_dim=args.acl_weight_hidden_dim,
             num_layers=args.acl_weight_num_layers,
         ).to(self.device)
-        self.acl_weight_optimizer = optim.AdamW(
+        self.acl_weight_optimizer = optim.Adam(
             self.acl_weight_net.parameters(),
             lr=args.acl_weight_learning_rate,
-            weight_decay=args.weight_decay,
-            fused=True,
-            betas=(0.9, 0.95),
         )
         self._install_acl_index_capture()
         self._pretrain_behavior_policy()
@@ -171,6 +170,8 @@ class ACLQLAgent(CQLAgent):
                 self.obs_normalizer,
                 self.critic_obs_normalizer,
             )
+            # Actor.forward returns (tanh(mean) * scale + bias, mean, log_std); index 0 is
+            # the deterministic mean action, not a sample, so this is plain MSE BC.
             pred_actions = self.behavior_actor(data["observations"])[0]
             target_actions = self._to_critic_actions(data["actions"])
             bc_loss = F.mse_loss(pred_actions, target_actions)
@@ -291,6 +292,13 @@ class ACLQLAgent(CQLAgent):
             "acl/w_mu_ess_frac": self._ess_frac(w_mu),
             "acl/w_beta_ess_frac": self._ess_frac(w_beta),
             "acl/weight_mass_diff": w_mu.detach().mean() - w_beta.detach().mean(),
+            # Correlation between learned weights and the quality targets they should
+            # be monotone in (Eq. 15): Corr(w_mu, m_mu) and Corr(w_beta, m_beta).
+            "acl/corr_w_mu_m_mu": pearson_correlation(w_mu, m_mu),
+            "acl/corr_w_beta_m_beta": pearson_correlation(w_beta, m_beta),
+            # Outputs are unconstrained; the Eq. (23) penalty is what keeps these near 0.
+            "acl/w_mu_neg_frac": (w_mu.detach() < 0).float().mean(),
+            "acl/w_beta_neg_frac": (w_beta.detach() < 0).float().mean(),
             "acl/distance_mode_is_rms": torch.as_tensor(
                 float(self.config.acl_distance_mode == "rms"),
                 device=self.device,
