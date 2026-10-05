@@ -1,0 +1,343 @@
+{
+  "meta": {
+    "h5": "offline_data/g1_29dof_wbt_lafan_dance1_fastsac_1m_episode_env256_dataset.h5",
+    "npz": "offline_data/g1_29dof_wbt_lafan_dance1_fastsac_1m_episode_env256_dataset.h5.aw_weights.npz",
+    "H": 50,
+    "n_bins": 20,
+    "sigma": 0.9425279510324567,
+    "min_count": 200,
+    "n_boot": 200,
+    "prepend": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "append": [],
+    "wall": [
+      6,
+      7
+    ],
+    "wall_name": "highest-hazard"
+  },
+  "results": [
+    {
+      "H": 50,
+      "M": 100,
+      "reasons": {
+        "rows_total": 2513562,
+        "episodes": 21376,
+        "excluded_episode_ends_before_t+H": 737455,
+        "  of which end reason bad_tracking": 509941,
+        "  of which end reason motion_ends": 227214,
+        "  of which end reason other": 300,
+        "censored_in_window (timeout/segment/truncation/incomplete)": 600,
+        "analysed": 1775507,
+        "  y=1 (bad tracking in window)": 473297,
+        "  y=0 via motion_ends in window": 336910,
+        "  y=0 via window fully observed": 965300
+      },
+      "within_bin_weighted": [
+        0.5136861930530461,
+        0.30534390699979724,
+        0.1605831358307275,
+        0.08666923491100133
+      ],
+      "within_bin_weighted_ci95": [
+        [
+          0.5030612798794128,
+          0.5243762551175761
+        ],
+        [
+          0.2965227800430793,
+          0.3145661114647562
+        ],
+        [
+          0.15323366629811097,
+          0.168435827548047
+        ],
+        [
+          0.08012316171590429,
+          0.09168000490908423
+        ]
+      ],
+      "within_bin_unweighted": [
+        0.5168033023924176,
+        0.3081003813536892,
+        0.1606545934822576,
+        0.08547696942119559
+      ],
+      "bins_used": 18,
+      "pooled_rate_rawGH": [
+        0.4605532613764624,
+        0.2792459121282166,
+        0.1808871336557936,
+        0.14559438763441224
+      ],
+      "pooled_rate_A": [
+        0.47010996289512635,
+        0.29590696500824554,
+        0.18151199544017824,
+        0.11875136580629318
+      ],
+      "pooled_meanphase_rawGH": [
+        0.5458858275197643,
+        0.5109716473164344,
+        0.4729752754248055,
+        0.3048575895240736
+      ],
+      "pooled_meanphase_A": [
+        0.5424174497766822,
+        0.50431161976379,
+        0.4627244848413543,
+        0.32523659919677667
+      ],
+      "pooled_wallshare_rawGH": [
+        0.12355900395830377,
+        0.12233426603045008,
+        0.10533050673719639,
+        0.0512844774565927
+      ],
+      "pooled_wallshare_A": [
+        0.0769740265884468,
+        0.09485531995422145,
+        0.10649571840847802,
+        0.12418305070999398
+      ],
+      "pooled_appendshare_rawGH": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "pooled_appendshare_A": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "logistic": {
+        "beta_A_per_sigma": -2.456260349983803,
+        "ci95_lo": -2.5562797648530724,
+        "ci95_hi": -2.3726100571170243,
+        "odds_ratio_per_sigma": 0.0857550459316157,
+        "n_rows": 1775507,
+        "n_episodes": 10571,
+        "n_boot": 200
+      },
+      "monotone_Q1_to_Q4": true
+    },
+    {
+      "H": 50,
+      "M": 50,
+      "reasons": {
+        "rows_total": 2513562,
+        "episodes": 21376,
+        "excluded_episode_ends_before_t+H": 737455,
+        "  of which end reason bad_tracking": 509941,
+        "  of which end reason motion_ends": 227214,
+        "  of which end reason other": 300,
+        "censored_in_window (timeout/segment/truncation/incomplete)": 300,
+        "analysed": 1775807,
+        "  y=1 (bad tracking in window)": 276110,
+        "  y=0 via motion_ends in window": 181948,
+        "  y=0 via window fully observed": 1317749
+      },
+      "within_bin_weighted": [
+        0.3422479406603852,
+        0.17087026546081158,
+        0.07496114427300371,
+        0.033858982473606795
+      ],
+      "within_bin_weighted_ci95": [
+        [
+          0.33510585280843164,
+          0.350673412633017
+        ],
+        [
+          0.16456287441415945,
+          0.17737277651143338
+        ],
+        [
+          0.07061612807852187,
+          0.0791857467052985
+        ],
+        [
+          0.030923940838391287,
+          0.03672711052606011
+        ]
+      ],
+      "within_bin_unweighted": [
+        0.34383444346875813,
+        0.17312452167174172,
+        0.07569245322793178,
+        0.03397202780355253
+      ],
+      "bins_used": 18,
+      "pooled_rate_rawGH": [
+        0.32007063826720006,
+        0.1553144378546281,
+        0.08588991602695786,
+        0.060661963455508706
+      ],
+      "pooled_rate_A": [
+        0.3158359462284211,
+        0.1673810848494541,
+        0.09089721411323747,
+        0.047822737593253326
+      ],
+      "pooled_meanphase_rawGH": [
+        0.5459138605892568,
+        0.5110200419437521,
+        0.4730042370580547,
+        0.3049097341462682
+      ],
+      "pooled_meanphase_A": [
+        0.5424480910647634,
+        0.5043578395372209,
+        0.46276715829007914,
+        0.32527476983868553
+      ],
+      "pooled_wallshare_rawGH": [
+        0.12354038274408044,
+        0.12229953305657607,
+        0.10532219699426965,
+        0.05127806609723574
+      ],
+      "pooled_wallshare_A": [
+        0.07696102281327712,
+        0.09483028532428128,
+        0.10647096983457671,
+        0.1241778390456626
+      ],
+      "pooled_appendshare_rawGH": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "pooled_appendshare_A": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "logistic": {
+        "beta_A_per_sigma": -2.433198940653223,
+        "ci95_lo": -2.513148757772421,
+        "ci95_hi": -2.3584390156911277,
+        "odds_ratio_per_sigma": 0.08775565794990188,
+        "n_rows": 1775807,
+        "n_episodes": 10571,
+        "n_boot": 200
+      },
+      "monotone_Q1_to_Q4": true
+    },
+    {
+      "H": 50,
+      "M": 150,
+      "reasons": {
+        "rows_total": 2513562,
+        "episodes": 21376,
+        "excluded_episode_ends_before_t+H": 737455,
+        "  of which end reason bad_tracking": 509941,
+        "  of which end reason motion_ends": 227214,
+        "  of which end reason other": 300,
+        "censored_in_window (timeout/segment/truncation/incomplete)": 900,
+        "analysed": 1775207,
+        "  y=1 (bad tracking in window)": 606482,
+        "  y=0 via motion_ends in window": 470557,
+        "  y=0 via window fully observed": 698168
+      },
+      "within_bin_weighted": [
+        0.6040801979261022,
+        0.3962527743665431,
+        0.23166689574831964,
+        0.1345646437994723
+      ],
+      "within_bin_weighted_ci95": [
+        [
+          0.5912529384424547,
+          0.6168978434473411
+        ],
+        [
+          0.384199989479334,
+          0.4079365748647634
+        ],
+        [
+          0.2220754872117997,
+          0.24087499234649112
+        ],
+        [
+          0.12558472572900192,
+          0.14279621986465071
+        ]
+      ],
+      "within_bin_unweighted": [
+        0.6070546652146959,
+        0.3995130037396216,
+        0.23229583898449624,
+        0.13301662713965343
+      ],
+      "bins_used": 18,
+      "pooled_rate_rawGH": [
+        0.5291571466554905,
+        0.35859089997543947,
+        0.25791456550443664,
+        0.22089805814304578
+      ],
+      "pooled_rate_A": [
+        0.5504076142063352,
+        0.37924655419884135,
+        0.25845534720438396,
+        0.178451201211351
+      ],
+      "pooled_meanphase_rawGH": [
+        0.5458738964414918,
+        0.5109792161277081,
+        0.47293933226585133,
+        0.3048076985963098
+      ],
+      "pooled_meanphase_A": [
+        0.542409434561168,
+        0.5042942207058649,
+        0.4626932438767945,
+        0.3252032292245204
+      ],
+      "pooled_wallshare_rawGH": [
+        0.1235731249521183,
+        0.12234086899308474,
+        0.10536906097764319,
+        0.051293144239998915
+      ],
+      "pooled_wallshare_A": [
+        0.07698703475874376,
+        0.09487810978343897,
+        0.10652047534711426,
+        0.12419051739289143
+      ],
+      "pooled_appendshare_rawGH": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "pooled_appendshare_A": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "logistic": {
+        "beta_A_per_sigma": -2.450865972402986,
+        "ci95_lo": -2.5383995928748777,
+        "ci95_hi": -2.3483021878100487,
+        "odds_ratio_per_sigma": 0.08621889098170372,
+        "n_rows": 1775207,
+        "n_episodes": 10571,
+        "n_boot": 200
+      },
+      "monotone_Q1_to_Q4": true
+    }
+  ]
+}

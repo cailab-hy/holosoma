@@ -68,11 +68,18 @@ LABELS = {
     "g1_29dof_wbt_c_arm": "C-arm",
     "g1_29dof_wbt_asym_cql": "Asym-CQL",
     "g1_29dof_wbt_aw_cql_H50_global": "AW-CQL global baseline",
+    "g1_29dof_wbt_aw_cql_H50_K10": "AW-CQL (K=10 bins)",
+    "g1_29dof_wbt_aw_cql_H50_K40": "AW-CQL (K=40 bins)",
     "g1_29dof_wbt_lafan_dance1_cql": "LAFAN CQL",
     "g1_29dof_wbt_lafan_dance1_iql": "LAFAN IQL",
     "g1_29dof_wbt_lafan_dance1_aw_cql": "LAFAN AW-CQL",
     "g1_29dof_wbt_lafan_dance1_aw_cql_H50_global": "LAFAN AW-CQL global baseline",
     "g1_29dof_wbt_lafan_dance1_acl_ql": "LAFAN ACL-QL",
+    "g1_29dof_wbt_lafan_kick_cql": "KICK CQL",
+    "g1_29dof_wbt_lafan_kick_iql": "KICK IQL",
+    "g1_29dof_wbt_lafan_kick_acl_ql": "KICK ACL-QL",
+    "g1_29dof_wbt_lafan_kick_aw_cql": "KICK AW-CQL",
+    "g1_29dof_wbt_lafan_kick_aw_cql_H50_global": "KICK AW-CQL global baseline",
 }
 DEFAULT_METHODS = [
     "g1_29dof_wbt_cql",

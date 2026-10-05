@@ -10,6 +10,7 @@ checkpoint (`model_0100000.pt`) already exists under `logs/WholeBodyTracking/` i
 | Structural ablation | `g1_wbt/ablation/run_ablation_table.sh` (wBC, B-arm, C-arm, Asym-CQL) | 1-3 | Ablation table / figure |
 | H robustness | `g1_wbt/H_sweep/run_h_sweep.sh` (H25, H100; H50 = main AW-CQL seeds 1-3) | 1-3 | Appendix |
 | LAFAN cross-motion | `g1_wbt_lafan/run_lafan_table.sh` (CQL, IQL, ACL-QL, AW-CQL) | 1-3 | Cross-motion table |
+| LAFAN single-kick | `g1_wbt_kick/run_kick_table.sh` (CQL, IQL, ACL-QL, AW-CQL; motion fightAndSports1_subject4 f1728-1858, one hazard) | 1-5 | Cross-motion table |
 | Optional | `optional/g1_wbt_td3_bc.sh`, `optional/g1_wbt_cql_alpha_sweep.sh` | 1-3 | - |
 
 ```bash

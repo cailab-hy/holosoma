@@ -35,6 +35,7 @@ TRAIN_LOG_ROOT="${TRAIN_LOG_ROOT:-${HOLOSOMA_ROOT}/logs/WholeBodyTracking}"
 # Datasets (paths relative to the repo root, as the experiment configs expect).
 G1_H5="offline_data/g1_29dof_wbt_fastsac_episode1m_env256_dataset.h5"
 LAFAN_H5="offline_data/g1_29dof_wbt_lafan_dance1_fastsac_1m_episode_env256_dataset.h5"
+KICK_H5="offline_data/g1_29dof_wbt_lafan_kick_fastsac_1m_episode_env256_dataset.h5"
 
 FAIL_FILE="$(mktemp -t holosoma_validation_failed.XXXXXX)"
 trap 'rm -f "${FAIL_FILE}"' EXIT
@@ -82,6 +83,14 @@ ensure_aw_sidecar_global() {  # <h5> <H> <out>   global-baseline control (ignore
   log "AW global-baseline sidecar missing, computing (H=${horizon}): ${out}"
   if [[ "${DRY_RUN}" == "1" ]]; then echo "python scripts/aw_precompute_weights.py ${h5} --H ${horizon} --baseline global --out ${out}"; return 0; fi
   python scripts/aw_precompute_weights.py "${h5}" --H "${horizon}" --baseline global --out "${out}"
+}
+
+ensure_aw_sidecar_bins() {  # <h5> <H> <K> <out>   phase-baseline sidecar with K progress bins (bin-count sensitivity)
+  local h5="$1" horizon="$2" k="$3" out="$4"
+  if [[ -f "${out}" ]]; then return 0; fi
+  log "AW sidecar with ${k} bins missing, computing (H=${horizon}): ${out}"
+  if [[ "${DRY_RUN}" == "1" ]]; then echo "python scripts/aw_precompute_weights.py ${h5} --H ${horizon} --n-bins ${k} --out ${out}"; return 0; fi
+  python scripts/aw_precompute_weights.py "${h5}" --H "${horizon}" --n-bins "${k}" --out "${out}"
 }
 
 run_finished() {  # <run_name>  -> 0 if a run dir with the final checkpoint exists

@@ -62,6 +62,12 @@ METHOD_INFO = {
     "g1_29dof_wbt_c_arm": ("ablation", "C-arm (wLSE - Q_D)", 2),
     "g1_29dof_wbt_asym_cql": ("ablation", "Asym-CQL", 3),
     "g1_29dof_wbt_aw_cql_H50_global": ("ablation", "AW-CQL global baseline (no phase in w)", 4),
+    "g1_29dof_wbt_aw_cql_H50_K10": ("bin_sweep", "AW-CQL (H50, K=10 bins)", 1),
+    "g1_29dof_wbt_aw_cql_H50_K40": ("bin_sweep", "AW-CQL (H50, K=40 bins)", 3),
+    "g1_29dof_wbt_cql_alpha1p0": ("alpha_sweep", "CQL alpha=1", 0),
+    "g1_29dof_wbt_cql_alpha10p0": ("alpha_sweep", "CQL alpha=10", 2),
+    "g1_29dof_wbt_aw_cql_H50_alpha1p0": ("alpha_sweep", "AW-CQL alpha=1", 3),
+    "g1_29dof_wbt_aw_cql_H50_alpha10p0": ("alpha_sweep", "AW-CQL alpha=10", 5),
     "g1_29dof_wbt_aw_cql_H25": ("h_sweep", "AW-CQL (H25)", 0),
     "g1_29dof_wbt_aw_cql_H100": ("h_sweep", "AW-CQL (H100)", 2),
     "g1_29dof_wbt_lafan_dance1_cql": ("lafan", "LAFAN CQL", 0),
@@ -69,17 +75,30 @@ METHOD_INFO = {
     "g1_29dof_wbt_lafan_dance1_acl_ql": ("lafan", "LAFAN ACL-QL", 2),
     "g1_29dof_wbt_lafan_dance1_aw_cql": ("lafan", "LAFAN AW-CQL", 3),
     "g1_29dof_wbt_lafan_dance1_aw_cql_H50_global": ("lafan", "LAFAN AW-CQL global baseline (no phase in w)", 4),
+    "g1_29dof_wbt_lafan_kick_bc": ("kick", "KICK BC", 0),
+    "g1_29dof_wbt_lafan_kick_cql": ("kick", "KICK CQL", 1),
+    "g1_29dof_wbt_lafan_kick_iql": ("kick", "KICK IQL", 2),
+    "g1_29dof_wbt_lafan_kick_acl_ql": ("kick", "KICK ACL-QL", 3),
+    "g1_29dof_wbt_lafan_kick_aw_cql": ("kick", "KICK AW-CQL", 4),
+    "g1_29dof_wbt_lafan_kick_aw_cql_H50_global": ("kick", "KICK AW-CQL global baseline (no phase in w)", 5),
 }
 # (method, group, label, order, seeds) rows re-used from another table, restricted to `seeds`
 SHARED_ROWS = [
     ("g1_29dof_wbt_aw_cql_H50", "h_sweep", "AW-CQL (H50, main arm)", 1, None),
+    ("g1_29dof_wbt_cql", "alpha_sweep", "CQL alpha=5 (main)", 1, None),
+    ("g1_29dof_wbt_aw_cql_H50", "alpha_sweep", "AW-CQL alpha=5 (main)", 4, None),
+    ("g1_29dof_wbt_aw_cql_H50_global", "bin_sweep", "AW-CQL (H50, K=1 = global baseline)", 0, None),
+    ("g1_29dof_wbt_aw_cql_H50", "bin_sweep", "AW-CQL (H50, K=20 = main arm)", 2, None),
 ]
 
 GROUP_TITLES = {
     "main": "Main G1-WBT table (seeds 1-5)",
     "ablation": "Structural ablation (seeds 1-5)",
     "h_sweep": "H robustness (seeds 1-5; H50 is the main AW-CQL arm)",
+    "alpha_sweep": "Conservative weight alpha (largebox; alpha=5 is the main table)",
+    "bin_sweep": "Progress-bin sensitivity of b(kappa) (seeds 1-5; K=1 is the global baseline, K=20 the main arm)",
     "lafan": "LAFAN dance1 cross-motion (seeds 1-5)",
+    "kick": "LAFAN single-kick cross-motion (fightAndSports1_subject4 f1728-1858)",
     "other": "Other runs",
 }
 

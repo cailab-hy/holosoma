@@ -69,6 +69,21 @@ from holosoma.config_values.wbt.g1.lafan_dance1.experiment import (
     g1_29dof_wbt_lafan_dance1_td3_bc,
     g1_29dof_wbt_lafan_dance1_w_bc,
 )
+from holosoma.config_values.wbt.g1.lafan_kick.experiment import (
+    g1_29dof_wbt_lafan_kick,
+    g1_29dof_wbt_lafan_kick_acl_ql,
+    g1_29dof_wbt_lafan_kick_aw_cql,
+    g1_29dof_wbt_lafan_kick_b_arm,
+    g1_29dof_wbt_lafan_kick_bc,
+    g1_29dof_wbt_lafan_kick_c_arm,
+    g1_29dof_wbt_lafan_kick_cql,
+    g1_29dof_wbt_lafan_kick_dw_cql,
+    g1_29dof_wbt_lafan_kick_fast_sac,
+    g1_29dof_wbt_lafan_kick_fast_sac_episode_data,
+    g1_29dof_wbt_lafan_kick_iql,
+    g1_29dof_wbt_lafan_kick_td3_bc,
+    g1_29dof_wbt_lafan_kick_w_bc,
+)
 from holosoma.config_values.wbt.k1.experiment import (
     k1_23dof_wbt,
     k1_23dof_wbt_aw_cql,
@@ -136,9 +151,20 @@ DEFAULTS = {
     "g1_29dof_wbt_lafan_dance1_bc": g1_29dof_wbt_lafan_dance1_bc,
     "g1_29dof_wbt_lafan_dance1_w_bc": g1_29dof_wbt_lafan_dance1_w_bc,
     "g1_29dof_wbt_lafan_dance1_fast_sac": g1_29dof_wbt_lafan_dance1_fast_sac,
-    "g1_29dof_wbt_lafan_dance1_fast_sac_episode_data": (
-        g1_29dof_wbt_lafan_dance1_fast_sac_episode_data
-    ),
+    "g1_29dof_wbt_lafan_dance1_fast_sac_episode_data": (g1_29dof_wbt_lafan_dance1_fast_sac_episode_data),
+    "g1_29dof_wbt_lafan_kick": g1_29dof_wbt_lafan_kick,
+    "g1_29dof_wbt_lafan_kick_cql": g1_29dof_wbt_lafan_kick_cql,
+    "g1_29dof_wbt_lafan_kick_acl_ql": g1_29dof_wbt_lafan_kick_acl_ql,
+    "g1_29dof_wbt_lafan_kick_iql": g1_29dof_wbt_lafan_kick_iql,
+    "g1_29dof_wbt_lafan_kick_dw_cql": g1_29dof_wbt_lafan_kick_dw_cql,
+    "g1_29dof_wbt_lafan_kick_aw_cql": g1_29dof_wbt_lafan_kick_aw_cql,
+    "g1_29dof_wbt_lafan_kick_b_arm": g1_29dof_wbt_lafan_kick_b_arm,
+    "g1_29dof_wbt_lafan_kick_c_arm": g1_29dof_wbt_lafan_kick_c_arm,
+    "g1_29dof_wbt_lafan_kick_td3_bc": g1_29dof_wbt_lafan_kick_td3_bc,
+    "g1_29dof_wbt_lafan_kick_bc": g1_29dof_wbt_lafan_kick_bc,
+    "g1_29dof_wbt_lafan_kick_w_bc": g1_29dof_wbt_lafan_kick_w_bc,
+    "g1_29dof_wbt_lafan_kick_fast_sac": g1_29dof_wbt_lafan_kick_fast_sac,
+    "g1_29dof_wbt_lafan_kick_fast_sac_episode_data": (g1_29dof_wbt_lafan_kick_fast_sac_episode_data),
     "g1_29dof_wbt_fast_sac_data": g1_29dof_wbt_fast_sac_data,
     "g1_29dof_wbt_fast_sac_d3_seg_a_data": g1_29dof_wbt_fast_sac_d3_seg_a_data,
     "g1_29dof_wbt_fast_sac_d3_seg_b_data": g1_29dof_wbt_fast_sac_d3_seg_b_data,
@@ -171,7 +197,6 @@ DEFAULTS = {
     "g1_29dof_wbt_td3_bc_w_object": g1_29dof_wbt_td3_bc_w_object,
     "g1_29dof_wbt_fast_sac_w_object_data": g1_29dof_wbt_fast_sac_w_object_data,
     "g1_29dof_wbt_fast_sac_w_object_episode_data": g1_29dof_wbt_fast_sac_w_object_episode_data,
-
     "k1_23dof_wbt": k1_23dof_wbt,
     "k1_23dof_wbt_fast_sac": k1_23dof_wbt_fast_sac,
     "k1_23dof_wbt_fast_sac_episode_data": k1_23dof_wbt_fast_sac_episode_data,
