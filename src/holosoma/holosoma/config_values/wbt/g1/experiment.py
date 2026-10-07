@@ -7,6 +7,10 @@ from holosoma.config_types.algo import (
     AsymCQLConfig,
     AWCQLAlgoConfig,
     AWCQLConfig,
+    ODPRCQLAlgoConfig,
+    ODPRCQLConfig,
+    HongAdvantageCQLAlgoConfig,
+    HongAdvantageCQLConfig,
     DWCQLAlgoConfig,
     DWCQLConfig,
     WBCAlgoConfig,
@@ -589,6 +593,31 @@ g1_29dof_wbt_aw_cql = replace(
 
 # B-arm (formerly OS-AW-CQL): paired AW-CQL ablation using the same sidecar weights and all
 # hyperparameters, with w applied only to the -Q(s, a_data) anchor term.
+# ODPR-CQL: paired with AW-CQL (same dataset and CQL hyperparameters, weight on the same bracket);
+# only the weight table differs: ODPR-A priority weights from <h5>.oper_a.odpr.npz.
+g1_29dof_wbt_odpr_cql = replace(
+    g1_29dof_wbt_cql,
+    training=replace(g1_29dof_wbt_cql.training, name="g1_29dof_wbt_odpr_cql_manager"),
+    algo=ODPRCQLAlgoConfig(
+        _target_="holosoma.agents.odpr_cql.odpr_cql_agent.ODPRCQLAgent",
+        _recursive_=False,
+        config=ODPRCQLConfig(**asdict(g1_29dof_wbt_cql.algo.config)),
+    ),
+)
+
+# Hong-Advantage CQL: paired with CQL (same dataset and CQL hyperparameters, loss untouched);
+# only the minibatch sampling distribution differs (Hong et al. ICLR 2023 trajectory AW, temperature 0.2).
+g1_29dof_wbt_hong_advantage_cql = replace(
+    g1_29dof_wbt_cql,
+    training=replace(g1_29dof_wbt_cql.training, name="g1_29dof_wbt_hong_advantage_cql_manager"),
+    algo=HongAdvantageCQLAlgoConfig(
+        _target_="holosoma.agents.hong_advantage_cql.hong_advantage_cql_agent.HongAdvantageCQLAgent",
+        _recursive_=False,
+        config=HongAdvantageCQLConfig(**asdict(g1_29dof_wbt_cql.algo.config)),
+    ),
+)
+
+
 g1_29dof_wbt_b_arm = replace(
     g1_29dof_wbt_aw_cql,
     training=replace(g1_29dof_wbt_aw_cql.training, name="g1_29dof_wbt_b_arm_manager_pu1_4096_seed2"),
@@ -1262,6 +1291,8 @@ __all__ = [
     "g1_29dof_wbt_asym_cql",
     "g1_29dof_wbt_aw_cql",
     "g1_29dof_wbt_aw_cql_w_object",
+    "g1_29dof_wbt_odpr_cql",
+    "g1_29dof_wbt_hong_advantage_cql",
     "g1_29dof_wbt_b_arm",
     "g1_29dof_wbt_bc",
     "g1_29dof_wbt_bc_w_object",

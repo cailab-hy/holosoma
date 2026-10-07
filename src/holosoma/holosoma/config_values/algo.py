@@ -7,6 +7,10 @@ from holosoma.config_types.algo import (
     AsymCQLConfig,
     AWCQLAlgoConfig,
     AWCQLConfig,
+    ODPRCQLAlgoConfig,
+    ODPRCQLConfig,
+    HongAdvantageCQLAlgoConfig,
+    HongAdvantageCQLConfig,
     BCAlgoConfig,
     BCConfig,
     BFCQLAlgoConfig,
@@ -353,6 +357,20 @@ aw_cql = AWCQLAlgoConfig(
     _target_="holosoma.agents.aw_cql.aw_cql_agent.AWCQLAgent",
     _recursive_=False,
     config=AWCQLConfig(**dataclasses.asdict(cql.config)),
+)
+
+# ODPR-CQL: AW-CQL's bracket weighting with ODPR-A (OPER-A) priority weights instead of AW weights.
+odpr_cql = ODPRCQLAlgoConfig(
+    _target_="holosoma.agents.odpr_cql.odpr_cql_agent.ODPRCQLAgent",
+    _recursive_=False,
+    config=ODPRCQLConfig(**dataclasses.asdict(cql.config)),
+)
+
+# Hong-Advantage CQL: plain CQL objective, Hong et al. (ICLR 2023) trajectory-advantage sampling.
+hong_advantage_cql = HongAdvantageCQLAlgoConfig(
+    _target_="holosoma.agents.hong_advantage_cql.hong_advantage_cql_agent.HongAdvantageCQLAgent",
+    _recursive_=False,
+    config=HongAdvantageCQLConfig(**dataclasses.asdict(cql.config)),
 )
 
 b_arm = AWCQLAlgoConfig(
@@ -876,6 +894,8 @@ DEFAULTS = {
     "cql": cql,
     "vc_cql": vc_cql,
     "aw_cql": aw_cql,
+    "odpr_cql": odpr_cql,
+    "hong_advantage_cql": hong_advantage_cql,
     "b_arm": b_arm,
     "c_arm": c_arm,
     "asym_cql": asym_cql,

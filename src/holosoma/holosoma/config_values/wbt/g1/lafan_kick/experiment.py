@@ -7,6 +7,8 @@ from holosoma.config_types.algo import (
     ACLQLConfig,
     DWCQLAlgoConfig,
     DWCQLConfig,
+    HongAdvantageCQLAlgoConfig,
+    HongAdvantageCQLConfig,
     WBCAlgoConfig,
     WBCConfig,
 )
@@ -605,6 +607,19 @@ g1_29dof_wbt_lafan_kick_w_bc = ExperimentConfig(
 )
 
 
+# Hong-Advantage CQL: paired with CQL (same dataset and hyperparameters, loss untouched); only the
+# minibatch sampling distribution differs (Hong et al. ICLR 2023 trajectory AW, temperature 0.2).
+g1_29dof_wbt_lafan_kick_hong_advantage_cql = replace(
+    g1_29dof_wbt_lafan_kick_cql,
+    training=replace(g1_29dof_wbt_lafan_kick_cql.training, name="g1_29dof_wbt_lafan_kick_hong_advantage_cql_manager"),
+    algo=HongAdvantageCQLAlgoConfig(
+        _target_="holosoma.agents.hong_advantage_cql.hong_advantage_cql_agent.HongAdvantageCQLAgent",
+        _recursive_=False,
+        config=HongAdvantageCQLConfig(**asdict(g1_29dof_wbt_lafan_kick_cql.algo.config)),
+    ),
+)
+
+
 __all__ = [
     "g1_29dof_wbt_lafan_kick",
     "g1_29dof_wbt_lafan_kick_acl_ql",
@@ -613,6 +628,7 @@ __all__ = [
     "g1_29dof_wbt_lafan_kick_bc",
     "g1_29dof_wbt_lafan_kick_c_arm",
     "g1_29dof_wbt_lafan_kick_cql",
+    "g1_29dof_wbt_lafan_kick_hong_advantage_cql",
     "g1_29dof_wbt_lafan_kick_dw_cql",
     "g1_29dof_wbt_lafan_kick_fast_sac",
     "g1_29dof_wbt_lafan_kick_fast_sac_episode_data",

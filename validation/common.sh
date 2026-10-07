@@ -36,6 +36,7 @@ TRAIN_LOG_ROOT="${TRAIN_LOG_ROOT:-${HOLOSOMA_ROOT}/logs/WholeBodyTracking}"
 G1_H5="offline_data/g1_29dof_wbt_fastsac_episode1m_env256_dataset.h5"
 LAFAN_H5="offline_data/g1_29dof_wbt_lafan_dance1_fastsac_1m_episode_env256_dataset.h5"
 KICK_H5="offline_data/g1_29dof_wbt_lafan_kick_fastsac_1m_episode_env256_dataset.h5"
+KICK2_H5="offline_data/g1_29dof_wbt_lafan_kick2_fastsac_1m_episode_env256_dataset.h5"
 
 FAIL_FILE="$(mktemp -t holosoma_validation_failed.XXXXXX)"
 trap 'rm -f "${FAIL_FILE}"' EXIT
@@ -51,6 +52,11 @@ activate_env() {
     set -u
   fi
   export OMNI_KIT_ACCEPT_EULA=1
+  # Repo-local wandb account (see scripts/source_isaacsim_setup.sh); also applied when hssim was already active.
+  if [[ -f "${HOLOSOMA_ROOT}/.wandb.env" ]]; then
+    set -a; . "${HOLOSOMA_ROOT}/.wandb.env"; set +a
+    log "wandb: repo-local account from .wandb.env (entity: ${WANDB_ENTITY:-<key default>})"
+  fi
 }
 
 require_file() {  # <path> <hint>
@@ -83,6 +89,30 @@ ensure_aw_sidecar_global() {  # <h5> <H> <out>   global-baseline control (ignore
   log "AW global-baseline sidecar missing, computing (H=${horizon}): ${out}"
   if [[ "${DRY_RUN}" == "1" ]]; then echo "python scripts/aw_precompute_weights.py ${h5} --H ${horizon} --baseline global --out ${out}"; return 0; fi
   python scripts/aw_precompute_weights.py "${h5}" --H "${horizon}" --baseline global --out "${out}"
+}
+
+ensure_vh_sidecar() {  # <h5> <H>   frozen V_H baseline ablation: writes <h5>.aw_weights.H<H>.vh.npz and .vh_presigma.npz
+  local h5="$1" horizon="$2"
+  local out="${h5}.aw_weights.H${horizon}.vh.npz"
+  if [[ -f "${out}" && -f "${out/.vh.npz/.vh_presigma.npz}" ]]; then return 0; fi
+  require_file "${h5}.aw_weights.H${horizon}.npz" "PRe sidecar needed for the shared G^H / sigma: run ensure_aw_sidecar first"
+  log "V_H baseline sidecars missing, fitting cross-fitted V_H (H=${horizon}): ${out}"
+  if [[ "${DRY_RUN}" == "1" ]]; then echo "python scripts/vh_precompute_weights.py ${h5} --H ${horizon} --pre ${h5}.aw_weights.H${horizon}.npz"; return 0; fi
+  python scripts/vh_precompute_weights.py "${h5}" --H "${horizon}" --pre "${h5}.aw_weights.H${horizon}.npz"
+}
+
+ensure_oper_sidecar() {  # <h5> <mode: odpr|ess|raw> <out>   ODPR-CQL weight sidecar built from OPER-A seeds 1-3
+  local h5="$1" mode="$2" out="$3" seed
+  if [[ -f "${out}" ]]; then return 0; fi
+  local -a opers=() extra=()
+  for seed in 1 2 3; do
+    require_file "${h5}.oper_a.seed${seed}.npz" "run: python scripts/oper_precompute_weights.py ${h5} --seed ${seed} --out ${h5}.oper_a.seed${seed}.npz"
+    opers+=("${h5}.oper_a.seed${seed}.npz")
+  done
+  [[ "${mode}" == "ess" ]] && extra=(--match-ess "${h5}.aw_weights.H50.npz")
+  log "OPER-A sidecar missing, building (mode=${mode}): ${out}"
+  if [[ "${DRY_RUN}" == "1" ]]; then echo "python scripts/odpr_make_sidecar.py --oper ${opers[*]} --mode ${mode} ${extra[*]} --out ${out}"; return 0; fi
+  python scripts/odpr_make_sidecar.py --oper "${opers[@]}" --mode "${mode}" "${extra[@]}" --out "${out}"
 }
 
 ensure_aw_sidecar_bins() {  # <h5> <H> <K> <out>   phase-baseline sidecar with K progress bins (bin-count sensitivity)

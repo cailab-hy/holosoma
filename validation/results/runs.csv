@@ -624,3 +624,68 @@ run,method,group,label,seed,metric,final10,best,best_step,last,last_over_best
 20261004_194828-g1_29dof_wbt_lafan_kick_aw_cql_H50_global_seed5-locomotion,g1_29dof_wbt_lafan_kick_aw_cql_H50_global,kick,KICK AW-CQL global baseline (no phase in w),5,length,407.53896484375,409.342529296875,85000,405.896728515625,0.9915821090294018
 20261004_194828-g1_29dof_wbt_lafan_kick_aw_cql_H50_global_seed5-locomotion,g1_29dof_wbt_lafan_kick_aw_cql_H50_global,kick,KICK AW-CQL global baseline (no phase in w),5,bad_tracking,1.89453125,1.025390625,94000,2.2216796875,2.1666666666666665
 20261004_194828-g1_29dof_wbt_lafan_kick_aw_cql_H50_global_seed5-locomotion,g1_29dof_wbt_lafan_kick_aw_cql_H50_global,kick,KICK AW-CQL global baseline (no phase in w),5,timeout,0.0048828125,0.0,1000,0.0,nan
+20261005_111434-g1_29dof_wbt_odpr_cql_seed1-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),1,success,74.7607421875,82.470703125,70000,69.0185546875,0.8368857312018946
+20261005_111434-g1_29dof_wbt_odpr_cql_seed1-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),1,return,47.691734313964844,49.94468688964844,68000,46.64664840698242,0.9339661796268149
+20261005_111434-g1_29dof_wbt_odpr_cql_seed1-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),1,length,483.068798828125,501.754150390625,68000,466.621337890625,0.9299800261290346
+20261005_111434-g1_29dof_wbt_odpr_cql_seed1-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),1,bad_tracking,23.99658203125,16.259765625,70000,29.8828125,1.837837837837838
+20261005_111434-g1_29dof_wbt_odpr_cql_seed1-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),1,timeout,1.24267578125,0.0,1000,1.0986328125,nan
+20261005_111446-g1_29dof_wbt_odpr_cql_seed4-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),4,success,72.5830078125,83.7890625,67000,79.39453125,0.9475524475524476
+20261005_111446-g1_29dof_wbt_odpr_cql_seed4-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),4,return,47.05837135314941,49.87187194824219,67000,48.320980072021484,0.9689024731650289
+20261005_111446-g1_29dof_wbt_odpr_cql_seed4-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),4,length,478.7061279296875,502.63232421875,67000,490.59033203125,0.976042145307274
+20261005_111446-g1_29dof_wbt_odpr_cql_seed4-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),4,bad_tracking,26.04736328125,15.185546875,67000,19.2626953125,1.2684887459807075
+20261005_111446-g1_29dof_wbt_odpr_cql_seed4-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),4,timeout,1.36962890625,0.0,1000,1.3427734375,nan
+20261005_161018-g1_29dof_wbt_odpr_cql_seed2-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),2,success,67.01904296875,81.640625,59000,69.1650390625,0.847188995215311
+20261005_161018-g1_29dof_wbt_odpr_cql_seed2-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),2,return,44.73428039550781,48.83515548706055,81000,45.671424865722656,0.9352161247407893
+20261005_161018-g1_29dof_wbt_odpr_cql_seed2-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),2,length,451.8228271484375,494.50048828125,59000,467.297607421875,0.9449891729047126
+20261005_161018-g1_29dof_wbt_odpr_cql_seed2-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),2,bad_tracking,31.84814453125,16.8212890625,59000,29.78515625,1.7706821480406385
+20261005_161018-g1_29dof_wbt_odpr_cql_seed2-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),2,timeout,1.1328125,0.0,1000,1.0498046875,nan
+20261005_161812-g1_29dof_wbt_odpr_cql_seed5-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),5,success,66.279296875,79.931640625,80000,61.376953125,0.7678680513133781
+20261005_161812-g1_29dof_wbt_odpr_cql_seed5-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),5,return,45.07460594177246,48.46937942504883,80000,44.684165954589844,0.921905056030018
+20261005_161812-g1_29dof_wbt_odpr_cql_seed5-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),5,length,456.3881591796875,491.099609375,80000,449.46044921875,0.9152123940614771
+20261005_161812-g1_29dof_wbt_odpr_cql_seed5-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),5,bad_tracking,32.54150390625,18.896484375,80000,37.4267578125,1.9806201550387597
+20261005_161812-g1_29dof_wbt_odpr_cql_seed5-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),5,timeout,1.17919921875,0.0,1000,1.1962890625,nan
+20261005_205825-g1_29dof_wbt_odpr_cql_seed3-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),3,success,69.4287109375,83.349609375,80000,52.9296875,0.6350322202694786
+20261005_205825-g1_29dof_wbt_odpr_cql_seed3-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),3,return,45.338386154174806,49.67729568481445,74000,37.713565826416016,0.7591710721472393
+20261005_205825-g1_29dof_wbt_odpr_cql_seed3-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),3,length,458.49345703125,502.108642578125,74000,381.669189453125,0.7601326826270266
+20261005_205825-g1_29dof_wbt_odpr_cql_seed3-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),3,bad_tracking,29.34814453125,15.72265625,80000,46.3134765625,2.9456521739130435
+20261005_205825-g1_29dof_wbt_odpr_cql_seed3-locomotion,g1_29dof_wbt_odpr_cql,ablation,ODPR-CQL (ODPR-A weights on bracket),3,timeout,1.22314453125,0.0,1000,0.7568359375,nan
+20261005_210502-g1_29dof_wbt_aw_cql_H50_vh_seed1-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,1,success,31.513671875,63.037109375,65000,33.6181640625,0.5333075135553834
+20261005_210502-g1_29dof_wbt_aw_cql_H50_vh_seed1-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,1,return,33.00400638580322,45.41674041748047,64000,33.39376449584961,0.7352743545416718
+20261005_210502-g1_29dof_wbt_aw_cql_H50_vh_seed1-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,1,length,327.9200927734375,459.1318359375,64000,332.03564453125,0.723181488500503
+20261005_210502-g1_29dof_wbt_aw_cql_H50_vh_seed1-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,1,bad_tracking,67.9150390625,35.5224609375,65000,65.8935546875,1.8549828178694159
+20261005_210502-g1_29dof_wbt_aw_cql_H50_vh_seed1-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,1,timeout,0.5712890625,0.0,1000,0.48828125,nan
+20261006_020022-g1_29dof_wbt_aw_cql_H50_vh_seed2-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,2,success,46.46240234375,68.6767578125,58000,37.7197265625,0.5492356914326342
+20261006_020022-g1_29dof_wbt_aw_cql_H50_vh_seed2-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,2,return,38.961172103881836,46.352638244628906,57000,37.794342041015625,0.8153654996195395
+20261006_020022-g1_29dof_wbt_aw_cql_H50_vh_seed2-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,2,length,392.8262451171875,471.884765625,57000,383.155517578125,0.8119683988328056
+20261006_020022-g1_29dof_wbt_aw_cql_H50_vh_seed2-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,2,bad_tracking,52.6708984375,30.078125,58000,61.572265625,2.0470779220779223
+20261006_020022-g1_29dof_wbt_aw_cql_H50_vh_seed2-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,2,timeout,0.86669921875,0.0,1000,0.7080078125,nan
+20261006_060103-g1_29dof_wbt_aw_cql_H50_vh_seed3-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,3,success,42.001953125,66.11328125,59000,56.982421875,0.861890694239291
+20261006_060103-g1_29dof_wbt_aw_cql_H50_vh_seed3-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,3,return,37.33206787109375,45.675777435302734,59000,40.94792938232422,0.8964911312199282
+20261006_060103-g1_29dof_wbt_aw_cql_H50_vh_seed3-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,3,length,378.4133056640625,468.56103515625,59000,410.81103515625,0.8767503149707225
+20261006_060103-g1_29dof_wbt_aw_cql_H50_vh_seed3-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,3,bad_tracking,57.2509765625,32.5927734375,59000,41.8212890625,1.2831460674157302
+20261006_060103-g1_29dof_wbt_aw_cql_H50_vh_seed3-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,3,timeout,0.7470703125,0.0,1000,1.1962890625,nan
+20261006_101610-g1_29dof_wbt_aw_cql_H50_vh_seed4-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,4,success,42.3828125,72.4609375,74000,35.6689453125,0.49225067385444743
+20261006_101610-g1_29dof_wbt_aw_cql_H50_vh_seed4-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,4,return,39.104848861694336,46.34810256958008,74000,35.6872444152832,0.7699828566165732
+20261006_101610-g1_29dof_wbt_aw_cql_H50_vh_seed4-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,4,length,394.9791259765625,470.460205078125,74000,362.363525390625,0.7702320440268707
+20261006_101610-g1_29dof_wbt_aw_cql_H50_vh_seed4-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,4,bad_tracking,56.89208984375,26.2451171875,74000,63.7939453125,2.430697674418605
+20261006_101610-g1_29dof_wbt_aw_cql_H50_vh_seed4-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,4,timeout,0.72509765625,0.0,1000,0.537109375,nan
+20261006_142338-g1_29dof_wbt_aw_cql_H50_vh_seed5-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,5,success,51.77734375,69.9462890625,76000,48.193359375,0.6890052356020943
+20261006_142338-g1_29dof_wbt_aw_cql_H50_vh_seed5-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,5,return,40.338723754882814,46.459800720214844,76000,38.545528411865234,0.8296533307146521
+20261006_142338-g1_29dof_wbt_aw_cql_H50_vh_seed5-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,5,length,408.5093994140625,476.96533203125,76000,390.89013671875,0.8195357407928748
+20261006_142338-g1_29dof_wbt_aw_cql_H50_vh_seed5-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,5,bad_tracking,47.275390625,28.955078125,76000,50.8056640625,1.754637436762226
+20261006_142338-g1_29dof_wbt_aw_cql_H50_vh_seed5-locomotion,g1_29dof_wbt_aw_cql_H50_vh,ablation,AW-CQL frozen V_H baseline,5,timeout,0.947265625,0.0,1000,1.0009765625,nan
+20261006_145301-g1_29dof_wbt_lafan_kick2_cql_seed1-locomotion,g1_29dof_wbt_lafan_kick2_cql,kick2,KICK2 CQL,1,success,0.59326171875,55.615234375,57000,0.0,0.0
+20261006_145301-g1_29dof_wbt_lafan_kick2_cql_seed1-locomotion,g1_29dof_wbt_lafan_kick2_cql,kick2,KICK2 CQL,1,return,34.22822570800781,52.822959899902344,37000,34.38764953613281,0.6509981568866304
+20261006_145301-g1_29dof_wbt_lafan_kick2_cql_seed1-locomotion,g1_29dof_wbt_lafan_kick2_cql,kick2,KICK2 CQL,1,length,315.3501708984375,504.666748046875,37000,314.497314453125,0.6231781976329328
+20261006_145301-g1_29dof_wbt_lafan_kick2_cql_seed1-locomotion,g1_29dof_wbt_lafan_kick2_cql,kick2,KICK2 CQL,1,bad_tracking,99.40185546875,44.1162109375,57000,100.0,2.2667404537908133
+20261006_145301-g1_29dof_wbt_lafan_kick2_cql_seed1-locomotion,g1_29dof_wbt_lafan_kick2_cql,kick2,KICK2 CQL,1,timeout,0.0048828125,0.0,1000,0.0,nan
+20261006_193937-g1_29dof_wbt_lafan_kick2_cql_seed2-locomotion,g1_29dof_wbt_lafan_kick2_cql,kick2,KICK2 CQL,2,success,3.02490234375,71.5576171875,59000,0.0732421875,0.0010235414534288639
+20261006_193937-g1_29dof_wbt_lafan_kick2_cql_seed2-locomotion,g1_29dof_wbt_lafan_kick2_cql,kick2,KICK2 CQL,2,return,35.25445823669433,57.68796157836914,59000,34.17802810668945,0.5924637857113147
+20261006_193937-g1_29dof_wbt_lafan_kick2_cql_seed2-locomotion,g1_29dof_wbt_lafan_kick2_cql,kick2,KICK2 CQL,2,length,326.8303955078125,539.574462890625,59000,314.228759765625,0.5823640319859265
+20261006_193937-g1_29dof_wbt_lafan_kick2_cql_seed2-locomotion,g1_29dof_wbt_lafan_kick2_cql,kick2,KICK2 CQL,2,bad_tracking,96.95068359375,28.076171875,59000,99.9267578125,3.5591304347826087
+20261006_193937-g1_29dof_wbt_lafan_kick2_cql_seed2-locomotion,g1_29dof_wbt_lafan_kick2_cql,kick2,KICK2 CQL,2,timeout,0.0244140625,0.0,1000,0.0,nan
+20261006_233628-g1_29dof_wbt_lafan_kick2_cql_seed3-locomotion,g1_29dof_wbt_lafan_kick2_cql,kick2,KICK2 CQL,3,success,2.6318359375,62.6220703125,72000,2.978515625,0.047563352826510724
+20261006_233628-g1_29dof_wbt_lafan_kick2_cql_seed3-locomotion,g1_29dof_wbt_lafan_kick2_cql,kick2,KICK2 CQL,3,return,34.81002922058106,53.43929672241211,72000,35.290767669677734,0.6603898223622581
+20261006_233628-g1_29dof_wbt_lafan_kick2_cql_seed3-locomotion,g1_29dof_wbt_lafan_kick2_cql,kick2,KICK2 CQL,3,length,322.556787109375,499.5810546875,72000,327.39990234375,0.6553489153998174
+20261006_233628-g1_29dof_wbt_lafan_kick2_cql_seed3-locomotion,g1_29dof_wbt_lafan_kick2_cql,kick2,KICK2 CQL,3,bad_tracking,97.3583984375,37.0361328125,72000,96.9970703125,2.618984838497034
+20261006_233628-g1_29dof_wbt_lafan_kick2_cql_seed3-locomotion,g1_29dof_wbt_lafan_kick2_cql,kick2,KICK2 CQL,3,timeout,0.009765625,0.0,1000,0.0244140625,nan

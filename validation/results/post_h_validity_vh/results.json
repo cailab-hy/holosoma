@@ -1,0 +1,138 @@
+{
+  "meta": {
+    "h5": "offline_data/g1_29dof_wbt_fastsac_episode1m_env256_dataset.h5",
+    "npz": "offline_data/g1_29dof_wbt_fastsac_episode1m_env256_dataset.h5.aw_weights.H50.vh.npz",
+    "H": 50,
+    "n_bins": 20,
+    "sigma": 0.35873205318766,
+    "min_count": 200,
+    "n_boot": 50,
+    "prepend": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "append": [
+      16,
+      17,
+      18,
+      19
+    ],
+    "wall": [
+      4,
+      5,
+      12,
+      13
+    ],
+    "wall_name": "hazard wall"
+  },
+  "results": [
+    {
+      "H": 50,
+      "M": 100,
+      "reasons": {
+        "rows_total": 2525605,
+        "episodes": 34914,
+        "excluded_episode_ends_before_t+H": 1188335,
+        "  of which end reason bad_tracking": 937562,
+        "  of which end reason motion_ends": 250723,
+        "  of which end reason other": 50,
+        "censored_in_window (timeout/segment/truncation/incomplete)": 100,
+        "analysed": 1337170,
+        "  y=1 (bad tracking in window)": 781183,
+        "  y=0 via motion_ends in window": 224375,
+        "  y=0 via window fully observed": 331612
+      },
+      "within_bin_weighted": [
+        0.5801330565310774,
+        0.5668093584255445,
+        0.5796805777002672,
+        0.6102010780800364
+      ],
+      "within_bin_weighted_ci95": [
+        [
+          0.5686527955579201,
+          0.5878226136924996
+        ],
+        [
+          0.5548112724401109,
+          0.5716669392719169
+        ],
+        [
+          0.5683574824106403,
+          0.585494322940929
+        ],
+        [
+          0.6014391514361089,
+          0.6190870041250193
+        ]
+      ],
+      "within_bin_unweighted": [
+        0.46283346436127804,
+        0.4389168774493985,
+        0.44534117864068384,
+        0.4812197184382017
+      ],
+      "bins_used": 19,
+      "pooled_rate_rawGH": [
+        0.4679308271486391,
+        0.6876622832733059,
+        0.625130125758319,
+        0.5561019823926915
+      ],
+      "pooled_rate_A": [
+        0.5578369873135244,
+        0.5804326756249027,
+        0.6024314072726837,
+        0.5961237596958356
+      ],
+      "pooled_meanphase_rawGH": [
+        0.43864018108003916,
+        0.35992953276634143,
+        0.34861557357068274,
+        0.26709522233387856
+      ],
+      "pooled_meanphase_A": [
+        0.3592394663410363,
+        0.33179288866136863,
+        0.33841665741740296,
+        0.384831382654607
+      ],
+      "pooled_wallshare_rawGH": [
+        0.3772140008914336,
+        0.014630921469852703,
+        0.0002901654840678209,
+        0.0
+      ],
+      "pooled_wallshare_A": [
+        0.11293087201945598,
+        0.06064757756691754,
+        0.0708751630311225,
+        0.1476818240286216
+      ],
+      "pooled_appendshare_rawGH": [
+        0.004361443404438621,
+        0.04090435906333385,
+        0.16598961387050842,
+        0.28215966233214573
+      ],
+      "pooled_appendshare_A": [
+        0.13831578884391835,
+        0.14867241812547113,
+        0.12758905388103814,
+        0.07883802532508907
+      ],
+      "logistic": {
+        "beta_A_per_sigma": 0.061875119629583225,
+        "ci95_lo": 0.032843921418451244,
+        "ci95_hi": 0.08188257210705481,
+        "odds_ratio_per_sigma": 1.0638294850122725,
+        "n_rows": 1337170,
+        "n_episodes": 16511,
+        "n_boot": 50
+      },
+      "monotone_Q1_to_Q4": false
+    }
+  ]
+}

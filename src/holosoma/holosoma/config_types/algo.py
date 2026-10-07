@@ -767,6 +767,41 @@ class VCCQLConfig(CQLConfig):
 
 
 @dataclass(frozen=True)
+class ODPRCQLConfig(CQLConfig):
+    """ODPR-CQL: CQL whose conservative bracket is weighted by ODPR-A (OPER-A) priority weights.
+
+    Same weight placement as AW-CQL (w * (LSE - Q_D)); only the weight signal differs. The weights
+    come from a sidecar built by scripts/odpr_make_sidecar.py from scripts/oper_precompute_weights.py
+    outputs. TD, actor, alpha and Lagrange paths are plain CQL.
+    """
+
+    odpr_weights_path: str = ""
+    """Path to the ODPR weight sidecar; empty = offline_dataset_path + '.oper_a.odpr.npz'."""
+
+
+@dataclass(frozen=True)
+class HongAdvantageCQLConfig(CQLConfig):
+    """Hong-Advantage CQL: unmodified CQL objective trained on Hong et al. (ICLR 2023) trajectory
+    Advantage Weighting sampling.
+
+    p(i,t) proportional to exp(normalized(G_i - V_lin(s_i0)) / temperature): every transition of a
+    trajectory shares its priority, minibatches are drawn with replacement. No loss term is weighted.
+    """
+
+    hong_aw_enabled: bool = True
+    """False = uniform sampling (plain CQL); kept as a switch for sanity runs."""
+
+    hong_aw_temperature: float = 0.2
+    """Boltzmann temperature on the max-min normalised trajectory advantage (paper default for CQL)."""
+
+    hong_aw_eps: float = 1e-8
+    """Denominator epsilon of the max-min normalisation."""
+
+    hong_aw_obs_key: str = "critic_observations"
+    """H5 dataset used as the initial state s_i0 for the linear V(s_0) regression."""
+
+
+@dataclass(frozen=True)
 class AWCQLConfig(CQLConfig):
     """Advantage-Weighted CQL configuration (AW-CQL v0).
 
@@ -2176,6 +2211,34 @@ class VCCQLAlgoConfig:
 
 
 @dataclass(frozen=True)
+class HongAdvantageCQLAlgoConfig:
+    """Configuration for Hong-Advantage CQL."""
+
+    _target_: str
+    """Target algorithm class."""
+
+    _recursive_: bool
+    """Whether to recursively instantiate."""
+
+    config: HongAdvantageCQLConfig
+    """Algorithm-specific configuration."""
+
+
+@dataclass(frozen=True)
+class ODPRCQLAlgoConfig:
+    """Configuration for ODPR-CQL."""
+
+    _target_: str
+    """Target algorithm class."""
+
+    _recursive_: bool
+    """Whether to recursively instantiate."""
+
+    config: ODPRCQLConfig
+    """Algorithm-specific configuration."""
+
+
+@dataclass(frozen=True)
 class AWCQLAlgoConfig:
     """Configuration for advantage-weighted CQL."""
 
@@ -2357,6 +2420,8 @@ AlgoInitConfig = Union[
     CQLConfig,
     VCCQLConfig,
     AWCQLConfig,
+    ODPRCQLConfig,
+    HongAdvantageCQLConfig,
     AsymCQLConfig,
     ACLQLConfig,
     DWCQLConfig,
@@ -2379,6 +2444,8 @@ AlgoConfig = Union[
     CQLAlgoConfig,
     VCCQLAlgoConfig,
     AWCQLAlgoConfig,
+    ODPRCQLAlgoConfig,
+    HongAdvantageCQLAlgoConfig,
     AsymCQLAlgoConfig,
     ACLQLAlgoConfig,
     DWCQLAlgoConfig,

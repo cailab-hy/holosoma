@@ -62,6 +62,10 @@ METHOD_INFO = {
     "g1_29dof_wbt_c_arm": ("ablation", "C-arm (wLSE - Q_D)", 2),
     "g1_29dof_wbt_asym_cql": ("ablation", "Asym-CQL", 3),
     "g1_29dof_wbt_aw_cql_H50_global": ("ablation", "AW-CQL global baseline (no phase in w)", 4),
+    "g1_29dof_wbt_aw_cql_H50_vh": ("ablation", "AW-CQL frozen V_H baseline", 5),
+    "g1_29dof_wbt_aw_cql_H50_vh_presigma": ("ablation", "AW-CQL frozen V_H baseline (PRe sigma)", 6),
+    "g1_29dof_wbt_odpr_cql": ("ablation", "ODPR-CQL (ODPR-A weights on bracket)", 7),
+    "g1_29dof_wbt_hong_advantage_cql": ("ablation", "Hong-AW CQL (trajectory AW sampling)", 8),
     "g1_29dof_wbt_aw_cql_H50_K10": ("bin_sweep", "AW-CQL (H50, K=10 bins)", 1),
     "g1_29dof_wbt_aw_cql_H50_K40": ("bin_sweep", "AW-CQL (H50, K=40 bins)", 3),
     "g1_29dof_wbt_cql_alpha1p0": ("alpha_sweep", "CQL alpha=1", 0),
@@ -75,12 +79,21 @@ METHOD_INFO = {
     "g1_29dof_wbt_lafan_dance1_acl_ql": ("lafan", "LAFAN ACL-QL", 2),
     "g1_29dof_wbt_lafan_dance1_aw_cql": ("lafan", "LAFAN AW-CQL", 3),
     "g1_29dof_wbt_lafan_dance1_aw_cql_H50_global": ("lafan", "LAFAN AW-CQL global baseline (no phase in w)", 4),
+    "g1_29dof_wbt_lafan_dance1_hong_advantage_cql": ("lafan", "LAFAN Hong-AW CQL", 5),
     "g1_29dof_wbt_lafan_kick_bc": ("kick", "KICK BC", 0),
     "g1_29dof_wbt_lafan_kick_cql": ("kick", "KICK CQL", 1),
     "g1_29dof_wbt_lafan_kick_iql": ("kick", "KICK IQL", 2),
     "g1_29dof_wbt_lafan_kick_acl_ql": ("kick", "KICK ACL-QL", 3),
     "g1_29dof_wbt_lafan_kick_aw_cql": ("kick", "KICK AW-CQL", 4),
     "g1_29dof_wbt_lafan_kick_aw_cql_H50_global": ("kick", "KICK AW-CQL global baseline (no phase in w)", 5),
+    "g1_29dof_wbt_lafan_kick_hong_advantage_cql": ("kick", "KICK Hong-AW CQL", 6),
+    "g1_29dof_wbt_lafan_kick2_bc": ("kick2", "KICK2 BC", 0),
+    "g1_29dof_wbt_lafan_kick2_cql": ("kick2", "KICK2 CQL", 1),
+    "g1_29dof_wbt_lafan_kick2_iql": ("kick2", "KICK2 IQL", 2),
+    "g1_29dof_wbt_lafan_kick2_acl_ql": ("kick2", "KICK2 ACL-QL", 3),
+    "g1_29dof_wbt_lafan_kick2_aw_cql": ("kick2", "KICK2 AW-CQL", 4),
+    "g1_29dof_wbt_lafan_kick2_aw_cql_H50_global": ("kick2", "KICK2 AW-CQL global baseline (no phase in w)", 5),
+    "g1_29dof_wbt_lafan_kick2_hong_advantage_cql": ("kick2", "KICK2 Hong-AW CQL", 6),
 }
 # (method, group, label, order, seeds) rows re-used from another table, restricted to `seeds`
 SHARED_ROWS = [
@@ -99,6 +112,7 @@ GROUP_TITLES = {
     "bin_sweep": "Progress-bin sensitivity of b(kappa) (seeds 1-5; K=1 is the global baseline, K=20 the main arm)",
     "lafan": "LAFAN dance1 cross-motion (seeds 1-5)",
     "kick": "LAFAN single-kick cross-motion (fightAndSports1_subject4 f1728-1858)",
+    "kick2": "LAFAN double-kick cross-motion (fight1_subject3 f5000-5241, two bottlenecks)",
     "other": "Other runs",
 }
 

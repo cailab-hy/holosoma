@@ -33,3 +33,4 @@ validation/logs/
 
 # peak/final alignment analysis outputs (manifest holds ~60 MB of frozen observations)
 analysis/
+.wandb.env
